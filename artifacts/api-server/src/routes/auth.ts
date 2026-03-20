@@ -1,26 +1,24 @@
-import * as oidc from "openid-client";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel } from "@workspace/db";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import {
   clearSession,
-  getOidcConfig,
   getSessionId,
   createSession,
-  deleteSession,
   SESSION_COOKIE,
   SESSION_TTL,
-  ISSUER_URL,
   type SessionData,
 } from "../lib/auth";
-
-const OIDC_COOKIE_TTL = 10 * 60 * 1000;
+import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
-function getOrigin(req: Request): string {
+function getBaseUrl(req: Request): string {
   const proto = req.headers["x-forwarded-proto"] || "https";
-  const host =
-    req.headers["x-forwarded-host"] || req.headers["host"] || "localhost";
+  const host = req.headers["x-forwarded-host"] || req.headers["host"] || "localhost";
+  const domains = process.env.REPLIT_DOMAINS?.split(",")[0];
+  if (domains) return `https://${domains}`;
   return `${proto}://${host}`;
 }
 
@@ -34,178 +32,268 @@ function setSessionCookie(res: Response, sid: string) {
   });
 }
 
-function setOidcCookie(res: Response, name: string, value: string) {
-  res.cookie(name, value, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: OIDC_COOKIE_TTL,
-  });
-}
-
-function getSafeReturnTo(value: unknown): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/";
-  }
-  return value;
-}
-
-async function upsertUser(claims: Record<string, unknown>) {
-  await connectDB();
-  const id = claims.sub as string;
-  const username = (claims.username || claims.preferred_username || claims.sub) as string;
-  const name = (claims.name || `${claims.first_name ?? ""} ${claims.last_name ?? ""}`.trim() || username) as string;
-  const profileImage = (claims.profile_image_url || claims.picture || null) as string | null;
-  const email = (claims.email || null) as string | null;
-
-  const user = await UserModel.findByIdAndUpdate(
-    id,
-    {
-      $set: {
-        username,
-        name: name || null,
-        email,
-        profileImage,
-        updatedAt: new Date(),
-      },
-      $setOnInsert: {
-        _id: id,
-        creditBalance: 0,
-        subscriptionStatus: "inactive",
-        subscriptionPlan: "basic",
-        totalCallsUsed: 0,
-        totalCreditUsed: 0,
-        isAdmin: false,
-      },
-    },
-    { upsert: true, new: true },
-  );
-  return user!;
+function generateToken(): string {
+  return crypto.randomBytes(32).toString("hex");
 }
 
 router.get("/auth/user", (req: Request, res: Response) => {
   res.json({ user: req.isAuthenticated() ? req.user : null });
 });
 
-router.get("/login", async (req: Request, res: Response) => {
+router.post("/auth/signup", async (req: Request, res: Response) => {
   try {
-    const config = await getOidcConfig();
-    const callbackUrl = `${getOrigin(req)}/api/callback`;
-    const returnTo = getSafeReturnTo(req.query.returnTo);
+    await connectDB();
+    const { email, password, name } = req.body;
 
-    const state = oidc.randomState();
-    const nonce = oidc.randomNonce();
-    const codeVerifier = oidc.randomPKCECodeVerifier();
-    const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
+    if (!email || !password) {
+      res.status(400).json({ error: "Email and password are required" });
+      return;
+    }
 
-    const redirectTo = oidc.buildAuthorizationUrl(config, {
-      redirect_uri: callbackUrl,
-      scope: "openid email profile offline_access",
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
-      prompt: "login consent",
-      state,
-      nonce,
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({ error: "Invalid email address" });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const existing = await UserModel.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      res.status(409).json({ error: "An account with this email already exists" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const verificationToken = generateToken();
+    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const userId = crypto.randomUUID();
+
+    await UserModel.create({
+      _id: userId,
+      email: email.toLowerCase(),
+      username: email.toLowerCase().split("@")[0],
+      name: name || email.split("@")[0],
+      passwordHash,
+      emailVerified: false,
+      verificationToken,
+      verificationTokenExpiry,
+      creditBalance: 0,
+      subscriptionStatus: "inactive",
+      isAdmin: false,
     });
 
-    setOidcCookie(res, "code_verifier", codeVerifier);
-    setOidcCookie(res, "nonce", nonce);
-    setOidcCookie(res, "state", state);
-    setOidcCookie(res, "return_to", returnTo);
+    const baseUrl = getBaseUrl(req);
+    await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
 
-    res.redirect(redirectTo.href);
+    res.status(201).json({
+      message: "Account created. Please check your email to verify your account.",
+    });
   } catch (err) {
-    res.status(500).json({ error: "Failed to initiate login" });
+    res.status(500).json({ error: "Failed to create account" });
   }
 });
 
-router.get("/callback", async (req: Request, res: Response) => {
+router.post("/auth/login", async (req: Request, res: Response) => {
   try {
-    const config = await getOidcConfig();
-    const callbackUrl = `${getOrigin(req)}/api/callback`;
+    await connectDB();
+    const { email, password } = req.body;
 
-    const codeVerifier = req.cookies?.code_verifier;
-    const nonce = req.cookies?.nonce;
-    const expectedState = req.cookies?.state;
-
-    if (!codeVerifier || !expectedState) {
-      res.redirect("/api/login");
+    if (!email || !password) {
+      res.status(400).json({ error: "Email and password are required" });
       return;
     }
 
-    const currentUrl = new URL(
-      `${callbackUrl}?${new URL(req.url, `http://${req.headers.host}`).searchParams}`,
-    );
+    const user = await UserModel.findOne({ email: email.toLowerCase() });
+    if (!user || !user.passwordHash) {
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
 
-    let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
-    try {
-      tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
-        pkceCodeVerifier: codeVerifier,
-        expectedNonce: nonce,
-        expectedState,
-        idTokenExpected: true,
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    if (!user.emailVerified) {
+      res.status(403).json({
+        error: "email_not_verified",
+        message: "Please verify your email before logging in.",
       });
-    } catch {
-      res.redirect("/api/login");
       return;
     }
 
-    const returnTo = getSafeReturnTo(req.cookies?.return_to);
-
-    res.clearCookie("code_verifier", { path: "/" });
-    res.clearCookie("nonce", { path: "/" });
-    res.clearCookie("state", { path: "/" });
-    res.clearCookie("return_to", { path: "/" });
-
-    const claims = tokens.claims();
-    if (!claims) {
-      res.redirect("/api/login");
-      return;
-    }
-
-    const dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
-
-    const now = Math.floor(Date.now() / 1000);
     const sessionData: SessionData = {
       user: {
-        id: dbUser._id as string,
-        username: dbUser.username ?? (dbUser._id as string),
-        name: dbUser.name ?? undefined,
-        profileImage: dbUser.profileImage ?? undefined,
-        isAdmin: dbUser.isAdmin,
+        id: user._id as string,
+        username: user.username ?? (user._id as string),
+        name: user.name ?? undefined,
+        profileImage: user.profileImage ?? undefined,
+        isAdmin: user.isAdmin,
       },
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
+      access_token: generateToken(),
     };
 
     const sid = await createSession(sessionData);
     setSessionCookie(res, sid);
-    res.redirect(returnTo);
+    res.json({ user: sessionData.user });
   } catch (err) {
-    res.redirect("/api/login");
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+router.post("/auth/verify-email", async (req: Request, res: Response) => {
+  try {
+    await connectDB();
+    const { token } = req.body;
+
+    if (!token) {
+      res.status(400).json({ error: "Token is required" });
+      return;
+    }
+
+    const user = await UserModel.findOne({
+      verificationToken: token,
+      verificationTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      res.status(400).json({ error: "Invalid or expired verification link" });
+      return;
+    }
+
+    user.emailVerified = true;
+    user.verificationToken = undefined;
+    user.verificationTokenExpiry = undefined;
+    await user.save();
+
+    const sessionData: SessionData = {
+      user: {
+        id: user._id as string,
+        username: user.username ?? (user._id as string),
+        name: user.name ?? undefined,
+        profileImage: user.profileImage ?? undefined,
+        isAdmin: user.isAdmin,
+      },
+      access_token: generateToken(),
+    };
+
+    const sid = await createSession(sessionData);
+    setSessionCookie(res, sid);
+    res.json({ message: "Email verified successfully", user: sessionData.user });
+  } catch (err) {
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+router.post("/auth/resend-verification", async (req: Request, res: Response) => {
+  try {
+    await connectDB();
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: "Email is required" });
+      return;
+    }
+
+    const user = await UserModel.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      res.json({ message: "If that email exists, a verification link has been sent." });
+      return;
+    }
+
+    if (user.emailVerified) {
+      res.status(400).json({ error: "Email is already verified" });
+      return;
+    }
+
+    const verificationToken = generateToken();
+    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    user.verificationToken = verificationToken;
+    user.verificationTokenExpiry = verificationTokenExpiry;
+    await user.save();
+
+    const baseUrl = getBaseUrl(req);
+    await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
+
+    res.json({ message: "Verification email resent." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to resend verification email" });
+  }
+});
+
+router.post("/auth/forgot-password", async (req: Request, res: Response) => {
+  try {
+    await connectDB();
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: "Email is required" });
+      return;
+    }
+
+    const user = await UserModel.findOne({ email: email.toLowerCase() });
+    if (user) {
+      const resetPasswordToken = generateToken();
+      const resetPasswordTokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
+      user.resetPasswordToken = resetPasswordToken;
+      user.resetPasswordTokenExpiry = resetPasswordTokenExpiry;
+      await user.save();
+
+      const baseUrl = getBaseUrl(req);
+      await sendPasswordResetEmail(email.toLowerCase(), resetPasswordToken, baseUrl);
+    }
+
+    res.json({ message: "If that email exists, a password reset link has been sent." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send reset email" });
+  }
+});
+
+router.post("/auth/reset-password", async (req: Request, res: Response) => {
+  try {
+    await connectDB();
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      res.status(400).json({ error: "Token and password are required" });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const user = await UserModel.findOne({
+      resetPasswordToken: token,
+      resetPasswordTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      res.status(400).json({ error: "Invalid or expired reset link" });
+      return;
+    }
+
+    user.passwordHash = await bcrypt.hash(password, 12);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordTokenExpiry = undefined;
+    await user.save();
+
+    res.json({ message: "Password reset successfully. You can now log in." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to reset password" });
   }
 });
 
 router.get("/logout", async (req: Request, res: Response) => {
-  try {
-    const config = await getOidcConfig();
-    const origin = getOrigin(req);
-
-    const sid = getSessionId(req);
-    await clearSession(res, sid);
-
-    const endSessionUrl = oidc.buildEndSessionUrl(config, {
-      client_id: process.env.REPL_ID!,
-      post_logout_redirect_uri: origin,
-    });
-
-    res.redirect(endSessionUrl.href);
-  } catch {
-    res.clearCookie(SESSION_COOKIE, { path: "/" });
-    res.redirect("/");
-  }
+  const sid = getSessionId(req);
+  await clearSession(res, sid);
+  res.redirect("/");
 });
 
 export default router;

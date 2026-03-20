@@ -6,6 +6,12 @@ export interface IUser extends Document {
   username?: string;
   name?: string;
   profileImage?: string;
+  passwordHash?: string;
+  emailVerified: boolean;
+  verificationToken?: string;
+  verificationTokenExpiry?: Date;
+  resetPasswordToken?: string;
+  resetPasswordTokenExpiry?: Date;
   creditBalance: number;
   subscriptionStatus: string;
   subscriptionPlan?: string;
@@ -21,10 +27,16 @@ export interface IUser extends Document {
 const UserSchema = new Schema<IUser>(
   {
     _id: { type: String, required: true },
-    email: { type: String },
+    email: { type: String, index: true },
     username: { type: String },
     name: { type: String },
     profileImage: { type: String },
+    passwordHash: { type: String },
+    emailVerified: { type: Boolean, default: false },
+    verificationToken: { type: String },
+    verificationTokenExpiry: { type: Date },
+    resetPasswordToken: { type: String },
+    resetPasswordTokenExpiry: { type: Date },
     creditBalance: { type: Number, default: 0 },
     subscriptionStatus: { type: String, default: "inactive" },
     subscriptionPlan: { type: String, default: "basic" },
