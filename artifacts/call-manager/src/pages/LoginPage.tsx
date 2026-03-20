@@ -65,7 +65,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+    <div
+      className="flex items-center justify-center bg-background overflow-y-auto"
+      style={{ minHeight: "100dvh", padding: "max(env(safe-area-inset-top,16px),24px) 16px max(env(safe-area-inset-bottom,16px),24px)" }}
+    >
       <div className="fixed inset-0 bg-gradient-to-br from-blue-950/60 via-background to-indigo-950/40 pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md">
