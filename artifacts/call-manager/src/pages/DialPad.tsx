@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, PhoneCall, AlertCircle, Loader2 } from "lucide-react";
+import { Delete, Phone, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,12 @@ const DIAL_KEYS = [
   { key: "0", sub: "+" },
   { key: "#", sub: "" },
 ];
+
+/* Button diameter in px — drives every size calculation */
+const BTN = 72;
+const GAP = 14;
+const CALL_BTN = Math.round(BTN * 1.22); /* ≈ 88 px */
+const GRID_W = BTN * 3 + GAP * 2; /* 244 px */
 
 export default function DialPad() {
   const [, setLocation] = useLocation();
@@ -43,7 +49,6 @@ export default function DialPad() {
   };
 
   const del = () => setNumber((n) => n.slice(0, -1));
-  const longPressZero = () => setNumber((n) => (n.endsWith("+") ? n : n + "+"));
 
   const handleCall = async () => {
     if (!number || number.length < 5) {
@@ -68,69 +73,86 @@ export default function DialPad() {
   const canCall = creditBalance > 0 && isActive;
 
   return (
-    <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-400">
+    /* Outer: fill the available main-content height and center everything */
+    <div
+      className="flex flex-col items-center justify-center animate-in fade-in duration-300"
+      style={{ minHeight: "calc(100dvh - 72px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))" }}
+    >
+      {/* ── Number display ── */}
+      <div
+        className="flex items-center justify-between mb-6"
+        style={{ width: GRID_W }}
+      >
+        {/* spacer so delete stays right-aligned */}
+        <div style={{ width: BTN * 0.5 }} />
 
-      {/* Number input row */}
-      <div className="w-full flex items-center gap-2 mt-3 mb-3">
-        <div className="flex-1 relative">
-          <input
-            readOnly
-            value={number}
-            placeholder="Enter number"
-            className={cn(
-              "w-full text-center font-mono font-bold tracking-wider bg-transparent border-none outline-none select-none",
-              "placeholder:text-white/20",
-              number.length > 14 ? "text-xl" :
-              number.length > 10 ? "text-2xl" :
-              number.length > 6  ? "text-3xl" : "text-4xl",
-              number ? "text-white" : "text-white/20"
-            )}
-          />
-        </div>
-        <div className="w-9 flex justify-center shrink-0">
+        <p
+          className={cn(
+            "flex-1 text-center font-mono font-semibold tracking-widest select-none transition-all",
+            number.length > 14 ? "text-xl" :
+            number.length > 10 ? "text-2xl" :
+            number.length > 6  ? "text-[28px]" : "text-[32px]",
+            number ? "text-white" : "text-white/25"
+          )}
+        >
+          {number || "Enter number"}
+        </p>
+
+        <div style={{ width: BTN * 0.5 }} className="flex justify-end">
           {number && (
             <button
               onClick={del}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/8 transition-all active:scale-90"
+              className="flex items-center justify-center rounded-full text-white/40 hover:text-white transition-colors active:scale-90"
+              style={{ width: BTN * 0.5, height: BTN * 0.5 }}
             >
-              <Delete className="h-4 w-4" />
+              <Delete className="h-5 w-5" />
             </button>
           )}
         </div>
       </div>
 
-      {/* Warning banner */}
+      {/* ── Warning banner ── */}
       {!canCall && user && (
-        <div className="w-full flex items-center gap-2 px-3 py-2 mb-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
+        <div
+          className="flex items-center gap-2 px-3 py-2 mb-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs"
+          style={{ width: GRID_W }}
+        >
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            {!isActive ? "Subscribe to call — R100/month" : "Top up credit on Profile page."}
+            {!isActive ? "Subscribe to call — R100/month" : "Top up credit on Profile."}
           </span>
         </div>
       )}
 
-      {/* Dial grid — 70 % of remaining vertical space, max 320 px */}
+      {/* ── 3 × 4 keypad ── */}
       <div
-        className="w-full grid grid-cols-3 gap-2 mb-3"
-        style={{ maxWidth: 320 }}
+        className="grid grid-cols-3"
+        style={{ width: GRID_W, gap: GAP }}
       >
         {DIAL_KEYS.map(({ key, sub }) => (
           <button
             key={key}
             onClick={() => press(key)}
-            onDoubleClick={key === "0" ? longPressZero : undefined}
             className={cn(
-              "group flex flex-col items-center justify-center rounded-full select-none cursor-pointer",
-              "glass border border-white/10 hover:border-primary/30 hover:bg-white/10",
-              "active:scale-90 transition-all duration-100 aspect-square"
+              "group flex flex-col items-center justify-center rounded-full",
+              "bg-white/8 border border-white/10",
+              "hover:bg-white/14 hover:border-white/20",
+              "active:scale-90 active:bg-white/20",
+              "transition-all duration-100 select-none"
             )}
-            style={{ maxHeight: 76, maxWidth: 76 }}
+            style={{ width: BTN, height: BTN }}
           >
-            <span className="text-lg font-semibold text-white group-hover:text-primary transition-colors leading-none">
+            <span
+              className="font-semibold text-white group-hover:text-white/90 leading-none"
+              style={{ fontSize: 22 }}
+            >
               {key}
             </span>
             {sub && (
-              <span className="text-[8px] font-bold tracking-[0.15em] text-white/30 mt-0.5 leading-none">
+              <span
+                className="font-bold tracking-[0.14em] text-white/30 mt-0.5 leading-none"
+                style={{ fontSize: 8 }}
+              >
                 {sub}
               </span>
             )}
@@ -138,24 +160,35 @@ export default function DialPad() {
         ))}
       </div>
 
-      {/* Call button */}
+      {/* ── Call button ── */}
+      <div style={{ height: GAP + 4 }} />
+
       <button
         onClick={handleCall}
         disabled={isPending || !number}
         className={cn(
-          "relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90",
+          "relative flex items-center justify-center rounded-full transition-all duration-200",
+          "active:scale-90",
           canCall && number
-            ? "bg-gradient-to-br from-green-500 to-emerald-600 shadow-[0_6px_24px_-6px_rgba(34,197,94,0.55)] hover:scale-105"
-            : "bg-white/8 border border-white/10 cursor-not-allowed opacity-40"
+            ? "shadow-[0_6px_28px_-4px_rgba(52,199,89,0.55)] hover:scale-105"
+            : "opacity-40 cursor-not-allowed"
         )}
+        style={{
+          width: CALL_BTN,
+          height: CALL_BTN,
+          background: canCall && number ? "#34c759" : "rgba(255,255,255,0.08)",
+          border: canCall && number ? "none" : "1px solid rgba(255,255,255,0.12)",
+        }}
       >
         {isPending ? (
-          <Loader2 className="h-5 w-5 text-white animate-spin" />
+          <Loader2 className="text-white animate-spin" style={{ width: 26, height: 26 }} />
         ) : (
-          <PhoneCall className="h-5 w-5 text-white" />
+          <Phone className="text-white" style={{ width: 26, height: 26 }} />
         )}
         {canCall && number && (
-          <span className="absolute inset-0 rounded-full bg-green-400/20 animate-ping pointer-events-none" />
+          <span className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+            style={{ background: "rgba(52,199,89,0.2)" }}
+          />
         )}
       </button>
     </div>
