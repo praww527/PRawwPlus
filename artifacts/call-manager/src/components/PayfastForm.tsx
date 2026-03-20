@@ -29,7 +29,7 @@ export function PayfastForm({ data, autoSubmit = true }: PayfastFormProps) {
       </p>
       
       <form ref={formRef} action={data.paymentUrl} method="POST">
-        {Object.entries(data.formFields).map(([key, value]) => (
+        {Object.entries(data.formFields as Record<string, string>).map(([key, value]) => (
           <input key={key} type="hidden" name={key} value={value} />
         ))}
         {!autoSubmit && (

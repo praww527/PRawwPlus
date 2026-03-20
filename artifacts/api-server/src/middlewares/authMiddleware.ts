@@ -31,13 +31,17 @@ export async function authMiddleware(
     return;
   }
 
-  const session = await getSession(sid);
-  if (!session?.user?.id) {
-    await clearSession(res, sid);
-    next();
-    return;
+  try {
+    const session = await getSession(sid);
+    if (!session?.user?.id) {
+      try { await clearSession(res, sid); } catch {}
+      next();
+      return;
+    }
+    req.user = session.user;
+  } catch {
+    // DB unavailable — proceed as unauthenticated
   }
 
-  req.user = session.user;
   next();
 }

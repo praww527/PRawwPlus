@@ -1,21 +1,23 @@
 import mongoose from "mongoose";
 
-if (!process.env.MONGODB_URI) {
-  throw new Error("MONGODB_URI must be set.");
-}
-
 let connectionPromise: Promise<void> | null = null;
 let isConnected = false;
 
 export async function connectDB(): Promise<void> {
   if (isConnected) return;
 
+  if (!process.env.MONGODB_URI) {
+    throw new Error(
+      "MONGODB_URI is not configured. Please add it in the Secrets panel.",
+    );
+  }
+
   if (connectionPromise) {
     return connectionPromise;
   }
 
   connectionPromise = mongoose
-    .connect(process.env.MONGODB_URI!, {
+    .connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 8000,
       connectTimeoutMS: 8000,
       socketTimeoutMS: 30000,
