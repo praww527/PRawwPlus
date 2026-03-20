@@ -8,7 +8,7 @@ interface LayoutProps {
 
 const navItems = [
   { href: "/dashboard", label: "Dial Pad", icon: Phone },
-  { href: "/calls", label: "Call Logs", icon: History },
+  { href: "/calls", label: "Calls", icon: History },
   { href: "/contacts", label: "Contacts", icon: BookUser },
   { href: "/profile", label: "Profile", icon: User },
 ];
@@ -31,26 +31,26 @@ export function Layout({ children }: LayoutProps) {
         <div className="absolute inset-0 bg-background/85 backdrop-blur-[80px]" />
       </div>
 
-      {/* Scrollable Content — sits above the fixed navbar */}
+      {/* Scrollable Content */}
       <main
         className="relative z-10 flex-1 overflow-y-auto"
         style={{
           paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))",
+          paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
         }}
       >
-        <div className="max-w-lg mx-auto px-4 pt-5">
+        <div className="max-w-lg mx-auto px-4 pt-4">
           {children}
         </div>
       </main>
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation — iOS tab-bar style */}
       <nav
         className="fixed bottom-0 inset-x-0 z-30"
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
       >
-        <div className="max-w-lg mx-auto px-5 pb-2">
-          <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/50 flex items-center justify-around px-2 py-2">
+        <div className="max-w-lg mx-auto px-4 pb-1.5">
+          <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/50 flex items-center justify-around px-1 py-1.5">
             {navItems.map((item) => {
               const isActive =
                 item.href === "/dashboard"
@@ -60,23 +60,23 @@ export function Layout({ children }: LayoutProps) {
                 <Link key={item.href} href={item.href}>
                   <div
                     className={cn(
-                      "flex flex-col items-center gap-0.5 px-4 py-2 rounded-full transition-all duration-200 cursor-pointer select-none min-w-[64px]",
+                      "flex flex-col items-center gap-0.5 px-3 py-1 rounded-full transition-all duration-200 cursor-pointer select-none min-w-[56px]",
                       isActive ? "text-primary" : "text-white/40 hover:text-white/70"
                     )}
                   >
                     <div
                       className={cn(
-                        "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200",
+                        "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
                         isActive
-                          ? "bg-primary/20 shadow-[0_0_18px_-4px_hsl(var(--primary)/0.6)]"
+                          ? "bg-primary/20 shadow-[0_0_14px_-4px_hsl(var(--primary)/0.55)]"
                           : "hover:bg-white/5"
                       )}
                     >
-                      <item.icon className="h-[18px] w-[18px]" />
+                      <item.icon className="h-[15px] w-[15px]" />
                     </div>
                     <span
                       className={cn(
-                        "text-[10px] font-semibold tracking-wide leading-none",
+                        "text-[9px] font-semibold tracking-wide leading-none",
                         isActive ? "text-primary" : "text-white/40"
                       )}
                     >
