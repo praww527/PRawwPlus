@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, paymentsTable, usersTable } from "@workspace/db";
-import { eq, desc, count } from "drizzle-orm";
+import { connectDB, PaymentModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 
@@ -33,9 +32,13 @@ function buildPayFastData(params: {
     custom_str1: params.userId,
   };
 
-  const signatureStr = Object.entries(fields)
-    .map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%20/g, "+")}`)
-    .join("&") + (params.passphrase ? `&passphrase=${encodeURIComponent(params.passphrase).replace(/%20/g, "+")}` : "");
+  const signatureStr =
+    Object.entries(fields)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%20/g, "+")}`)
+      .join("&") +
+    (params.passphrase
+      ? `&passphrase=${encodeURIComponent(params.passphrase).replace(/%20/g, "+")}`
+      : "");
 
   fields.signature = crypto.createHash("md5").update(signatureStr).digest("hex");
   return fields;
@@ -53,6 +56,7 @@ router.post("/payments/subscribe", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  await connectDB();
   const userId = (req as any).user.id;
   const paymentId = randomUUID();
   const base = getBaseUrl(req);
@@ -62,8 +66,8 @@ router.post("/payments/subscribe", async (req, res) => {
   const passphrase = process.env.PAYFAST_PASSPHRASE;
   const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
 
-  await db.insert(paymentsTable).values({
-    id: paymentId,
+  await PaymentModel.create({
+    _id: paymentId,
     userId,
     amount: SUBSCRIPTION_AMOUNT,
     creditAdded: SUBSCRIPTION_CREDIT,
@@ -106,9 +110,10 @@ router.post("/payments/webhook", async (req, res) => {
     res.status(400).send("Invalid webhook");
     return;
   }
+  await connectDB();
 
   if (payment_status === "COMPLETE") {
-    const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, m_payment_id));
+    const payment = await PaymentModel.findById(m_payment_id);
     if (!payment) {
       res.status(400).send("Payment not found");
       return;
@@ -118,21 +123,20 @@ router.post("/payments/webhook", async (req, res) => {
     const nextPayment = new Date(now);
     nextPayment.setMonth(nextPayment.getMonth() + 1);
 
-    await db.update(paymentsTable).set({
-      status: "completed",
-      completedAt: now,
-    }).where(eq(paymentsTable.id, m_payment_id));
+    await PaymentModel.updateOne({ _id: m_payment_id }, { status: "completed", completedAt: now });
 
     const targetUserId = userId ?? payment.userId;
-
-    await db.update(usersTable).set({
-      creditBalance: payment.creditAdded,
-      subscriptionStatus: "active",
-      lastPaymentDate: now,
-      nextPaymentDate: nextPayment,
-    }).where(eq(usersTable.id, targetUserId));
+    await UserModel.updateOne(
+      { _id: targetUserId },
+      {
+        creditBalance: payment.creditAdded,
+        subscriptionStatus: "active",
+        lastPaymentDate: now,
+        nextPaymentDate: nextPayment,
+      },
+    );
   } else if (payment_status === "FAILED" || payment_status === "CANCELLED") {
-    await db.update(paymentsTable).set({ status: "failed" }).where(eq(paymentsTable.id, m_payment_id));
+    await PaymentModel.updateOne({ _id: m_payment_id }, { status: "failed" });
   }
 
   res.sendStatus(200);
@@ -143,10 +147,10 @@ router.get("/payments/history", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  await connectDB();
   const userId = (req as any).user.id;
-  const payments = await db.select().from(paymentsTable).where(eq(paymentsTable.userId, userId)).orderBy(desc(paymentsTable.createdAt));
-  const total = payments.length;
-  res.json({ payments, total });
+  const payments = await PaymentModel.find({ userId }).sort({ createdAt: -1 }).lean();
+  res.json({ payments: payments.map((p) => ({ ...p, id: p._id })), total: payments.length });
 });
 
 router.post("/credits/topup", async (req, res) => {
@@ -154,6 +158,7 @@ router.post("/credits/topup", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  await connectDB();
   const userId = (req as any).user.id;
   const { amount } = req.body;
 
@@ -170,8 +175,8 @@ router.post("/credits/topup", async (req, res) => {
   const passphrase = process.env.PAYFAST_PASSPHRASE;
   const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
 
-  await db.insert(paymentsTable).values({
-    id: paymentId,
+  await PaymentModel.create({
+    _id: paymentId,
     userId,
     amount,
     creditAdded: amount,
