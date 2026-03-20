@@ -43,6 +43,13 @@ router.get("/auth/user", (req: Request, res: Response) => {
 router.post("/auth/signup", async (req: Request, res: Response) => {
   try {
     await connectDB();
+  } catch (dbErr: any) {
+    res.status(503).json({
+      error: "Database unavailable. Please ensure MongoDB Atlas allows connections from this server. Check your Network Access settings.",
+    });
+    return;
+  }
+  try {
     const { email, password, name } = req.body;
 
     if (!email || !password) {
@@ -92,8 +99,8 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     res.status(201).json({
       message: "Account created. Please check your email to verify your account.",
     });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to create account" });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to create account" });
   }
 });
 
