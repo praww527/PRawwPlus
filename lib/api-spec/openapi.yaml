@@ -1,22 +1,33 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Call Manager API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: users
+    description: User management
+  - name: subscriptions
+    description: Subscription management
+  - name: calls
+    description: Call management
+  - name: payments
+    description: Payment operations
+  - name: admin
+    description: Admin operations
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +35,350 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      operationId: getAuthUser
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get current user profile with balance and subscription
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /calls:
+    get:
+      operationId: listCalls
+      tags: [calls]
+      summary: List call history for current user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of calls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: makeCall
+      tags: [calls]
+      summary: Initiate a new call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MakeCallRequest"
+      responses:
+        "200":
+          description: Call initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallRecord"
+        "400":
+          description: Bad request or insufficient credit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /calls/{callId}:
+    get:
+      operationId: getCall
+      tags: [calls]
+      summary: Get a specific call record
+      parameters:
+        - name: callId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Call record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallRecord"
+        "404":
+          description: Call not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /payments/subscribe:
+    post:
+      operationId: initiateSubscription
+      tags: [payments]
+      summary: Initiate a PayFast subscription payment
+      responses:
+        "200":
+          description: PayFast payment data to redirect to
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayFastPaymentData"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /payments/webhook:
+    post:
+      operationId: payfastWebhook
+      tags: [payments]
+      summary: PayFast ITN webhook
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        "200":
+          description: Webhook processed
+        "400":
+          description: Invalid webhook
+
+  /payments/history:
+    get:
+      operationId: listPayments
+      tags: [payments]
+      summary: List payment history for current user
+      responses:
+        "200":
+          description: Payment history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /credits/topup:
+    post:
+      operationId: topUpCredits
+      tags: [payments]
+      summary: Top up call credits manually (initiates PayFast payment)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TopUpRequest"
+      responses:
+        "200":
+          description: PayFast payment data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayFastPaymentData"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [admin]
+      summary: Admin - list all users
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}:
+    get:
+      operationId: adminGetUser
+      tags: [admin]
+      summary: Admin - get user details
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserDetail"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}/adjust-credit:
+    post:
+      operationId: adminAdjustCredit
+      tags: [admin]
+      summary: Admin - manually adjust user credit
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustCreditRequest"
+      responses:
+        "200":
+          description: Credit adjusted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/stats:
+    get:
+      operationId: adminGetStats
+      tags: [admin]
+      summary: Admin - get platform statistics
+      responses:
+        "200":
+          description: Platform stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/calls:
+    get:
+      operationId: adminListCalls
+      tags: [admin]
+      summary: Admin - list all calls across all users
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: userId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of calls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallListResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +389,338 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        profileImage:
+          type: string
+        isAdmin:
+          type: boolean
+      required:
+        - id
+        - username
+        - isAdmin
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        profileImage:
+          type: string
+        email:
+          type: string
+        creditBalance:
+          type: number
+          description: Current call credit balance in Rands
+        subscriptionStatus:
+          type: string
+          enum: [active, inactive, pending]
+        subscriptionPlan:
+          type: string
+        lastPaymentDate:
+          type: string
+          format: date-time
+          nullable: true
+        nextPaymentDate:
+          type: string
+          format: date-time
+          nullable: true
+        totalCallsUsed:
+          type: integer
+        totalCreditUsed:
+          type: number
+        isAdmin:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - username
+        - creditBalance
+        - subscriptionStatus
+        - totalCallsUsed
+        - totalCreditUsed
+        - isAdmin
+        - createdAt
+
+    CallRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        callerNumber:
+          type: string
+        recipientNumber:
+          type: string
+        status:
+          type: string
+          enum: [initiated, ringing, in-progress, completed, failed, busy, no-answer]
+        duration:
+          type: integer
+          description: Duration in seconds
+        cost:
+          type: number
+          description: Cost in Rands
+        telnyxCallId:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        username:
+          type: string
+          nullable: true
+      required:
+        - id
+        - userId
+        - recipientNumber
+        - status
+        - duration
+        - cost
+        - createdAt
+
+    CallListResponse:
+      type: object
+      properties:
+        calls:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallRecord"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - calls
+        - total
+        - page
+        - limit
+        - totalPages
+
+    MakeCallRequest:
+      type: object
+      properties:
+        recipientNumber:
+          type: string
+          description: Phone number to call (E.164 format)
+        callerNumber:
+          type: string
+          description: Caller ID number
+        notes:
+          type: string
+      required:
+        - recipientNumber
+
+    PayFastPaymentData:
+      type: object
+      properties:
+        paymentUrl:
+          type: string
+        merchantId:
+          type: string
+        merchantKey:
+          type: string
+        amount:
+          type: string
+        itemName:
+          type: string
+        returnUrl:
+          type: string
+        cancelUrl:
+          type: string
+        notifyUrl:
+          type: string
+        paymentId:
+          type: string
+        signature:
+          type: string
+        formFields:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - paymentUrl
+        - amount
+        - itemName
+        - paymentId
+        - formFields
+
+    TopUpRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount in Rands to top up
+      required:
+        - amount
+
+    PaymentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        amount:
+          type: number
+        creditAdded:
+          type: number
+        status:
+          type: string
+          enum: [pending, completed, failed, cancelled]
+        paymentType:
+          type: string
+          enum: [subscription, topup]
+        payfastPaymentId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - userId
+        - amount
+        - creditAdded
+        - status
+        - paymentType
+        - createdAt
+
+    PaymentListResponse:
+      type: object
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentRecord"
+        total:
+          type: integer
+      required:
+        - payments
+        - total
+
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserProfile"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - users
+        - total
+        - page
+        - limit
+        - totalPages
+
+    AdminUserDetail:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserProfile"
+        recentCalls:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallRecord"
+        recentPayments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentRecord"
+      required:
+        - user
+        - recentCalls
+        - recentPayments
+
+    AdjustCreditRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount to add (positive) or remove (negative)
+        reason:
+          type: string
+      required:
+        - amount
+        - reason
+
+    AdminStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeSubscriptions:
+          type: integer
+        totalCalls:
+          type: integer
+        totalCallMinutes:
+          type: integer
+        totalRevenue:
+          type: number
+        callsToday:
+          type: integer
+        newUsersThisMonth:
+          type: integer
+        recentPayments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentRecord"
+      required:
+        - totalUsers
+        - activeSubscriptions
+        - totalCalls
+        - totalCallMinutes
+        - totalRevenue
+        - callsToday
+        - newUsersThisMonth
+        - recentPayments
