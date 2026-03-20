@@ -1,0 +1,81 @@
+Redesign my landing page to be a high-converting SaaS homepage for a telecom/calling app targeting small businesses in South Africa.
+The goal is to maximize sign-ups and paid conversions, not just look good.
+	1.	Hero Section (Above the fold)
+•	Replace current headline with:
+“Call Any Number for Less – No Contracts”
+•	Subheadline:
+“Get your own business number, make calls from your phone or browser, and only pay for what you use.”
+•	Add 2 buttons:
+•	Primary: “Get Started”
+•	Secondary: “See Pricing”
+•	Remove “Continue with Replit” from the first screen
+	2.	Value Proposition Section
+Replace technical terms with simple benefits:
+•	“Get your own number instantly”
+•	“Cheap calls from R0.90/min”
+•	“Top up anytime with PayFast”
+•	“Works on phone and browser”
+Make this section visual with icons and short text.
+	3.	Pricing Section (VERY IMPORTANT)
+Add a simple pricing block:
+•	Monthly number fee (e.g. R59/month)
+•	Call rate (e.g. R0.90/min)
+•	Show example:
+“R100 = ~110 minutes of calls”
+	4.	Trust Section
+Add:
+•	“Secure payments with PayFast”
+•	“Powered by global telecom infrastructure”
+•	Simple testimonials (can be placeholders)
+	5.	UX Flow Fix
+•	Do NOT show login on landing page
+•	Only show login after clicking “Get Started”
+	6.	Design Requirements
+•	Keep dark modern UI
+•	Make it feel like a premium fintech/telecom app
+•	Clear spacing, large text, mobile-first
+•	Focus on conversion, not decoration
+	7.	Target Outcome
+The page must clearly answer:
+•	What is this?
+•	How does it help me save money?
+•	How do I start?
+Avoid developer-focused language like “SIP routing” on the homepage.
+Replace “Continue with Replit” login with a full email/password authentication system.
+	1.	Sign Up
+•	Fields:
+•	Email
+•	Password
+•	Confirm Password
+•	Add validation:
+•	Valid email format
+•	Password must be at least 8 characters
+	2.	Email Verification (REQUIRED)
+•	After sign up:
+•	Send a verification email with a secure token link
+•	User must verify email before accessing dashboard
+•	If not verified:
+•	Show message: “Please verify your email to continue”
+•	Add “Resend verification email” button
+	3.	Login
+•	Fields:
+•	Email
+•	Password
+•	Block login if email is not verified
+	4.	Password Security
+•	Hash passwords securely (bcrypt or similar)
+•	Do NOT store plain text passwords
+	5.	Forgot Password
+•	Add “Forgot Password?” link
+•	Send reset email with secure token
+	6.	UX Flow
+•	Remove Replit login completely
+•	Show:
+•	“Sign Up” and “Login” buttons on landing page
+•	After login → redirect to dashboard
+	7.	UI Design
+•	Keep same dark theme
+•	Clean, modern input fields
+•	Mobile-friendly
+	8.	Goal
+Make the app feel like a real SaaS product that users trust with payments and phone numbers.

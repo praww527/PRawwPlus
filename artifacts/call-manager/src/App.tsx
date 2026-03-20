@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,7 +7,12 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/Layout";
 import { LoadingScreen } from "@/components/ui/spinner";
 
-import Login from "@/pages/Login";
+import Home from "@/pages/Home";
+import LoginPage from "@/pages/LoginPage";
+import SignUp from "@/pages/SignUp";
+import VerifyEmail from "@/pages/VerifyEmail";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import DialPad from "@/pages/DialPad";
 import CallHistory from "@/pages/CallHistory";
 import Contacts from "@/pages/Contacts";
@@ -25,9 +30,14 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
-  if (!isAuthenticated) return <Login />;
+
+  if (!isAuthenticated) {
+    setLocation("/login");
+    return null;
+  }
 
   return (
     <Layout>
@@ -38,9 +48,13 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
-  if (!isAuthenticated) return <Login />;
+  if (!isAuthenticated) {
+    setLocation("/login");
+    return null;
+  }
 
   if (!user?.isAdmin) {
     return (
@@ -60,10 +74,30 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
   );
 }
 
+function PublicRoute({ component: Component }: { component: React.ComponentType }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  if (isLoading) return <LoadingScreen />;
+
+  if (isAuthenticated) {
+    setLocation("/dashboard");
+    return null;
+  }
+
+  return <Component />;
+}
+
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={() => <ProtectedRoute component={DialPad} />} />
+      <Route path="/" component={() => <PublicRoute component={Home} />} />
+      <Route path="/login" component={() => <PublicRoute component={LoginPage} />} />
+      <Route path="/signup" component={() => <PublicRoute component={SignUp} />} />
+      <Route path="/verify-email" component={VerifyEmail} />
+      <Route path="/forgot-password" component={() => <PublicRoute component={ForgotPassword} />} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/dashboard" component={() => <ProtectedRoute component={DialPad} />} />
       <Route path="/calls" component={() => <ProtectedRoute component={CallHistory} />} />
       <Route path="/contacts" component={() => <ProtectedRoute component={Contacts} />} />
       <Route path="/profile" component={() => <ProtectedRoute component={Profile} />} />

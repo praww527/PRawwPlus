@@ -7,7 +7,7 @@ interface LayoutProps {
 }
 
 const navItems = [
-  { href: "/", label: "Dial Pad", icon: Phone },
+  { href: "/dashboard", label: "Dial Pad", icon: Phone },
   { href: "/calls", label: "Call Logs", icon: History },
   { href: "/contacts", label: "Contacts", icon: BookUser },
   { href: "/profile", label: "Profile", icon: User },
@@ -40,8 +40,8 @@ export function Layout({ children }: LayoutProps) {
         <div className="max-w-lg mx-auto px-4 pb-4">
           <div className="glass rounded-2xl border border-white/10 shadow-2xl shadow-black/40 px-2 py-2 flex items-center justify-around">
             {navItems.map((item) => {
-              const isActive = item.href === "/"
-                ? location === "/"
+              const isActive = item.href === "/dashboard"
+                ? location === "/dashboard"
                 : location.startsWith(item.href);
               return (
                 <Link key={item.href} href={item.href}>
