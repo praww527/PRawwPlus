@@ -6,15 +6,12 @@ import { useAuth } from "@workspace/replit-auth-web";
 
 import { Layout } from "@/components/Layout";
 import { LoadingScreen } from "@/components/ui/spinner";
-import NotFound from "@/pages/not-found";
 
 import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
-import MakeCall from "@/pages/MakeCall";
+import DialPad from "@/pages/DialPad";
 import CallHistory from "@/pages/CallHistory";
-import Subscription from "@/pages/Subscription";
-import TopUp from "@/pages/TopUp";
-import PaymentHistory from "@/pages/PaymentHistory";
+import Contacts from "@/pages/Contacts";
+import Profile from "@/pages/Profile";
 import Admin from "@/pages/Admin";
 
 const queryClient = new QueryClient({
@@ -44,7 +41,7 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
 
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated) return <Login />;
-  
+
   if (!user?.isAdmin) {
     return (
       <Layout>
@@ -66,14 +63,11 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={() => <ProtectedRoute component={Dashboard} />} />
-      <Route path="/calls/new" component={() => <ProtectedRoute component={MakeCall} />} />
+      <Route path="/" component={() => <ProtectedRoute component={DialPad} />} />
       <Route path="/calls" component={() => <ProtectedRoute component={CallHistory} />} />
-      <Route path="/subscription" component={() => <ProtectedRoute component={Subscription} />} />
-      <Route path="/credits" component={() => <ProtectedRoute component={TopUp} />} />
-      <Route path="/payments" component={() => <ProtectedRoute component={PaymentHistory} />} />
+      <Route path="/contacts" component={() => <ProtectedRoute component={Contacts} />} />
+      <Route path="/profile" component={() => <ProtectedRoute component={Profile} />} />
       <Route path="/admin" component={() => <AdminRoute component={Admin} />} />
-      <Route component={NotFound} />
     </Switch>
   );
 }
