@@ -29,7 +29,7 @@ export function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Scrollable Content */}
-      <main className="relative z-10 flex-1 overflow-y-auto pb-24">
+      <main className="relative z-10 flex-1 overflow-y-auto pb-28">
         <div className="max-w-lg mx-auto px-4 pt-6 min-h-full">
           {children}
         </div>
@@ -37,8 +37,8 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 inset-x-0 z-30">
-        <div className="max-w-lg mx-auto px-4 pb-4">
-          <div className="glass rounded-2xl border border-white/10 shadow-2xl shadow-black/40 px-2 py-2 flex items-center justify-around">
+        <div className="max-w-lg mx-auto px-6 pb-6">
+          <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/40 px-4 py-3 flex items-center justify-around">
             {navItems.map((item) => {
               const isActive = item.href === "/dashboard"
                 ? location === "/dashboard"
@@ -46,13 +46,13 @@ export function Layout({ children }: LayoutProps) {
               return (
                 <Link key={item.href} href={item.href}>
                   <div className={cn(
-                    "flex flex-col items-center gap-1 px-5 py-2 rounded-xl transition-all duration-200 cursor-pointer",
+                    "flex flex-col items-center gap-1 px-4 py-1.5 rounded-full transition-all duration-200 cursor-pointer",
                     isActive
                       ? "text-primary"
                       : "text-white/40 hover:text-white/70"
                   )}>
                     <div className={cn(
-                      "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200",
+                      "relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200",
                       isActive
                         ? "bg-primary/20 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.5)]"
                         : "hover:bg-white/5"

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
 import { Delete, PhoneCall, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -22,13 +22,20 @@ const DIAL_KEYS = [
 
 export default function DialPad() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const [number, setNumber] = useState("");
 
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const dial = params.get("dial");
+    if (dial) setNumber(dial);
+  }, [search]);
+
   const press = (key: string) => {
-    if (key === "0" && number.endsWith("") && number.length === 0) {
+    if (key === "0" && number.length === 0) {
       setNumber((n) => n + "+");
     } else {
       setNumber((n) => (n.length < 20 ? n + key : n));
@@ -62,29 +69,8 @@ export default function DialPad() {
 
   return (
     <div className="flex flex-col items-center gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Balance + Status Header */}
-      <div className="w-full text-center pt-2">
-        <p className="text-xs text-white/40 uppercase tracking-widest font-semibold mb-1">Available Credit</p>
-        <p className={cn(
-          "text-5xl font-display font-bold tracking-tight",
-          creditBalance > 10 ? "text-white" : creditBalance > 0 ? "text-amber-400" : "text-red-400"
-        )}>
-          R{creditBalance.toFixed(2)}
-        </p>
-        <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-          style={{
-            background: isActive ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.12)",
-            color: isActive ? "#4ade80" : "#f87171",
-            border: isActive ? "1px solid rgba(34,197,94,0.25)" : "1px solid rgba(239,68,68,0.2)"
-          }}
-        >
-          <span className={cn("w-1.5 h-1.5 rounded-full", isActive ? "bg-green-400 animate-pulse" : "bg-red-400")} />
-          {isActive ? "Active Subscription" : "No Subscription"}
-        </div>
-      </div>
-
       {/* Number Display */}
-      <div className="w-full flex items-center justify-between px-4 min-h-[56px]">
+      <div className="w-full flex items-center justify-between px-4 min-h-[56px] mt-4">
         <div className="flex-1" />
         <p className={cn(
           "flex-1 text-center font-mono font-semibold tracking-wider transition-all",
@@ -97,7 +83,7 @@ export default function DialPad() {
           {number && (
             <button
               onClick={del}
-              className="p-2 rounded-xl text-white/50 hover:text-white hover:bg-white/5 transition-all active:scale-95"
+              className="p-2 rounded-full text-white/50 hover:text-white hover:bg-white/5 transition-all active:scale-95"
             >
               <Delete className="h-5 w-5" />
             </button>
@@ -107,7 +93,7 @@ export default function DialPad() {
 
       {/* No credit warning */}
       {!canCall && user && (
-        <div className="w-full flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm">
+        <div className="w-full flex items-center gap-2 px-4 py-3 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>
             {!isActive
@@ -124,7 +110,7 @@ export default function DialPad() {
             key={key}
             onClick={() => press(key)}
             onDoubleClick={key === "0" ? longPressZero : undefined}
-            className="group relative flex flex-col items-center justify-center h-16 rounded-2xl glass border border-white/10 hover:border-primary/30 hover:bg-white/10 active:scale-95 transition-all duration-100 select-none cursor-pointer"
+            className="group relative flex flex-col items-center justify-center aspect-square rounded-full glass border border-white/10 hover:border-primary/30 hover:bg-white/10 active:scale-95 transition-all duration-100 select-none cursor-pointer"
           >
             <span className="text-xl font-semibold text-white group-hover:text-primary transition-colors">
               {key}
