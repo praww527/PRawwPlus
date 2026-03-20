@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, callsTable, usersTable } from "@workspace/db";
-import { eq, and, desc, count, sql } from "drizzle-orm";
+import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
@@ -12,24 +11,19 @@ router.get("/calls", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  await connectDB();
   const userId = (req as any).user.id;
   const page = Math.max(1, parseInt(String(req.query.page ?? "1")));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"))));
-  const offset = (page - 1) * limit;
+  const skip = (page - 1) * limit;
 
-  const [callRows, totalRows] = await Promise.all([
-    db.select().from(callsTable).where(eq(callsTable.userId, userId)).orderBy(desc(callsTable.createdAt)).limit(limit).offset(offset),
-    db.select({ count: count() }).from(callsTable).where(eq(callsTable.userId, userId)),
+  const [callDocs, total] = await Promise.all([
+    CallModel.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    CallModel.countDocuments({ userId }),
   ]);
 
-  const total = totalRows[0]?.count ?? 0;
-  res.json({
-    calls: callRows,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  });
+  const calls = callDocs.map((c) => ({ ...c, id: c._id }));
+  res.json({ calls, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
 router.post("/calls", async (req, res) => {
@@ -37,6 +31,7 @@ router.post("/calls", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  await connectDB();
   const userId = (req as any).user.id;
   const { recipientNumber, callerNumber, notes } = req.body;
 
@@ -45,19 +40,25 @@ router.post("/calls", async (req, res) => {
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  const user = await UserModel.findById(userId);
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;
   }
 
   if (user.creditBalance <= 0) {
-    res.status(400).json({ error: "Insufficient credit", message: "Your call credit is exhausted. Please subscribe or top up to make calls." });
+    res.status(400).json({
+      error: "Insufficient credit",
+      message: "Your call credit is exhausted. Please subscribe or top up to make calls.",
+    });
     return;
   }
 
   if (user.subscriptionStatus !== "active") {
-    res.status(400).json({ error: "No active subscription", message: "You need an active subscription to make calls." });
+    res.status(400).json({
+      error: "No active subscription",
+      message: "You need an active subscription to make calls.",
+    });
     return;
   }
 
@@ -74,7 +75,7 @@ router.post("/calls", async (req, res) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           connection_id: connectionId,
@@ -87,16 +88,12 @@ router.post("/calls", async (req, res) => {
         const data: any = await telnyxRes.json();
         telnyxCallId = data?.data?.call_leg_id ?? null;
         callStatus = "ringing";
-      } else {
-        callStatus = "initiated";
       }
-    } catch (_e) {
-      callStatus = "initiated";
-    }
+    } catch (_e) {}
   }
 
-  const [callRecord] = await db.insert(callsTable).values({
-    id: callId,
+  const callRecord = await CallModel.create({
+    _id: callId,
     userId,
     callerNumber: callerNumber ?? null,
     recipientNumber,
@@ -106,9 +103,9 @@ router.post("/calls", async (req, res) => {
     telnyxCallId,
     notes: notes ?? null,
     startedAt: new Date(),
-  }).returning();
+  });
 
-  res.json(callRecord);
+  res.json({ ...callRecord.toObject(), id: callRecord._id });
 });
 
 router.get("/calls/:callId", async (req, res) => {
@@ -116,15 +113,16 @@ router.get("/calls/:callId", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  await connectDB();
   const userId = (req as any).user.id;
   const { callId } = req.params;
 
-  const [call] = await db.select().from(callsTable).where(and(eq(callsTable.id, callId), eq(callsTable.userId, userId)));
+  const call = await CallModel.findOne({ _id: callId, userId }).lean();
   if (!call) {
     res.status(404).json({ error: "Call not found" });
     return;
   }
-  res.json(call);
+  res.json({ ...call, id: call._id });
 });
 
 router.post("/calls/webhook", async (req, res) => {
@@ -133,6 +131,7 @@ router.post("/calls/webhook", async (req, res) => {
     res.status(400).json({ error: "Invalid webhook" });
     return;
   }
+  await connectDB();
   const { event_type, payload } = data;
   if (!payload?.client_state) {
     res.sendStatus(200);
@@ -147,39 +146,38 @@ router.post("/calls/webhook", async (req, res) => {
       return;
     }
 
-    const [call] = await db.select().from(callsTable).where(eq(callsTable.id, callId));
+    const call = await CallModel.findById(callId);
     if (!call) {
       res.sendStatus(200);
       return;
     }
 
     if (event_type === "call.answered") {
-      await db.update(callsTable).set({ status: "in-progress", startedAt: new Date() }).where(eq(callsTable.id, callId));
+      await CallModel.updateOne({ _id: callId }, { status: "in-progress", startedAt: new Date() });
     } else if (event_type === "call.hangup") {
-      const duration = payload.hangup_cause === "normal_clearing" ? (payload.call_duration_secs ?? 0) : 0;
+      const duration =
+        payload.hangup_cause === "normal_clearing" ? (payload.call_duration_secs ?? 0) : 0;
       const cost = parseFloat(((duration / 60) * COST_PER_MINUTE).toFixed(2));
       const endedAt = new Date();
 
-      await db.update(callsTable).set({
-        status: "completed",
-        duration,
-        cost,
-        endedAt,
-      }).where(eq(callsTable.id, callId));
+      await CallModel.updateOne({ _id: callId }, { status: "completed", duration, cost, endedAt });
 
       if (cost > 0) {
-        await db.update(usersTable).set({
-          creditBalance: sql`${usersTable.creditBalance} - ${cost}`,
-          totalCallsUsed: sql`${usersTable.totalCallsUsed} + 1`,
-          totalCreditUsed: sql`${usersTable.totalCreditUsed} + ${cost}`,
-        }).where(eq(usersTable.id, userId));
+        await UserModel.updateOne(
+          { _id: userId },
+          {
+            $inc: {
+              creditBalance: -cost,
+              totalCallsUsed: 1,
+              totalCreditUsed: cost,
+            },
+          },
+        );
       } else {
-        await db.update(usersTable).set({
-          totalCallsUsed: sql`${usersTable.totalCallsUsed} + 1`,
-        }).where(eq(usersTable.id, userId));
+        await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } });
       }
     } else if (event_type === "call.initiated") {
-      await db.update(callsTable).set({ status: "ringing" }).where(eq(callsTable.id, callId));
+      await CallModel.updateOne({ _id: callId }, { status: "ringing" });
     }
   } catch (_e) {}
 

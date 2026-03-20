@@ -11,10 +11,7 @@ Business-grade call management application with Telnyx integration for VoIP call
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Database**: MongoDB + Mongoose
 - **Auth**: Replit Auth (OpenID Connect with PKCE)
 - **Calling**: Telnyx API
 - **Payments**: PayFast (South African payment gateway)
@@ -31,7 +28,7 @@ artifacts-monorepo/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   ├── db/                 # Drizzle ORM schema + DB connection
+│   ├── db/                 # Mongoose models + MongoDB connection
 │   └── replit-auth-web/    # Replit Auth web client hook (useAuth)
 ├── scripts/
 ├── pnpm-workspace.yaml
@@ -62,19 +59,26 @@ artifacts-monorepo/
 
 ### User Roles
 - Regular users: manage own calls, subscription, credits
-- Admin users: set `is_admin = true` in DB directly or via `/api/admin/users/:userId/adjust-credit`
+- Admin users: set `isAdmin: true` in MongoDB directly or via adjust-credit API
 
 ## Environment Variables / Secrets
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `DATABASE_URL` | Auto | PostgreSQL connection (auto-provisioned) |
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
 | `REPL_ID` | Auto | Replit app ID (for OIDC) |
 | `TELNYX_API_KEY` | Optional | Telnyx API key for real calls |
-| `TELNYX_SIP_CONNECTION_ID` | Optional | Telnyx connection ID |
+| `TELNYX_SIP_CONNECTION_ID` | Optional | Telnyx SIP connection ID |
 | `PAYFAST_MERCHANT_ID` | Optional | PayFast merchant ID (sandbox used if absent) |
 | `PAYFAST_MERCHANT_KEY` | Optional | PayFast merchant key |
 | `PAYFAST_PASSPHRASE` | Optional | PayFast passphrase for signature |
+
+## MongoDB Models
+
+- `User` — user accounts, credit balances, subscription state
+- `Session` — Replit Auth session store (TTL index on expire field)
+- `Call` — call records with duration and cost
+- `Payment` — payment records with PayFast IDs
 
 ## API Routes
 
@@ -106,13 +110,6 @@ artifacts-monorepo/
 - `POST /api/admin/users/:id/adjust-credit` — adjust credit
 - `GET /api/admin/calls` — all calls across platform
 
-## Database Tables
-
-- `users` — user accounts, credit balances, subscription state
-- `sessions` — Replit Auth session store
-- `calls` — call records with duration and cost
-- `payments` — payment records with PayFast IDs
-
 ## Development
 
 ```bash
@@ -121,10 +118,4 @@ pnpm --filter @workspace/api-server run dev
 
 # Start frontend
 pnpm --filter @workspace/call-manager run dev
-
-# Push DB schema
-pnpm --filter @workspace/db run push
-
-# Regenerate API client from OpenAPI spec
-pnpm --filter @workspace/api-spec run codegen
 ```
