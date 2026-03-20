@@ -50,9 +50,12 @@ export default function SignUp() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div
+        className="flex items-center justify-center bg-background overflow-y-auto"
+        style={{ minHeight: "100dvh", padding: "max(env(safe-area-inset-top,16px),24px) 16px max(env(safe-area-inset-bottom,16px),24px)" }}
+      >
         <div className="fixed inset-0 bg-gradient-to-br from-blue-950/60 via-background to-indigo-950/40 pointer-events-none" />
-        <div className="relative z-10 glass rounded-3xl p-10 max-w-md w-full border border-white/10 text-center">
+        <div className="relative z-10 glass rounded-3xl p-8 max-w-md w-full border border-white/10 text-center">
           <div className="w-16 h-16 rounded-full bg-green-500/15 border border-green-500/25 flex items-center justify-center mx-auto mb-6">
             <CheckCircle className="h-8 w-8 text-green-400" />
           </div>
@@ -86,7 +89,10 @@ export default function SignUp() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+    <div
+      className="flex items-center justify-center bg-background overflow-y-auto"
+      style={{ minHeight: "100dvh", padding: "max(env(safe-area-inset-top,16px),24px) 16px max(env(safe-area-inset-bottom,16px),24px)" }}
+    >
       <div className="fixed inset-0 bg-gradient-to-br from-blue-950/60 via-background to-indigo-950/40 pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md">

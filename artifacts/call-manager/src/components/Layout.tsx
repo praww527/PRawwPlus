@@ -17,7 +17,10 @@ export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
+    <div
+      className="flex flex-col bg-background"
+      style={{ height: "100dvh", overflow: "hidden" }}
+    >
       {/* Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <img
@@ -28,44 +31,55 @@ export function Layout({ children }: LayoutProps) {
         <div className="absolute inset-0 bg-background/85 backdrop-blur-[80px]" />
       </div>
 
-      {/* Scrollable Content */}
-      <main className="relative z-10 flex-1 overflow-y-auto pb-28">
-        <div className="max-w-lg mx-auto px-4 pt-6 min-h-full">
+      {/* Scrollable Content — sits above the fixed navbar */}
+      <main
+        className="relative z-10 flex-1 overflow-y-auto"
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        <div className="max-w-lg mx-auto px-4 pt-5">
           {children}
         </div>
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 z-30">
-        <div className="max-w-lg mx-auto px-6 pb-6">
-          <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/40 px-4 py-3 flex items-center justify-around">
+      <nav
+        className="fixed bottom-0 inset-x-0 z-30"
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
+      >
+        <div className="max-w-lg mx-auto px-5 pb-2">
+          <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/50 flex items-center justify-around px-2 py-2">
             {navItems.map((item) => {
-              const isActive = item.href === "/dashboard"
-                ? location === "/dashboard"
-                : location.startsWith(item.href);
+              const isActive =
+                item.href === "/dashboard"
+                  ? location === "/dashboard"
+                  : location.startsWith(item.href);
               return (
                 <Link key={item.href} href={item.href}>
-                  <div className={cn(
-                    "flex flex-col items-center gap-1 px-4 py-1.5 rounded-full transition-all duration-200 cursor-pointer",
-                    isActive
-                      ? "text-primary"
-                      : "text-white/40 hover:text-white/70"
-                  )}>
-                    <div className={cn(
-                      "relative flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200",
-                      isActive
-                        ? "bg-primary/20 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.5)]"
-                        : "hover:bg-white/5"
-                    )}>
-                      <item.icon className="h-5 w-5" />
-                      {isActive && (
-                        <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                  <div
+                    className={cn(
+                      "flex flex-col items-center gap-0.5 px-4 py-2 rounded-full transition-all duration-200 cursor-pointer select-none min-w-[64px]",
+                      isActive ? "text-primary" : "text-white/40 hover:text-white/70"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200",
+                        isActive
+                          ? "bg-primary/20 shadow-[0_0_18px_-4px_hsl(var(--primary)/0.6)]"
+                          : "hover:bg-white/5"
                       )}
+                    >
+                      <item.icon className="h-[18px] w-[18px]" />
                     </div>
-                    <span className={cn(
-                      "text-[10px] font-semibold tracking-wide transition-colors",
-                      isActive ? "text-primary" : "text-white/40"
-                    )}>
+                    <span
+                      className={cn(
+                        "text-[10px] font-semibold tracking-wide leading-none",
+                        isActive ? "text-primary" : "text-white/40"
+                      )}
+                    >
                       {item.label}
                     </span>
                   </div>

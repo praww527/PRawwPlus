@@ -31,12 +31,12 @@ export default function DialPad() {
   useEffect(() => {
     const params = new URLSearchParams(search);
     const dial = params.get("dial");
-    if (dial) setNumber(dial);
+    if (dial) setNumber(decodeURIComponent(dial));
   }, [search]);
 
   const press = (key: string) => {
     if (key === "0" && number.length === 0) {
-      setNumber((n) => n + "+");
+      setNumber("+");
     } else {
       setNumber((n) => (n.length < 20 ? n + key : n));
     }
@@ -47,7 +47,7 @@ export default function DialPad() {
 
   const handleCall = async () => {
     if (!number || number.length < 5) {
-      toast({ title: "Enter a phone number", variant: "destructive" });
+      toast({ title: "Enter a valid phone number", variant: "destructive" });
       return;
     }
     try {
@@ -68,22 +68,31 @@ export default function DialPad() {
   const canCall = creditBalance > 0 && isActive;
 
   return (
-    <div className="flex flex-col items-center gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+
       {/* Number Display */}
-      <div className="w-full flex items-center justify-between px-4 min-h-[56px] mt-4">
-        <div className="flex-1" />
-        <p className={cn(
-          "flex-1 text-center font-mono font-semibold tracking-wider transition-all",
-          number.length > 12 ? "text-xl" : number.length > 8 ? "text-2xl" : "text-3xl",
-          number ? "text-white" : "text-white/20"
-        )}>
+      <div className="w-full flex items-center justify-between px-2 mt-6 mb-4 min-h-[60px]">
+        <div className="w-10" />
+        <p
+          className={cn(
+            "flex-1 text-center font-mono font-bold tracking-wider transition-all select-none",
+            number.length > 14
+              ? "text-xl"
+              : number.length > 10
+              ? "text-2xl"
+              : number.length > 6
+              ? "text-3xl"
+              : "text-4xl",
+            number ? "text-white" : "text-white/20"
+          )}
+        >
           {number || "Enter number"}
         </p>
-        <div className="flex-1 flex justify-end">
+        <div className="w-10 flex justify-center">
           {number && (
             <button
               onClick={del}
-              className="p-2 rounded-full text-white/50 hover:text-white hover:bg-white/5 transition-all active:scale-95"
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/8 transition-all active:scale-90"
             >
               <Delete className="h-5 w-5" />
             </button>
@@ -91,32 +100,37 @@ export default function DialPad() {
         </div>
       </div>
 
-      {/* No credit warning */}
+      {/* Warning banner */}
       {!canCall && user && (
-        <div className="w-full flex items-center gap-2 px-4 py-3 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm">
+        <div className="w-full flex items-center gap-2.5 px-4 py-3 mb-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm">
           <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>
+          <span className="leading-snug">
             {!isActive
               ? "Subscribe to make calls — R100/month"
-              : "Your credit is exhausted. Top up to continue."}
+              : "Credit exhausted. Top up on Profile page."}
           </span>
         </div>
       )}
 
       {/* Dial Grid */}
-      <div className="w-full grid grid-cols-3 gap-3">
+      <div className="w-full grid grid-cols-3 gap-3 mb-6">
         {DIAL_KEYS.map(({ key, sub }) => (
           <button
             key={key}
             onClick={() => press(key)}
             onDoubleClick={key === "0" ? longPressZero : undefined}
-            className="group relative flex flex-col items-center justify-center aspect-square rounded-full glass border border-white/10 hover:border-primary/30 hover:bg-white/10 active:scale-95 transition-all duration-100 select-none cursor-pointer"
+            className={cn(
+              "group relative flex flex-col items-center justify-center rounded-full select-none cursor-pointer",
+              "glass border border-white/10 hover:border-primary/30 hover:bg-white/10",
+              "active:scale-90 transition-all duration-100",
+              "aspect-square"
+            )}
           >
-            <span className="text-xl font-semibold text-white group-hover:text-primary transition-colors">
+            <span className="text-[22px] font-semibold text-white group-hover:text-primary transition-colors leading-none">
               {key}
             </span>
             {sub && (
-              <span className="text-[9px] font-bold tracking-[0.2em] text-white/30 mt-0.5">
+              <span className="text-[9px] font-bold tracking-[0.18em] text-white/30 mt-0.5 leading-none">
                 {sub}
               </span>
             )}
@@ -129,19 +143,19 @@ export default function DialPad() {
         onClick={handleCall}
         disabled={isPending || !number}
         className={cn(
-          "relative w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-200 active:scale-95 mb-2",
+          "relative w-[72px] h-[72px] rounded-full flex items-center justify-center transition-all duration-200 active:scale-90",
           canCall && number
-            ? "bg-gradient-to-br from-green-500 to-emerald-600 shadow-green-500/40 hover:shadow-green-500/60 hover:scale-105"
-            : "bg-white/10 border border-white/10 cursor-not-allowed opacity-60"
+            ? "bg-gradient-to-br from-green-500 to-emerald-600 shadow-[0_8px_32px_-8px_rgba(34,197,94,0.6)] hover:shadow-[0_12px_40px_-8px_rgba(34,197,94,0.7)] hover:scale-105"
+            : "bg-white/8 border border-white/10 cursor-not-allowed opacity-50"
         )}
       >
         {isPending ? (
-          <Loader2 className="h-8 w-8 text-white animate-spin" />
+          <Loader2 className="h-7 w-7 text-white animate-spin" />
         ) : (
-          <PhoneCall className="h-8 w-8 text-white" />
+          <PhoneCall className="h-7 w-7 text-white" />
         )}
         {canCall && number && (
-          <span className="absolute inset-0 rounded-full bg-green-400/20 animate-ping" />
+          <span className="absolute inset-0 rounded-full bg-green-400/20 animate-ping pointer-events-none" />
         )}
       </button>
     </div>
