@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Call Manager"
+version = "1.0.0"
+id = "artifacts/call-manager"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20950
+
+[services.development]
+run = "pnpm --filter @workspace/call-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/call-manager", "run", "build" ]
+publicDir = "artifacts/call-manager/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20950"
+BASE_PATH = "/"

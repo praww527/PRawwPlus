@@ -1,8 +1,8 @@
-# Workspace
+# Call Manager Workspace
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+Business-grade call management application with Telnyx integration for VoIP calls, PayFast for South African payments, and Replit Auth for user authentication. Built as a pnpm monorepo.
 
 ## Stack
 
@@ -15,82 +15,116 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
+- **Auth**: Replit Auth (OpenID Connect with PKCE)
+- **Calling**: Telnyx API
+- **Payments**: PayFast (South African payment gateway)
+- **Frontend**: React + Vite + Tailwind CSS
 
 ## Structure
 
 ```text
 artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
+├── artifacts/
+│   ├── api-server/         # Express API server (port: 8080, path: /api)
+│   └── call-manager/       # React + Vite frontend (port: 20950, path: /)
+├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+│   ├── db/                 # Drizzle ORM schema + DB connection
+│   └── replit-auth-web/    # Replit Auth web client hook (useAuth)
+├── scripts/
+├── pnpm-workspace.yaml
+├── tsconfig.base.json
+├── tsconfig.json
+└── package.json
 ```
 
-## TypeScript & Composite Projects
+## Business Logic
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+### Subscription Model
+- Plan: R100/month
+- Monthly payment grants R20 of call credit
+- Credit balance resets only upon confirmed PayFast payment (via ITN webhook)
+- If balance is 0 or subscription inactive, calls are blocked
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+### PayFast Integration
+- Sandbox: `https://sandbox.payfast.co.za/eng/process`
+- Production: `https://www.payfast.co.za/eng/process`
+- Set `PAYFAST_MERCHANT_ID`, `PAYFAST_MERCHANT_KEY`, `PAYFAST_PASSPHRASE` secrets
+- Without secrets, sandbox test credentials are used automatically
+- Webhook: `POST /api/payments/webhook` (PayFast ITN)
 
-## Root Scripts
+### Telnyx Integration
+- Set `TELNYX_API_KEY` and `TELNYX_SIP_CONNECTION_ID` secrets
+- Without secrets, calls are logged without actual dialing
+- Webhook: `POST /api/calls/webhook` (Telnyx call events)
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+### User Roles
+- Regular users: manage own calls, subscription, credits
+- Admin users: set `is_admin = true` in DB directly or via `/api/admin/users/:userId/adjust-credit`
 
-## Packages
+## Environment Variables / Secrets
 
-### `artifacts/api-server` (`@workspace/api-server`)
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `DATABASE_URL` | Auto | PostgreSQL connection (auto-provisioned) |
+| `REPL_ID` | Auto | Replit app ID (for OIDC) |
+| `TELNYX_API_KEY` | Optional | Telnyx API key for real calls |
+| `TELNYX_SIP_CONNECTION_ID` | Optional | Telnyx connection ID |
+| `PAYFAST_MERCHANT_ID` | Optional | PayFast merchant ID (sandbox used if absent) |
+| `PAYFAST_MERCHANT_KEY` | Optional | PayFast merchant key |
+| `PAYFAST_PASSPHRASE` | Optional | PayFast passphrase for signature |
 
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
+## API Routes
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
+### Auth
+- `GET /api/auth/user` — current user info
+- `GET /api/login` — OIDC login redirect
+- `GET /api/callback` — OIDC callback
+- `GET /api/logout` — logout
 
-### `lib/db` (`@workspace/db`)
+### Users
+- `GET /api/users/me` — full profile with credit/subscription
 
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
+### Calls
+- `GET /api/calls` — call history (paginated)
+- `POST /api/calls` — initiate call
+- `GET /api/calls/:id` — single call
+- `POST /api/calls/webhook` — Telnyx ITN webhook
 
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
+### Payments
+- `POST /api/payments/subscribe` — initiate subscription (R100)
+- `POST /api/payments/webhook` — PayFast ITN webhook
+- `GET /api/payments/history` — payment history
+- `POST /api/credits/topup` — top-up credits
 
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
+### Admin
+- `GET /api/admin/stats` — platform statistics
+- `GET /api/admin/users` — list all users
+- `GET /api/admin/users/:id` — user detail
+- `POST /api/admin/users/:id/adjust-credit` — adjust credit
+- `GET /api/admin/calls` — all calls across platform
 
-### `lib/api-spec` (`@workspace/api-spec`)
+## Database Tables
 
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
+- `users` — user accounts, credit balances, subscription state
+- `sessions` — Replit Auth session store
+- `calls` — call records with duration and cost
+- `payments` — payment records with PayFast IDs
 
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
+## Development
 
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
+```bash
+# Start API server
+pnpm --filter @workspace/api-server run dev
 
-### `lib/api-zod` (`@workspace/api-zod`)
+# Start frontend
+pnpm --filter @workspace/call-manager run dev
 
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
+# Push DB schema
+pnpm --filter @workspace/db run push
 
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+# Regenerate API client from OpenAPI spec
+pnpm --filter @workspace/api-spec run codegen
+```
