@@ -20,10 +20,10 @@ export default function CallHistory() {
   const { data, isLoading } = useListCalls({ page, limit: 20 });
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-500">
+    <div className="space-y-3 animate-in fade-in duration-400">
       <div className="pt-1">
-        <h1 className="text-2xl font-bold text-white">Call Logs</h1>
-        <p className="text-sm text-white/40 mt-1">
+        <h1 className="text-xl font-bold text-white">Call Logs</h1>
+        <p className="text-xs text-white/40 mt-0.5">
           {data?.total ? `${data.total} total calls` : "Your outgoing call history"}
         </p>
       </div>
