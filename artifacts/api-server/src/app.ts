@@ -2,15 +2,24 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import path from "path";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 
 const app: Express = express();
 
-const allowedOrigins = process.env.REPLIT_DOMAINS
-  ? process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`)
-  : [];
+// In production (Render), serve the pre-built frontend from the same process.
+// STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
+const staticDir =
+  process.env.STATIC_DIR ??
+  path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+  : process.env.REPLIT_DOMAINS
+    ? process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`)
+    : [];
 
 app.use(
   pinoHttp({
@@ -50,9 +59,10 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  // Relaxed CSP — the SPA loads scripts, fonts, and inline styles
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'",
   );
   next();
 });
@@ -103,5 +113,14 @@ app.use("/api/auth/reset-password", rateLimit(5, 60_000));
 app.use("/api", rateLimit(300, 60_000));
 
 app.use("/api", router);
+
+// Serve static frontend in production
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(staticDir));
+  // SPA fallback — send index.html for any non-API route (Express 5 wildcard syntax)
+  app.get("/{*path}", (_req: Request, res: Response) => {
+    res.sendFile(path.join(staticDir, "index.html"));
+  });
+}
 
 export default app;
