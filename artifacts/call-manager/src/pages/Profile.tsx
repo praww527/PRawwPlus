@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMe, useListPayments, useInitiateSubscription, useTopUpCredits, useListMyNumbers, useRemoveNumber } from "@workspace/api-client-react";
+import type { OwnedNumber, PaymentRecord } from "@workspace/api-client-react";
 import {
   LogOut, Coins, Zap, Receipt,
   ShieldCheck, AlertCircle, CheckCircle2, Loader2, User, ChevronRight, Star,
@@ -154,7 +155,7 @@ export default function Profile() {
           </div>
         ) : (
           <div className="divide-y divide-white/8">
-            {myNumbers.map((n) => (
+            {myNumbers.map((n: OwnedNumber) => (
               <div key={n.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="w-9 h-9 rounded-full bg-green-500/12 border border-green-500/20 flex items-center justify-center shrink-0">
                   <Phone className="h-3.5 w-3.5 text-green-400" />
@@ -412,7 +413,7 @@ export default function Profile() {
             <p className="text-sm font-semibold text-white">Recent Payments</p>
           </div>
           <div className="divide-y divide-white/8">
-            {recentPayments.map((p) => (
+            {recentPayments.map((p: PaymentRecord) => (
               <div key={p.id} className="flex items-center justify-between px-4 py-2.5">
                 <div>
                   <p className="text-sm font-medium text-white capitalize">
