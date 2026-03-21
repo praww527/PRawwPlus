@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
 
 export type CallState = "idle" | "outgoing" | "incoming";
+export type CallPhase = "calling" | "connected" | "ended";
 
 export interface CallInfo {
   number: string;
@@ -9,8 +10,10 @@ export interface CallInfo {
 
 interface CallContextValue {
   callState: CallState;
+  callPhase: CallPhase;
   callInfo: CallInfo | null;
   startOutgoing: (info: CallInfo) => void;
+  connectCall: () => void;
   simulateIncoming: (info: CallInfo) => void;
   acceptCall: () => void;
   declineCall: () => void;
@@ -21,19 +24,31 @@ const CallContext = createContext<CallContextValue | null>(null);
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const [callState, setCallState] = useState<CallState>("idle");
-  const [callInfo, setCallInfo] = useState<CallInfo | null>(null);
+  const [callPhase, setCallPhase] = useState<CallPhase>("calling");
+  const [callInfo, setCallInfo]   = useState<CallInfo | null>(null);
 
   const startOutgoing = useCallback((info: CallInfo) => {
     setCallInfo(info);
+    setCallPhase("calling");
     setCallState("outgoing");
+  }, []);
+
+  /* Called when the remote party answers */
+  const connectCall = useCallback(() => {
+    setCallPhase("connected");
   }, []);
 
   const simulateIncoming = useCallback((info: CallInfo) => {
     setCallInfo(info);
+    setCallPhase("calling");
     setCallState("incoming");
   }, []);
 
-  const acceptCall = useCallback(() => setCallState("outgoing"), []);
+  /* Accepting an incoming call goes straight to connected */
+  const acceptCall = useCallback(() => {
+    setCallPhase("connected");
+    setCallState("outgoing");
+  }, []);
 
   const declineCall = useCallback(() => {
     setCallState("idle");
@@ -41,12 +56,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const endCall = useCallback(() => {
-    setCallState("idle");
-    setCallInfo(null);
+    setCallPhase("ended");
+    /* Brief "Call Ended" pause before clearing overlay */
+    setTimeout(() => {
+      setCallState("idle");
+      setCallInfo(null);
+    }, 1200);
   }, []);
 
   return (
-    <CallContext.Provider value={{ callState, callInfo, startOutgoing, simulateIncoming, acceptCall, declineCall, endCall }}>
+    <CallContext.Provider value={{
+      callState, callPhase, callInfo,
+      startOutgoing, connectCall,
+      simulateIncoming, acceptCall, declineCall, endCall,
+    }}>
       {children}
     </CallContext.Provider>
   );

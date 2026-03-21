@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX } from "lucide-react";
 import { useCall } from "@/context/CallContext";
 import { cn } from "@/lib/utils";
@@ -19,19 +19,38 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 }
 
 export default function CallingScreen() {
-  const { callInfo, endCall } = useCall();
+  const { callInfo, callPhase, endCall } = useCall();
   const [elapsed, setElapsed] = useState(0);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted]     = useState(false);
   const [speaker, setSpeaker] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /* Timer only runs while connected */
   useEffect(() => {
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+    if (callPhase === "connected") {
+      intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      /* Reset to 00:00 when a new call starts */
+      if (callPhase === "calling") setElapsed(0);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [callPhase]);
+
+  /* Status label */
+  const statusLabel =
+    callPhase === "calling"   ? "Calling…"   :
+    callPhase === "ended"     ? "Call Ended"  :
+    null; /* connected — show only the timer */
 
   const controls = [
-    { icon: muted ? MicOff : Mic,        label: "Mute",    active: muted,      onPress: () => setMuted((v) => !v) },
+    { icon: muted   ? MicOff  : Mic,     label: "Mute",    active: muted,      onPress: () => setMuted((v) => !v) },
     { icon: Keyboard,                     label: "Keypad",  active: showKeypad, onPress: () => setShowKeypad((v) => !v) },
     { icon: speaker ? Volume2 : VolumeX, label: "Speaker", active: speaker,    onPress: () => setSpeaker((v) => !v) },
   ];
@@ -47,26 +66,46 @@ export default function CallingScreen() {
     >
       {/* ── Top info ── */}
       <div className="flex flex-col items-center mt-14 mb-6">
-        <p className="text-white/45 text-sm tracking-widest uppercase font-medium mb-3">
-          Calling…
-        </p>
+        {/* Status label — only shown in calling / ended phases */}
+        {statusLabel && (
+          <p
+            className={cn(
+              "text-sm tracking-widest uppercase font-medium mb-3 transition-all",
+              callPhase === "ended" ? "text-white/35" : "text-white/45"
+            )}
+          >
+            {statusLabel}
+          </p>
+        )}
+
         <p className="text-white text-[32px] font-bold leading-tight">
           {callInfo?.name ?? callInfo?.number}
         </p>
+
         {callInfo?.name && (
           <p className="text-white/40 text-sm font-mono mt-1">{callInfo.number}</p>
         )}
-        <p className="text-white/55 text-sm tabular-nums mt-2">{formatDuration(elapsed)}</p>
+
+        {/* Timer — always visible; frozen at 00:00 until connected */}
+        <p
+          className={cn(
+            "text-sm tabular-nums mt-2 transition-colors",
+            callPhase === "connected" ? "text-white/70" : "text-white/30"
+          )}
+        >
+          {formatDuration(elapsed)}
+        </p>
       </div>
 
       {/* ── Avatar ── */}
       <div className="flex-1 flex items-center justify-center">
         <div className="relative flex items-center justify-center">
-          {/* pulse rings */}
-          <div
-            className="absolute rounded-full animate-ping opacity-15"
-            style={{ width: 170, height: 170, background: "#34c759" }}
-          />
+          {callPhase === "calling" && (
+            <div
+              className="absolute rounded-full animate-ping opacity-15"
+              style={{ width: 170, height: 170, background: "#34c759" }}
+            />
+          )}
           <div
             className="absolute rounded-full opacity-10"
             style={{ width: 200, height: 200, background: "#34c759", filter: "blur(20px)" }}
@@ -84,22 +123,25 @@ export default function CallingScreen() {
         </div>
       </div>
 
-      {/* ── Secondary controls ── */}
+      {/* ── Secondary controls — disabled while calling/ended ── */}
       <div className="flex gap-10 mb-8">
         {controls.map(({ icon: Icon, label, active, onPress }) => (
           <div key={label} className="flex flex-col items-center gap-2">
             <button
-              onClick={onPress}
+              onClick={callPhase === "connected" ? onPress : undefined}
+              disabled={callPhase !== "connected"}
               className={cn(
-                "w-[60px] h-[60px] rounded-full flex items-center justify-center transition-all active:scale-90",
-                active
-                  ? "bg-white/22 border border-white/28"
-                  : "bg-white/8 border border-white/12"
+                "w-[60px] h-[60px] rounded-full flex items-center justify-center transition-all",
+                callPhase === "connected"
+                  ? active
+                    ? "bg-white/22 border border-white/28 active:scale-90"
+                    : "bg-white/8 border border-white/12 active:scale-90"
+                  : "bg-white/4 border border-white/6 opacity-40 cursor-not-allowed"
               )}
             >
               <Icon className="w-[22px] h-[22px] text-white" />
             </button>
-            <span className="text-white/45 text-[11px] font-medium">{label}</span>
+            <span className="text-white/40 text-[11px] font-medium">{label}</span>
           </div>
         ))}
       </div>
@@ -108,17 +150,23 @@ export default function CallingScreen() {
       <div className="flex flex-col items-center mb-8 gap-2">
         <button
           onClick={endCall}
-          className="flex items-center justify-center rounded-full transition-all active:scale-90 hover:scale-105"
+          disabled={callPhase === "ended"}
+          className={cn(
+            "flex items-center justify-center rounded-full transition-all",
+            callPhase !== "ended" && "active:scale-90 hover:scale-105"
+          )}
           style={{
             width: 82,
             height: 82,
-            background: "#ff3b30",
-            boxShadow: "0 6px 28px rgba(255,59,48,0.45)",
+            background: callPhase === "ended" ? "rgba(255,59,48,0.3)" : "#ff3b30",
+            boxShadow: callPhase === "ended" ? "none" : "0 6px 28px rgba(255,59,48,0.45)",
           }}
         >
           <PhoneOff className="text-white" style={{ width: 30, height: 30 }} />
         </button>
-        <span className="text-white/35 text-xs font-medium">End Call</span>
+        <span className="text-white/35 text-xs font-medium">
+          {callPhase === "ended" ? "Call Ended" : "End Call"}
+        </span>
       </div>
     </div>
   );
