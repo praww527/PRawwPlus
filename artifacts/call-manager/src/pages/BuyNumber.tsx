@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useSearchNumbers, useBuyNumber, useChangeNumber } from "@workspace/api-client-react";
+import type { AvailableNumber } from "@workspace/api-client-react";
 import {
   ArrowLeft, Search, Loader2, Phone, Star, CheckCircle2,
   X, AlertCircle, Globe, MapPin,
@@ -352,7 +353,7 @@ export default function BuyNumber({ mode = "buy", oldNumberId, oldNumber }: BuyN
             </div>
 
             <div className="divide-y divide-white/8 max-h-[360px] overflow-y-auto">
-              {numbers.map((n) => (
+              {numbers.map((n: AvailableNumber) => (
                 <div
                   key={n.phone_number}
                   className="flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
