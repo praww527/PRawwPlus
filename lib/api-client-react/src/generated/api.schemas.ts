@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * Telecom Call Manager API
- * OpenAPI spec version: 0.2.0
+ * OpenAPI spec version: 0.3.0
  */
 export interface HealthStatus {
   status: string;
@@ -58,46 +58,46 @@ export interface UserProfile {
   createdAt: string;
 }
 
-export type PhoneNumberStatus =
-  (typeof PhoneNumberStatus)[keyof typeof PhoneNumberStatus];
-
-export const PhoneNumberStatus = {
-  owned: "owned",
-  taken: "taken",
-  free: "free",
-} as const;
-
-export interface PhoneNumber {
-  id: string;
-  number: string;
-  status: PhoneNumberStatus;
-  userId?: string | null;
-}
-
 export interface OwnedNumber {
   id: string;
   number: string;
+  status?: string;
+  telnyxNumberId?: string | null;
 }
 
-export interface NumberListResponse {
-  numbers: PhoneNumber[];
+export interface MyNumbersResponse {
   myNumbers: OwnedNumber[];
   maxNumbers: number;
   plan: string;
+  subscriptionActive: boolean;
 }
 
-export interface SelectNumberRequest {
-  numberId: string;
+export interface AvailableNumber {
+  phone_number: string;
+  number_type: string;
+  region?: string | null;
+  monthly_cost?: string | null;
+  upfront_cost?: string | null;
+  is_premium: boolean;
+}
+
+export interface NumberSearchResponse {
+  numbers: AvailableNumber[];
+  total: number;
+}
+
+export interface BuyNumberRequest {
+  phone_number: string;
+}
+
+export interface BuyNumberResponse {
+  message: string;
+  number: OwnedNumber;
 }
 
 export interface ChangeNumberRequest {
   oldNumberId: string;
-  newNumberId: string;
-}
-
-export interface NumberActionResponse {
-  message: string;
-  number: OwnedNumber;
+  newPhoneNumber: string;
 }
 
 export type CallRecordStatus =
@@ -240,6 +240,24 @@ export interface AdminStats {
 export type ListCallsParams = {
   page?: number;
   limit?: number;
+};
+
+export type SearchNumbersParams = {
+  country_code?: string;
+  number_type?: SearchNumbersNumberType;
+  locality?: string;
+};
+
+export type SearchNumbersNumberType =
+  (typeof SearchNumbersNumberType)[keyof typeof SearchNumbersNumberType];
+
+export const SearchNumbersNumberType = {
+  local: "local",
+  mobile: "mobile",
+} as const;
+
+export type RemoveNumber200 = {
+  message: string;
 };
 
 export type PayfastWebhookBody = { [key: string]: string };

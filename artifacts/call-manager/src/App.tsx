@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,24 +16,25 @@ import ForgotPassword  from "@/pages/ForgotPassword";
 import ResetPassword   from "@/pages/ResetPassword";
 import DialPad         from "@/pages/DialPad";
 import CallHistory     from "@/pages/CallHistory";
-import Numbers         from "@/pages/Numbers";
+import Contacts        from "@/pages/Contacts";
 import Profile         from "@/pages/Profile";
 import Admin           from "@/pages/Admin";
 import CallingScreen      from "@/pages/CallingScreen";
 import IncomingCallScreen from "@/pages/IncomingCallScreen";
+import BuyNumber       from "@/pages/BuyNumber";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({ component: Component, componentProps }: { component: React.ComponentType<any>; componentProps?: Record<string, any> }) {
   const { isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated) { setLocation("/login"); return null; }
 
-  return <Layout><Component /></Layout>;
+  return <Layout><Component {...(componentProps ?? {})} /></Layout>;
 }
 
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
@@ -74,6 +75,20 @@ function CallOverlays() {
   return null;
 }
 
+function BuyNumberRoute() {
+  const [location] = useLocation();
+  const params = new URLSearchParams(location.split("?")[1] ?? "");
+  const mode = (params.get("mode") ?? "buy") as "buy" | "change";
+  const oldNumberId = params.get("oldId") ?? undefined;
+  const oldNumber = params.get("oldNumber") ?? undefined;
+  return (
+    <ProtectedRoute
+      component={BuyNumber}
+      componentProps={{ mode, oldNumberId, oldNumber }}
+    />
+  );
+}
+
 function Router() {
   return (
     <Switch>
@@ -85,8 +100,10 @@ function Router() {
       <Route path="/reset-password"  component={ResetPassword} />
       <Route path="/dashboard"       component={() => <ProtectedRoute component={DialPad} />} />
       <Route path="/calls"           component={() => <ProtectedRoute component={CallHistory} />} />
-      <Route path="/numbers"         component={() => <ProtectedRoute component={Numbers} />} />
+      <Route path="/contacts"        component={() => <ProtectedRoute component={Contacts} />} />
       <Route path="/profile"         component={() => <ProtectedRoute component={Profile} />} />
+      <Route path="/buy-number"      component={BuyNumberRoute} />
+      <Route path="/numbers"         component={() => <Redirect to="/profile" />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
     </Switch>
   );

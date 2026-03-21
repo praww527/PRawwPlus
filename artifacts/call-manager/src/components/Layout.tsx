@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Phone, History, Hash, User } from "lucide-react";
+import { Phone, History, Users, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LayoutProps {
@@ -9,7 +9,7 @@ interface LayoutProps {
 const navItems = [
   { href: "/dashboard", label: "Dial Pad", icon: Phone },
   { href: "/calls", label: "Calls", icon: History },
-  { href: "/numbers", label: "Numbers", icon: Hash },
+  { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/profile", label: "Profile", icon: User },
 ];
 

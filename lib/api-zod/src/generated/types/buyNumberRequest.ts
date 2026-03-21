@@ -6,4 +6,6 @@
  * OpenAPI spec version: 0.3.0
  */
 
-export type PayfastWebhookBody = { [key: string]: string };
+export interface BuyNumberRequest {
+  phone_number: string;
+}

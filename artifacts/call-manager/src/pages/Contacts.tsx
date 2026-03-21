@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { useListCalls } from "@workspace/api-client-react";
-import { Phone, Search, UserCircle2, Download, X } from "lucide-react";
+import { useListCalls, useListMyNumbers } from "@workspace/api-client-react";
+import { Phone, Search, UserCircle2, Download, X, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -88,9 +88,11 @@ export default function Contacts() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { data, isLoading } = useListCalls({ limit: 200 });
+  const { data: numbersData, isLoading: numbersLoading } = useListMyNumbers();
   const prompted = useRef(false);
 
-  // Auto-prompt once per session on first visit if Contact API is supported
+  const primaryNumber = numbersData?.myNumbers?.[0] ?? null;
+
   useEffect(() => {
     if (!hasContactsApi) return;
     if (prompted.current) return;
@@ -200,6 +202,40 @@ export default function Contacts() {
           )}
         </div>
 
+        {/* My Number */}
+        {!numbersLoading && (
+          <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/8">
+              <Star className="h-3.5 w-3.5 text-primary" />
+              <p className="text-sm font-semibold text-white">My Number</p>
+            </div>
+            {primaryNumber ? (
+              <div className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0">
+                  <Phone className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-white">My Number</p>
+                  <p className="font-mono text-sm text-white/70">{primaryNumber.number}</p>
+                </div>
+                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/12 border border-primary/22 text-primary">
+                  Primary
+                </span>
+              </div>
+            ) : (
+              <div className="px-4 py-5 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                  <Phone className="h-4 w-4 text-white/25" />
+                </div>
+                <div>
+                  <p className="text-sm text-white/50">No number assigned</p>
+                  <p className="text-xs text-white/25 mt-0.5">Go to Profile → Add Another Number</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 pointer-events-none" />
@@ -219,13 +255,18 @@ export default function Contacts() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="py-16 text-center">
+          <div className="py-12 text-center">
             <UserCircle2 className="h-14 w-14 text-white/10 mx-auto mb-4" />
             <p className="text-white/40 text-sm">
               {query
                 ? "No matching contacts"
-                : "Make a call or import contacts to get started"}
+                : "No contacts yet"}
             </p>
+            {!query && (
+              <p className="text-white/25 text-xs mt-1">
+                {hasContactsApi ? "Import from your phone or make a call to add contacts" : "Make a call to add contacts automatically"}
+              </p>
+            )}
             {!query && hasContactsApi && (
               <button
                 onClick={importFromPhone}
@@ -243,14 +284,11 @@ export default function Contacts() {
                 key={contact.number}
                 className="flex items-center gap-3 px-4 py-3 rounded-2xl glass border border-white/8 hover:border-primary/20 hover:bg-white/[0.03] transition-all"
               >
-                {/* Avatar */}
                 <div className="w-11 h-11 rounded-full bg-primary/12 border border-primary/20 flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-primary font-mono">
                     {initials(contact.label, contact.number)}
                   </span>
                 </div>
-
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   {contact.label && (
                     <p className="font-semibold text-white text-sm truncate leading-snug">
@@ -275,8 +313,6 @@ export default function Contacts() {
                       : ""}
                   </p>
                 </div>
-
-                {/* Call */}
                 <button
                   onClick={() => handleCall(contact.number)}
                   className="w-11 h-11 rounded-full bg-green-500/12 border border-green-500/20 flex items-center justify-center text-green-400 hover:bg-green-500/22 hover:scale-105 active:scale-90 transition-all shrink-0"

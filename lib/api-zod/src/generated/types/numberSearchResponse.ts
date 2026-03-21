@@ -5,9 +5,9 @@
  * Telecom Call Manager API
  * OpenAPI spec version: 0.3.0
  */
-import type { PaymentRecord } from "./paymentRecord";
+import type { AvailableNumber } from "./availableNumber";
 
-export interface PaymentListResponse {
-  payments: PaymentRecord[];
+export interface NumberSearchResponse {
+  numbers: AvailableNumber[];
   total: number;
 }

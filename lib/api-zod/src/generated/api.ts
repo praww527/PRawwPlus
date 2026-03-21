@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * Telecom Call Manager API
- * OpenAPI spec version: 0.2.0
+ * OpenAPI spec version: 0.3.0
  */
 import * as zod from "zod";
 
@@ -153,40 +153,78 @@ export const GetCallResponse = zod.object({
 });
 
 /**
- * @summary List all phone numbers with ownership status
+ * @summary List user's owned phone numbers
  */
-export const ListNumbersResponse = zod.object({
-  numbers: zod.array(
-    zod.object({
-      id: zod.string(),
-      number: zod.string(),
-      status: zod.enum(["owned", "taken", "free"]),
-      userId: zod.string().nullish(),
-    }),
-  ),
+export const ListMyNumbersResponse = zod.object({
   myNumbers: zod.array(
     zod.object({
       id: zod.string(),
       number: zod.string(),
+      status: zod.string().optional(),
+      telnyxNumberId: zod.string().nullish(),
     }),
   ),
   maxNumbers: zod.number(),
   plan: zod.string(),
+  subscriptionActive: zod.boolean(),
 });
 
 /**
- * @summary Select/claim a free phone number
+ * @summary Search available numbers from Telnyx
  */
-export const SelectNumberBody = zod.object({
-  numberId: zod.string(),
+export const searchNumbersQueryCountryCodeDefault = `ZA`;
+export const searchNumbersQueryNumberTypeDefault = `local`;
+
+export const SearchNumbersQueryParams = zod.object({
+  country_code: zod.coerce
+    .string()
+    .default(searchNumbersQueryCountryCodeDefault),
+  number_type: zod
+    .enum(["local", "mobile"])
+    .default(searchNumbersQueryNumberTypeDefault),
+  locality: zod.coerce.string().optional(),
 });
 
-export const SelectNumberResponse = zod.object({
+export const SearchNumbersResponse = zod.object({
+  numbers: zod.array(
+    zod.object({
+      phone_number: zod.string(),
+      number_type: zod.string(),
+      region: zod.string().nullish(),
+      monthly_cost: zod.string().nullish(),
+      upfront_cost: zod.string().nullish(),
+      is_premium: zod.boolean(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Purchase a phone number via Telnyx
+ */
+export const BuyNumberBody = zod.object({
+  phone_number: zod.string(),
+});
+
+export const BuyNumberResponse = zod.object({
   message: zod.string(),
   number: zod.object({
     id: zod.string(),
     number: zod.string(),
+    status: zod.string().optional(),
+    telnyxNumberId: zod.string().nullish(),
   }),
+});
+
+/**
+ * @summary Remove/release a phone number
+ */
+export const RemoveNumberParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RemoveNumberResponse = zod.object({
+  message: zod.string(),
 });
 
 /**
@@ -194,7 +232,7 @@ export const SelectNumberResponse = zod.object({
  */
 export const ChangeNumberBody = zod.object({
   oldNumberId: zod.string(),
-  newNumberId: zod.string(),
+  newPhoneNumber: zod.string(),
 });
 
 export const ChangeNumberResponse = zod.object({
