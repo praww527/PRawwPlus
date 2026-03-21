@@ -1,12 +1,16 @@
 import { Router, type IRouter } from "express";
-import { connectDB, PaymentModel, UserModel } from "@workspace/db";
+import { connectDB, PaymentModel, UserModel, PhoneNumberModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 
 const router: IRouter = Router();
 
-const SUBSCRIPTION_AMOUNT = 100;
-const SUBSCRIPTION_CREDIT = 20;
+const PLAN_PRICES: Record<string, number> = {
+  basic: 59,
+  pro: 109,
+};
+
+const COIN_VALUE = 0.9;
 
 function buildPayFastData(params: {
   merchantId: string;
@@ -19,6 +23,7 @@ function buildPayFastData(params: {
   amount: number;
   itemName: string;
   passphrase?: string;
+  customStr2?: string;
 }): Record<string, string> {
   const fields: Record<string, string> = {
     merchant_id: params.merchantId,
@@ -31,6 +36,10 @@ function buildPayFastData(params: {
     item_name: params.itemName,
     custom_str1: params.userId,
   };
+
+  if (params.customStr2) {
+    fields.custom_str2 = params.customStr2;
+  }
 
   const signatureStr =
     Object.entries(fields)
@@ -51,6 +60,17 @@ function getBaseUrl(req: any): string {
   return `http://${host}`;
 }
 
+function getPayFastCredentials() {
+  const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "10000100";
+  const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "46f0cd694581a";
+  const passphrase = process.env.PAYFAST_PASSPHRASE;
+  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+  const paymentUrl = isSandbox
+    ? "https://sandbox.payfast.co.za/eng/process"
+    : "https://www.payfast.co.za/eng/process";
+  return { merchantId, merchantKey, passphrase, paymentUrl };
+}
+
 router.post("/payments/subscribe", async (req, res) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -58,45 +78,42 @@ router.post("/payments/subscribe", async (req, res) => {
   }
   await connectDB();
   const userId = (req as any).user.id;
+  const { plan } = req.body;
+
+  const selectedPlan = plan === "pro" ? "pro" : "basic";
+  const amount = PLAN_PRICES[selectedPlan];
   const paymentId = randomUUID();
   const base = getBaseUrl(req);
-
-  const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "10000100";
-  const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "46f0cd694581a";
-  const passphrase = process.env.PAYFAST_PASSPHRASE;
-  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+  const { merchantId, merchantKey, passphrase, paymentUrl } = getPayFastCredentials();
 
   await PaymentModel.create({
     _id: paymentId,
     userId,
-    amount: SUBSCRIPTION_AMOUNT,
-    creditAdded: SUBSCRIPTION_CREDIT,
+    amount,
+    coinsAdded: 0,
     status: "pending",
     paymentType: "subscription",
+    subscriptionPlan: selectedPlan,
   });
 
-  const notifyUrl = `${base}/api/payments/webhook`;
   const formFields = buildPayFastData({
     merchantId,
     merchantKey,
     returnUrl: `${base}/?payment=success`,
     cancelUrl: `${base}/subscription?payment=cancelled`,
-    notifyUrl,
+    notifyUrl: `${base}/api/payments/webhook`,
     paymentId,
     userId,
-    amount: SUBSCRIPTION_AMOUNT,
-    itemName: "Call Manager Monthly Subscription",
+    amount,
+    itemName: `${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} Plan - Monthly Subscription`,
     passphrase,
+    customStr2: selectedPlan,
   });
-
-  const paymentUrl = isSandbox
-    ? "https://sandbox.payfast.co.za/eng/process"
-    : "https://www.payfast.co.za/eng/process";
 
   res.json({
     paymentUrl,
-    amount: SUBSCRIPTION_AMOUNT.toFixed(2),
-    itemName: "Call Manager Monthly Subscription",
+    amount: amount.toFixed(2),
+    itemName: `${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} Plan`,
     paymentId,
     formFields,
   });
@@ -104,7 +121,7 @@ router.post("/payments/subscribe", async (req, res) => {
 
 router.post("/payments/webhook", async (req, res) => {
   const body: Record<string, string> = req.body;
-  const { m_payment_id, payment_status, custom_str1: userId } = body;
+  const { m_payment_id, payment_status, custom_str1: userId, custom_str2 } = body;
 
   if (!m_payment_id || !payment_status) {
     res.status(400).send("Invalid webhook");
@@ -126,15 +143,39 @@ router.post("/payments/webhook", async (req, res) => {
     await PaymentModel.updateOne({ _id: m_payment_id }, { status: "completed", completedAt: now });
 
     const targetUserId = userId ?? payment.userId;
-    await UserModel.updateOne(
-      { _id: targetUserId },
-      {
-        creditBalance: payment.creditAdded,
-        subscriptionStatus: "active",
-        lastPaymentDate: now,
-        nextPaymentDate: nextPayment,
-      },
-    );
+
+    if (payment.paymentType === "subscription") {
+      const plan = payment.subscriptionPlan ?? custom_str2 ?? "basic";
+      await UserModel.updateOne(
+        { _id: targetUserId },
+        {
+          subscriptionStatus: "active",
+          subscriptionPlan: plan,
+          subscriptionExpiresAt: nextPayment,
+          lastPaymentDate: now,
+          nextPaymentDate: nextPayment,
+        },
+      );
+    } else if (payment.paymentType === "topup") {
+      const coinsToAdd = payment.coinsAdded;
+      await UserModel.updateOne(
+        { _id: targetUserId },
+        { $inc: { coins: coinsToAdd } },
+      );
+    } else if (payment.paymentType === "number_change") {
+      const meta = payment.meta as any;
+      const oldNumberId = meta?.oldNumberId;
+      const newNumberId = meta?.newNumberId;
+      if (oldNumberId) {
+        await PhoneNumberModel.updateOne({ _id: oldNumberId }, { userId: null });
+      }
+      if (newNumberId) {
+        const alreadyTaken = await PhoneNumberModel.findOne({ _id: newNumberId, userId: { $ne: null } });
+        if (!alreadyTaken) {
+          await PhoneNumberModel.updateOne({ _id: newNumberId }, { userId: targetUserId });
+        }
+      }
+    }
   } else if (payment_status === "FAILED" || payment_status === "CANCELLED") {
     await PaymentModel.updateOne({ _id: m_payment_id }, { status: "failed" });
   }
@@ -167,45 +208,38 @@ router.post("/credits/topup", async (req, res) => {
     return;
   }
 
+  const coinsAdded = Math.floor(amount / COIN_VALUE);
   const paymentId = randomUUID();
   const base = getBaseUrl(req);
-
-  const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "10000100";
-  const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "46f0cd694581a";
-  const passphrase = process.env.PAYFAST_PASSPHRASE;
-  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+  const { merchantId, merchantKey, passphrase, paymentUrl } = getPayFastCredentials();
 
   await PaymentModel.create({
     _id: paymentId,
     userId,
     amount,
-    creditAdded: amount,
+    coinsAdded,
     status: "pending",
     paymentType: "topup",
   });
 
-  const notifyUrl = `${base}/api/payments/webhook`;
   const formFields = buildPayFastData({
     merchantId,
     merchantKey,
     returnUrl: `${base}/?payment=success`,
-    cancelUrl: `${base}/credits?payment=cancelled`,
-    notifyUrl,
+    cancelUrl: `${base}/wallet?payment=cancelled`,
+    notifyUrl: `${base}/api/payments/webhook`,
     paymentId,
     userId,
     amount,
-    itemName: `Call Credit Top-Up R${amount}`,
+    itemName: `Wallet Top-Up R${amount} (${coinsAdded} coins)`,
     passphrase,
   });
-
-  const paymentUrl = isSandbox
-    ? "https://sandbox.payfast.co.za/eng/process"
-    : "https://www.payfast.co.za/eng/process";
 
   res.json({
     paymentUrl,
     amount: amount.toFixed(2),
-    itemName: `Call Credit Top-Up R${amount}`,
+    itemName: `Wallet Top-Up R${amount} (${coinsAdded} coins)`,
+    coinsAdded,
     paymentId,
     formFields,
   });

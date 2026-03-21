@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useSearch } from "wouter";
+import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, AlertCircle, Loader2 } from "lucide-react";
+import { Delete, Phone, AlertCircle, Loader2, Coins } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { NAV_H } from "@/components/Layout";
@@ -24,6 +24,7 @@ const DIAL_KEYS = [
 
 export default function DialPad() {
   const search = useSearch();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
@@ -48,30 +49,24 @@ export default function DialPad() {
       toast({ title: "Enter a valid phone number", variant: "destructive" });
       return;
     }
-    /* Show calling screen immediately, fire API — connect when it resolves */
     startOutgoing({ number });
     try {
       await initiateCall({ data: { recipientNumber: number } });
-      connectCall(); /* API confirmed → transition to connected, start timer */
+      connectCall();
     } catch (err: any) {
       endCall();
       toast({
         title: "Call failed",
-        description: err?.message ?? "Check your balance and subscription.",
+        description: err?.message ?? "Check your subscription and coin balance.",
         variant: "destructive",
       });
     }
   };
 
-  const creditBalance = user?.creditBalance ?? 0;
-  const isActive     = user?.subscriptionStatus === "active";
-  const canCall      = creditBalance > 0 && isActive;
+  const coins = user?.coins ?? 0;
+  const isActive = user?.subscriptionStatus === "active";
+  const canCall = coins > 0 && isActive;
 
-  /*
-   * Outer container: explicit height = visible area above the nav.
-   * Works inside Layout's overflow-y:auto scroll container because
-   * the height is absolute — no flex-1 inheritance needed.
-   */
   const outerH = `calc(100dvh - env(safe-area-inset-top,0px) - ${NAV_H}px - env(safe-area-inset-bottom,0px) - 8px)`;
 
   return (
@@ -82,14 +77,21 @@ export default function DialPad() {
         alignItems: "center",
         justifyContent: "center",
         height: outerH,
-        paddingBottom: 20,   /* keep ~20px above nav edge */
+        paddingBottom: 20,
       }}
       className="animate-in fade-in duration-300"
     >
-      {/* ── Number display ── */}
-      <div
-        style={{ display: "flex", alignItems: "center", width: "100%", marginBottom: 20 }}
-      >
+      {/* Coin balance indicator */}
+      {user && isActive && (
+        <div className="flex items-center gap-1.5 mb-4 px-3 py-1.5 rounded-full glass border border-white/10">
+          <Coins className="h-3 w-3 text-amber-400" />
+          <span className="text-xs font-semibold text-amber-400">{coins} coins</span>
+          <span className="text-[10px] text-white/30">≈ {coins} min</span>
+        </div>
+      )}
+
+      {/* Number display */}
+      <div style={{ display: "flex", alignItems: "center", width: "100%", marginBottom: 20 }}>
         <div style={{ width: 36 }} />
         <p
           className={cn(
@@ -116,25 +118,24 @@ export default function DialPad() {
         </div>
       </div>
 
-      {/* ── Subscription / credit warning ── */}
+      {/* Warning banner */}
       {!canCall && user && (
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-xl
-                     bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs"
+                     bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs cursor-pointer"
           style={{ width: "100%", marginBottom: 16 }}
+          onClick={() => !isActive ? setLocation("/profile") : setLocation("/profile")}
         >
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            {!isActive ? "Subscribe to call — R100/month" : "Top up credit on Profile."}
+            {!isActive
+              ? "Subscribe to call — Basic R59 or Pro R109/month"
+              : "Top up your wallet to make calls."}
           </span>
         </div>
       )}
 
-      {/*
-       * ── 3×4 keypad ──
-       * Fixed 70×70 px buttons, 20 px gap, centered.
-       * Total grid width: 70*3 + 20*2 = 250 px.
-       */}
+      {/* 3×4 keypad */}
       <div
         style={{
           display: "grid",
@@ -183,7 +184,7 @@ export default function DialPad() {
         ))}
       </div>
 
-      {/* ── Call button ── */}
+      {/* Call button */}
       <button
         onClick={handleCall}
         disabled={isPending || !number}

@@ -12,13 +12,14 @@ export interface IUser extends Document {
   verificationTokenExpiry?: Date;
   resetPasswordToken?: string;
   resetPasswordTokenExpiry?: Date;
-  creditBalance: number;
+  coins: number;
   subscriptionStatus: string;
-  subscriptionPlan?: string;
+  subscriptionPlan: "basic" | "pro";
+  subscriptionExpiresAt?: Date;
   lastPaymentDate?: Date;
   nextPaymentDate?: Date;
   totalCallsUsed: number;
-  totalCreditUsed: number;
+  totalCoinsUsed: number;
   isAdmin: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -37,13 +38,14 @@ const UserSchema = new Schema<IUser>(
     verificationTokenExpiry: { type: Date },
     resetPasswordToken: { type: String },
     resetPasswordTokenExpiry: { type: Date },
-    creditBalance: { type: Number, default: 0 },
+    coins: { type: Number, default: 0 },
     subscriptionStatus: { type: String, default: "inactive" },
     subscriptionPlan: { type: String, default: "basic" },
+    subscriptionExpiresAt: { type: Date },
     lastPaymentDate: { type: Date },
     nextPaymentDate: { type: Date },
     totalCallsUsed: { type: Number, default: 0 },
-    totalCreditUsed: { type: Number, default: 0 },
+    totalCoinsUsed: { type: Number, default: 0 },
     isAdmin: { type: Boolean, default: false },
   },
   { timestamps: true, _id: false }

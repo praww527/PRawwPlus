@@ -5,7 +5,8 @@
  * Telecom Call Manager API
  * OpenAPI spec version: 0.2.0
  */
+import type { SubscribeRequestPlan } from "./subscribeRequestPlan";
 
-export interface HealthStatus {
-  status: string;
+export interface SubscribeRequest {
+  plan: SubscribeRequestPlan;
 }

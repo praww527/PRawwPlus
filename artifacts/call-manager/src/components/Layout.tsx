@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Phone, History, BookUser, User } from "lucide-react";
+import { Phone, History, Hash, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LayoutProps {
@@ -9,11 +9,10 @@ interface LayoutProps {
 const navItems = [
   { href: "/dashboard", label: "Dial Pad", icon: Phone },
   { href: "/calls", label: "Calls", icon: History },
-  { href: "/contacts", label: "Contacts", icon: BookUser },
+  { href: "/numbers", label: "Numbers", icon: Hash },
   { href: "/profile", label: "Profile", icon: User },
 ];
 
-/* Height of the fixed bottom nav bar in px */
 export const NAV_H = 68;
 
 export function Layout({ children }: LayoutProps) {
@@ -22,7 +21,6 @@ export function Layout({ children }: LayoutProps) {
   return (
     <div className="bg-background" style={{ height: "100dvh", overflow: "hidden" }}>
 
-      {/* Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <img
           src={`${import.meta.env.BASE_URL}images/bg-abstract.png`}
@@ -32,13 +30,10 @@ export function Layout({ children }: LayoutProps) {
         <div className="absolute inset-0 bg-background/85 backdrop-blur-[80px]" />
       </div>
 
-      {/* Scrollable content area — explicit height so children know their bounds */}
       <main
         className="relative z-10 overflow-y-auto"
         style={{
-          /* Sit below Dynamic Island / status bar */
           paddingTop: "env(safe-area-inset-top, 0px)",
-          /* Reserve space for nav + home indicator */
           paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 8px)`,
           height: "100dvh",
         }}
@@ -48,7 +43,6 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* Bottom Navigation — iOS tab-bar style, always on top */}
       <nav
         className="fixed bottom-0 inset-x-0 z-30"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}

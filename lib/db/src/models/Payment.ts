@@ -4,10 +4,12 @@ export interface IPayment extends Document {
   _id: string;
   userId: string;
   amount: number;
-  creditAdded: number;
+  coinsAdded: number;
   status: string;
   paymentType: string;
+  subscriptionPlan?: string;
   payfastPaymentId?: string;
+  meta?: Record<string, string>;
   createdAt: Date;
   completedAt?: Date;
 }
@@ -17,10 +19,12 @@ const PaymentSchema = new Schema<IPayment>(
     _id: { type: String, required: true },
     userId: { type: String, required: true, index: true },
     amount: { type: Number, required: true },
-    creditAdded: { type: Number, default: 0 },
+    coinsAdded: { type: Number, default: 0 },
     status: { type: String, default: "pending" },
     paymentType: { type: String, default: "subscription" },
+    subscriptionPlan: { type: String },
     payfastPaymentId: { type: String },
+    meta: { type: Schema.Types.Mixed },
     completedAt: { type: Date },
   },
   { timestamps: true, _id: false }
