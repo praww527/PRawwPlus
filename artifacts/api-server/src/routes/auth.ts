@@ -15,10 +15,9 @@ import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
 const router: IRouter = Router();
 
 function getBaseUrl(req: Request): string {
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers["host"] || "localhost";
-  const domains = process.env.REPLIT_DOMAINS?.split(",")[0];
-  if (domains) return `https://${domains}`;
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+  const host = (req.headers["x-forwarded-host"] as string) || (req.headers["host"] as string) || "localhost";
   return `${proto}://${host}`;
 }
 

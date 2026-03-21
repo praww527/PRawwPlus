@@ -54,10 +54,10 @@ function buildPayFastData(params: {
 }
 
 function getBaseUrl(req: any): string {
-  const domains = process.env.REPLIT_DOMAINS?.split(",")[0];
-  if (domains) return `https://${domains}`;
-  const host = req.headers.host ?? "localhost";
-  return `http://${host}`;
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+  const host = (req.headers.host as string) ?? "localhost";
+  return `${proto}://${host}`;
 }
 
 function getPayFastCredentials() {

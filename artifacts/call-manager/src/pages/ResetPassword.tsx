@@ -51,7 +51,7 @@ export default function ResetPassword() {
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center">
                 <Phone className="h-5 w-5 text-white" />
               </div>
-              <span className="text-lg font-display font-bold text-white">CallManager</span>
+              <span className="text-lg font-display font-bold text-white">PRaww+</span>
             </div>
 
             {done ? (

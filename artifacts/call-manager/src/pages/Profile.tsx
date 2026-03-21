@@ -326,7 +326,7 @@ export default function Profile() {
           iconBg="bg-blue-600/70"
           label="Help / Support"
           value={CONTACT_EMAIL}
-          onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=CallManager Support`, "_blank")}
+          onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=PRaww+ Support`, "_blank")}
         />
         <SettingsRow
           icon={<Mail className="h-4 w-4 text-white" />}
@@ -356,7 +356,7 @@ export default function Profile() {
       </div>
 
       <p className="text-center text-[10px] text-muted-foreground/50 pb-2">
-        CallManager by PrawwPlus · {CONTACT_EMAIL}
+        PRaww+ · {CONTACT_EMAIL}
       </p>
 
       {/* ── Sheet: Top Up ─────────────────────────────── */}
@@ -542,12 +542,12 @@ export default function Profile() {
 
             <div>
               <p className="font-semibold text-foreground mb-1">1. Acceptance of Terms</p>
-              <p>By accessing or using CallManager, you agree to be bound by these Terms of Service. If you do not agree, you may not use the service.</p>
+              <p>By accessing or using PRaww+, you agree to be bound by these Terms of Service. If you do not agree, you may not use the service.</p>
             </div>
 
             <div>
               <p className="font-semibold text-foreground mb-1">2. Service Description</p>
-              <p>CallManager provides VoIP calling services, virtual phone number management, and related communication tools for users in South Africa.</p>
+              <p>PRaww+ provides VoIP calling services, virtual phone number management, and related communication tools for users in South Africa.</p>
             </div>
 
             <div>
@@ -562,7 +562,7 @@ export default function Profile() {
 
             <div>
               <p className="font-semibold text-foreground mb-1">5. Limitation of Liability</p>
-              <p>CallManager is provided "as is." We do not guarantee uninterrupted service and are not liable for any damages arising from use of the service.</p>
+              <p>PRaww+ is provided "as is." We do not guarantee uninterrupted service and are not liable for any damages arising from use of the service.</p>
             </div>
 
             <div>
@@ -666,7 +666,7 @@ export default function Profile() {
             </div>
 
             <p className="text-[11px] text-muted-foreground text-center">
-              PrawwPlus · {CONTACT_EMAIL}
+              PRaww+ · {CONTACT_EMAIL}
             </p>
           </div>
         </Modal>
