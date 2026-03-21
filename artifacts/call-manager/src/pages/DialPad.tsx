@@ -27,7 +27,7 @@ export default function DialPad() {
   const { toast } = useToast();
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
-  const { startOutgoing, endCall } = useCall();
+  const { startOutgoing, connectCall, endCall } = useCall();
   const [number, setNumber] = useState("");
 
   useEffect(() => {
@@ -48,10 +48,11 @@ export default function DialPad() {
       toast({ title: "Enter a valid phone number", variant: "destructive" });
       return;
     }
-    /* Immediately show calling screen, then fire API in background */
+    /* Show calling screen immediately, fire API — connect when it resolves */
     startOutgoing({ number });
     try {
       await initiateCall({ data: { recipientNumber: number } });
+      connectCall(); /* API confirmed → transition to connected, start timer */
     } catch (err: any) {
       endCall();
       toast({
@@ -190,21 +191,21 @@ export default function DialPad() {
           width: 85,
           height: 85,
           borderRadius: "50%",
-          background: canCall && number ? "#34c759" : "rgba(255,255,255,0.07)",
-          border: canCall && number ? "none" : "1px solid rgba(255,255,255,0.12)",
+          background: "#34c759",
+          border: "none",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           marginTop: 14,
-          boxShadow: canCall && number ? "0 6px 20px rgba(52,199,89,0.4)" : "none",
-          cursor: canCall && number ? "pointer" : "not-allowed",
-          opacity: !number ? 0.4 : 1,
-          transition: "transform 0.15s, box-shadow 0.15s",
+          boxShadow: number ? "0 6px 20px rgba(52,199,89,0.4)" : "none",
+          cursor: number ? "pointer" : "not-allowed",
+          opacity: number ? 1 : 0.35,
+          transition: "transform 0.15s, box-shadow 0.15s, opacity 0.2s",
           position: "relative",
         }}
         className={cn(
           "active:scale-90",
-          canCall && number && "hover:scale-105"
+          number && "hover:scale-105"
         )}
       >
         {isPending ? (
@@ -212,7 +213,7 @@ export default function DialPad() {
         ) : (
           <Phone className="text-white" style={{ width: 30, height: 30 }} />
         )}
-        {canCall && number && (
+        {number && (
           <span
             style={{
               position: "absolute",
