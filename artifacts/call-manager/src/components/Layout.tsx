@@ -33,13 +33,13 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Scrollable Content */}
       <main
-        className="relative z-10 flex-1 overflow-y-auto"
+        className="relative z-10 flex-1 overflow-y-auto flex flex-col"
         style={{
           paddingTop: "env(safe-area-inset-top, 0px)",
           paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
         }}
       >
-        <div className="max-w-lg mx-auto px-4 pt-4">
+        <div className="max-w-lg w-full mx-auto px-4 flex-1 flex flex-col">
           {children}
         </div>
       </main>

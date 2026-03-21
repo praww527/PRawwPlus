@@ -73,11 +73,8 @@ export default function DialPad() {
   const canCall = creditBalance > 0 && isActive;
 
   return (
-    /* Outer: fill the available main-content height and center everything */
-    <div
-      className="flex flex-col items-center justify-center animate-in fade-in duration-300"
-      style={{ minHeight: "calc(100dvh - 72px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))" }}
-    >
+    /* Outer: fill the height the Layout propagates and center everything */
+    <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in duration-300">
       {/* ── Number display ── */}
       <div
         className="flex items-center justify-between mb-6"
