@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.2.0
  */
 
-export type AdminListCallsParams = {
-  page?: number;
-  limit?: number;
-  userId?: string;
-};
+export interface SelectNumberRequest {
+  numberId: string;
+}

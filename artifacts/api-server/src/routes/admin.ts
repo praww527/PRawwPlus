@@ -110,7 +110,7 @@ router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res)
     return;
   }
 
-  user.creditBalance = Math.max(0, user.creditBalance + Number(amount));
+  user.coins = Math.max(0, user.coins + Number(amount));
   await user.save();
 
   res.json({ ...user.toObject(), id: user._id });

@@ -8,18 +8,18 @@ import { Layout } from "@/components/Layout";
 import { LoadingScreen } from "@/components/ui/spinner";
 import { CallProvider, useCall } from "@/context/CallContext";
 
-import Home          from "@/pages/Home";
-import LoginPage     from "@/pages/LoginPage";
-import SignUp        from "@/pages/SignUp";
-import VerifyEmail   from "@/pages/VerifyEmail";
-import ForgotPassword from "@/pages/ForgotPassword";
-import ResetPassword from "@/pages/ResetPassword";
-import DialPad       from "@/pages/DialPad";
-import CallHistory   from "@/pages/CallHistory";
-import Contacts      from "@/pages/Contacts";
-import Profile       from "@/pages/Profile";
-import Admin         from "@/pages/Admin";
-import CallingScreen    from "@/pages/CallingScreen";
+import Home            from "@/pages/Home";
+import LoginPage       from "@/pages/LoginPage";
+import SignUp          from "@/pages/SignUp";
+import VerifyEmail     from "@/pages/VerifyEmail";
+import ForgotPassword  from "@/pages/ForgotPassword";
+import ResetPassword   from "@/pages/ResetPassword";
+import DialPad         from "@/pages/DialPad";
+import CallHistory     from "@/pages/CallHistory";
+import Numbers         from "@/pages/Numbers";
+import Profile         from "@/pages/Profile";
+import Admin           from "@/pages/Admin";
+import CallingScreen      from "@/pages/CallingScreen";
 import IncomingCallScreen from "@/pages/IncomingCallScreen";
 
 const queryClient = new QueryClient({
@@ -67,7 +67,6 @@ function PublicRoute({ component: Component }: { component: React.ComponentType 
   return <Component />;
 }
 
-/* Full-screen call overlays — rendered on top of everything */
 function CallOverlays() {
   const { callState } = useCall();
   if (callState === "outgoing") return <CallingScreen />;
@@ -78,17 +77,17 @@ function CallOverlays() {
 function Router() {
   return (
     <Switch>
-      <Route path="/"               component={() => <PublicRoute   component={Home} />} />
-      <Route path="/login"          component={() => <PublicRoute   component={LoginPage} />} />
-      <Route path="/signup"         component={() => <PublicRoute   component={SignUp} />} />
-      <Route path="/verify-email"   component={VerifyEmail} />
-      <Route path="/forgot-password" component={() => <PublicRoute  component={ForgotPassword} />} />
-      <Route path="/reset-password" component={ResetPassword} />
-      <Route path="/dashboard"      component={() => <ProtectedRoute component={DialPad} />} />
-      <Route path="/calls"          component={() => <ProtectedRoute component={CallHistory} />} />
-      <Route path="/contacts"       component={() => <ProtectedRoute component={Contacts} />} />
-      <Route path="/profile"        component={() => <ProtectedRoute component={Profile} />} />
-      <Route path="/admin"          component={() => <AdminRoute     component={Admin} />} />
+      <Route path="/"                component={() => <PublicRoute   component={Home} />} />
+      <Route path="/login"           component={() => <PublicRoute   component={LoginPage} />} />
+      <Route path="/signup"          component={() => <PublicRoute   component={SignUp} />} />
+      <Route path="/verify-email"    component={VerifyEmail} />
+      <Route path="/forgot-password" component={() => <PublicRoute   component={ForgotPassword} />} />
+      <Route path="/reset-password"  component={ResetPassword} />
+      <Route path="/dashboard"       component={() => <ProtectedRoute component={DialPad} />} />
+      <Route path="/calls"           component={() => <ProtectedRoute component={CallHistory} />} />
+      <Route path="/numbers"         component={() => <ProtectedRoute component={Numbers} />} />
+      <Route path="/profile"         component={() => <ProtectedRoute component={Profile} />} />
+      <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
     </Switch>
   );
 }

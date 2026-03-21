@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Api
-  version: 0.1.0
-  description: Call Manager API
+  version: 0.2.0
+  description: Telecom Call Manager API
 servers:
   - url: /api
     description: Base API path
@@ -13,12 +13,12 @@ tags:
     description: Authentication operations
   - name: users
     description: User management
-  - name: subscriptions
-    description: Subscription management
   - name: calls
     description: Call management
   - name: payments
     description: Payment operations
+  - name: numbers
+    description: Phone number management
   - name: admin
     description: Admin operations
 
@@ -48,18 +48,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUser"
-        "401":
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /users/me:
     get:
       operationId: getMe
       tags: [users]
-      summary: Get current user profile with balance and subscription
+      summary: Get current user profile
       responses:
         "200":
           description: User profile
@@ -78,7 +72,7 @@ paths:
     get:
       operationId: listCalls
       tags: [calls]
-      summary: List call history for current user
+      summary: List call history
       parameters:
         - name: page
           in: query
@@ -97,12 +91,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CallListResponse"
-        "401":
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
     post:
       operationId: makeCall
       tags: [calls]
@@ -121,13 +109,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CallRecord"
         "400":
-          description: Bad request or insufficient credit
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Not authenticated
+          description: Bad request
           content:
             application/json:
               schema:
@@ -151,31 +133,88 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CallRecord"
-        "404":
-          description: Call not found
+
+  /numbers:
+    get:
+      operationId: listNumbers
+      tags: [numbers]
+      summary: List all phone numbers with ownership status
+      responses:
+        "200":
+          description: Phone numbers list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NumberListResponse"
+        "403":
+          description: Subscription required
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /payments/subscribe:
+  /numbers/select:
     post:
-      operationId: initiateSubscription
-      tags: [payments]
-      summary: Initiate a PayFast subscription payment
+      operationId: selectNumber
+      tags: [numbers]
+      summary: Select/claim a free phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectNumberRequest"
       responses:
         "200":
-          description: PayFast payment data to redirect to
+          description: Number assigned
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PayFastPaymentData"
-        "401":
-          description: Not authenticated
+                $ref: "#/components/schemas/NumberActionResponse"
+        "400":
+          description: Limit reached or taken
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /numbers/change:
+    post:
+      operationId: changeNumber
+      tags: [numbers]
+      summary: Initiate number change (R100 fee via PayFast)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeNumberRequest"
+      responses:
+        "200":
+          description: PayFast payment data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayFastPaymentData"
+
+  /payments/subscribe:
+    post:
+      operationId: initiateSubscription
+      tags: [payments]
+      summary: Initiate a subscription payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscribeRequest"
+      responses:
+        "200":
+          description: PayFast payment data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayFastPaymentData"
 
   /payments/webhook:
     post:
@@ -193,14 +232,12 @@ paths:
       responses:
         "200":
           description: Webhook processed
-        "400":
-          description: Invalid webhook
 
   /payments/history:
     get:
       operationId: listPayments
       tags: [payments]
-      summary: List payment history for current user
+      summary: List payment history
       responses:
         "200":
           description: Payment history
@@ -208,18 +245,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentListResponse"
-        "401":
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /credits/topup:
     post:
       operationId: topUpCredits
       tags: [payments]
-      summary: Top up call credits manually (initiates PayFast payment)
+      summary: Top up wallet coins via PayFast
       requestBody:
         required: true
         content:
@@ -233,12 +264,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PayFastPaymentData"
-        "401":
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /admin/users:
     get:
@@ -263,12 +288,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminUserListResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /admin/users/{userId}:
     get:
@@ -288,18 +307,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminUserDetail"
-        "404":
-          description: User not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /admin/users/{userId}/adjust-credit:
     post:
       operationId: adminAdjustCredit
       tags: [admin]
-      summary: Admin - manually adjust user credit
+      summary: Admin - manually adjust user coins
       parameters:
         - name: userId
           in: path
@@ -314,17 +327,11 @@ paths:
               $ref: "#/components/schemas/AdjustCreditRequest"
       responses:
         "200":
-          description: Credit adjusted
+          description: Coins adjusted
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserProfile"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /admin/stats:
     get:
@@ -338,18 +345,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminStats"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /admin/calls:
     get:
       operationId: adminListCalls
       tags: [admin]
-      summary: Admin - list all calls across all users
+      summary: Admin - list all calls
       parameters:
         - name: page
           in: query
@@ -372,12 +373,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CallListResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   schemas:
@@ -386,8 +381,7 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
     ErrorResponse:
       type: object
@@ -396,8 +390,7 @@ components:
           type: string
         message:
           type: string
-      required:
-        - error
+      required: [error]
 
     AuthUser:
       type: object
@@ -412,10 +405,7 @@ components:
           type: string
         isAdmin:
           type: boolean
-      required:
-        - id
-        - username
-        - isAdmin
+      required: [id, username, isAdmin]
 
     UserProfile:
       type: object
@@ -430,14 +420,19 @@ components:
           type: string
         email:
           type: string
-        creditBalance:
+        coins:
           type: number
-          description: Current call credit balance in Rands
+          description: Wallet coin balance (1 coin = R0.90)
         subscriptionStatus:
           type: string
           enum: [active, inactive, pending]
         subscriptionPlan:
           type: string
+          enum: [basic, pro]
+        subscriptionExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
         lastPaymentDate:
           type: string
           format: date-time
@@ -448,7 +443,7 @@ components:
           nullable: true
         totalCallsUsed:
           type: integer
-        totalCreditUsed:
+        totalCoinsUsed:
           type: number
         isAdmin:
           type: boolean
@@ -458,12 +453,79 @@ components:
       required:
         - id
         - username
-        - creditBalance
+        - coins
         - subscriptionStatus
+        - subscriptionPlan
         - totalCallsUsed
-        - totalCreditUsed
+        - totalCoinsUsed
         - isAdmin
         - createdAt
+
+    PhoneNumber:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+          enum: [owned, taken, free]
+        userId:
+          type: string
+          nullable: true
+      required: [id, number, status]
+
+    OwnedNumber:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+      required: [id, number]
+
+    NumberListResponse:
+      type: object
+      properties:
+        numbers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhoneNumber"
+        myNumbers:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnedNumber"
+        maxNumbers:
+          type: integer
+        plan:
+          type: string
+      required: [numbers, myNumbers, maxNumbers, plan]
+
+    SelectNumberRequest:
+      type: object
+      properties:
+        numberId:
+          type: string
+      required: [numberId]
+
+    ChangeNumberRequest:
+      type: object
+      properties:
+        oldNumberId:
+          type: string
+        newNumberId:
+          type: string
+      required: [oldNumberId, newNumberId]
+
+    NumberActionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        number:
+          $ref: "#/components/schemas/OwnedNumber"
+      required: [message, number]
 
     CallRecord:
       type: object
@@ -481,10 +543,9 @@ components:
           enum: [initiated, ringing, in-progress, completed, failed, busy, no-answer]
         duration:
           type: integer
-          description: Duration in seconds
         cost:
           type: number
-          description: Cost in Rands
+          description: Coins used
         telnyxCallId:
           type: string
           nullable: true
@@ -505,14 +566,7 @@ components:
         username:
           type: string
           nullable: true
-      required:
-        - id
-        - userId
-        - recipientNumber
-        - status
-        - duration
-        - cost
-        - createdAt
+      required: [id, userId, recipientNumber, status, duration, cost, createdAt]
 
     CallListResponse:
       type: object
@@ -529,69 +583,50 @@ components:
           type: integer
         totalPages:
           type: integer
-      required:
-        - calls
-        - total
-        - page
-        - limit
-        - totalPages
+      required: [calls, total, page, limit, totalPages]
 
     MakeCallRequest:
       type: object
       properties:
         recipientNumber:
           type: string
-          description: Phone number to call (E.164 format)
-        callerNumber:
-          type: string
-          description: Caller ID number
         notes:
           type: string
-      required:
-        - recipientNumber
+      required: [recipientNumber]
+
+    SubscribeRequest:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [basic, pro]
+      required: [plan]
 
     PayFastPaymentData:
       type: object
       properties:
         paymentUrl:
           type: string
-        merchantId:
-          type: string
-        merchantKey:
-          type: string
         amount:
           type: string
         itemName:
           type: string
-        returnUrl:
-          type: string
-        cancelUrl:
-          type: string
-        notifyUrl:
-          type: string
         paymentId:
           type: string
-        signature:
-          type: string
+        coinsAdded:
+          type: integer
         formFields:
           type: object
           additionalProperties:
             type: string
-      required:
-        - paymentUrl
-        - amount
-        - itemName
-        - paymentId
-        - formFields
+      required: [paymentUrl, amount, itemName, paymentId, formFields]
 
     TopUpRequest:
       type: object
       properties:
         amount:
           type: number
-          description: Amount in Rands to top up
-      required:
-        - amount
+      required: [amount]
 
     PaymentRecord:
       type: object
@@ -602,14 +637,17 @@ components:
           type: string
         amount:
           type: number
-        creditAdded:
+        coinsAdded:
           type: number
         status:
           type: string
           enum: [pending, completed, failed, cancelled]
         paymentType:
           type: string
-          enum: [subscription, topup]
+          enum: [subscription, topup, number_change]
+        subscriptionPlan:
+          type: string
+          nullable: true
         payfastPaymentId:
           type: string
           nullable: true
@@ -620,14 +658,7 @@ components:
           type: string
           format: date-time
           nullable: true
-      required:
-        - id
-        - userId
-        - amount
-        - creditAdded
-        - status
-        - paymentType
-        - createdAt
+      required: [id, userId, amount, coinsAdded, status, paymentType, createdAt]
 
     PaymentListResponse:
       type: object
@@ -638,9 +669,7 @@ components:
             $ref: "#/components/schemas/PaymentRecord"
         total:
           type: integer
-      required:
-        - payments
-        - total
+      required: [payments, total]
 
     AdminUserListResponse:
       type: object
@@ -657,12 +686,7 @@ components:
           type: integer
         totalPages:
           type: integer
-      required:
-        - users
-        - total
-        - page
-        - limit
-        - totalPages
+      required: [users, total, page, limit, totalPages]
 
     AdminUserDetail:
       type: object
@@ -677,22 +701,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PaymentRecord"
-      required:
-        - user
-        - recentCalls
-        - recentPayments
+      required: [user, recentCalls, recentPayments]
 
     AdjustCreditRequest:
       type: object
       properties:
         amount:
           type: number
-          description: Amount to add (positive) or remove (negative)
         reason:
           type: string
-      required:
-        - amount
-        - reason
+      required: [amount, reason]
 
     AdminStats:
       type: object

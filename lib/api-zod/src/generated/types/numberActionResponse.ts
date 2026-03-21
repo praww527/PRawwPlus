@@ -5,9 +5,9 @@
  * Telecom Call Manager API
  * OpenAPI spec version: 0.2.0
  */
+import type { OwnedNumber } from "./ownedNumber";
 
-export type AdminListCallsParams = {
-  page?: number;
-  limit?: number;
-  userId?: string;
-};
+export interface NumberActionResponse {
+  message: string;
+  number: OwnedNumber;
+}

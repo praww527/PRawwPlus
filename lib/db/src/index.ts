@@ -48,3 +48,4 @@ export * from "./models/User";
 export * from "./models/Session";
 export * from "./models/Call";
 export * from "./models/Payment";
+export * from "./models/PhoneNumber";
