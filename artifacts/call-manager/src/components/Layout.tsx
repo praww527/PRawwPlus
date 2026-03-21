@@ -19,8 +19,10 @@ export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
 
   return (
-    <div className="bg-background" style={{ height: "100dvh", overflow: "hidden" }}>
-
+    <div
+      className="bg-background flex flex-col"
+      style={{ height: "100dvh", overflow: "hidden" }}
+    >
       <div className="fixed inset-0 z-0 pointer-events-none">
         <img
           src={`${import.meta.env.BASE_URL}images/bg-abstract.png`}
@@ -31,23 +33,19 @@ export function Layout({ children }: LayoutProps) {
       </div>
 
       <main
-        className="relative z-10 overflow-y-auto"
-        style={{
-          paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 8px)`,
-          height: "100dvh",
-        }}
+        className="relative z-10 flex-1 overflow-y-auto"
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
-        <div className="max-w-lg mx-auto px-4 w-full">
+        <div className="max-w-lg mx-auto px-4 w-full py-4">
           {children}
         </div>
       </main>
 
       <nav
-        className="fixed bottom-0 inset-x-0 z-30"
+        className="relative z-30 shrink-0"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
       >
-        <div className="max-w-lg mx-auto px-4 pb-1">
+        <div className="max-w-lg mx-auto px-4 pb-1 pt-1">
           <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/50 flex items-center justify-around px-1 py-1.5">
             {navItems.map((item) => {
               const isActive =
@@ -59,7 +57,7 @@ export function Layout({ children }: LayoutProps) {
                   <div
                     className={cn(
                       "flex flex-col items-center gap-0.5 px-3 py-1 rounded-full transition-all duration-200 cursor-pointer select-none min-w-[56px]",
-                      isActive ? "text-primary" : "text-white/40 hover:text-white/70"
+                      isActive ? "text-primary" : "text-muted-foreground hover:text-foreground/70"
                     )}
                   >
                     <div
@@ -67,7 +65,7 @@ export function Layout({ children }: LayoutProps) {
                         "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
                         isActive
                           ? "bg-primary/20 shadow-[0_0_14px_-4px_hsl(var(--primary)/0.55)]"
-                          : "hover:bg-white/5"
+                          : "hover:bg-foreground/5"
                       )}
                     >
                       <item.icon className="h-[15px] w-[15px]" />
@@ -75,7 +73,7 @@ export function Layout({ children }: LayoutProps) {
                     <span
                       className={cn(
                         "text-[9px] font-semibold tracking-wide leading-none",
-                        isActive ? "text-primary" : "text-white/40"
+                        isActive ? "text-primary" : "text-muted-foreground"
                       )}
                     >
                       {item.label}
