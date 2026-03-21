@@ -4,6 +4,7 @@ import { useMakeCall, useGetMe } from "@workspace/api-client-react";
 import { Delete, Phone, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { NAV_H } from "@/components/Layout";
 
 const DIAL_KEYS = [
   { key: "1", sub: "" },
@@ -19,12 +20,6 @@ const DIAL_KEYS = [
   { key: "0", sub: "+" },
   { key: "#", sub: "" },
 ];
-
-/* Button diameter in px — drives every size calculation */
-const BTN = 72;
-const GAP = 14;
-const CALL_BTN = Math.round(BTN * 1.22); /* ≈ 88 px */
-const GRID_W = BTN * 3 + GAP * 2; /* 244 px */
 
 export default function DialPad() {
   const [, setLocation] = useLocation();
@@ -73,36 +68,40 @@ export default function DialPad() {
   const canCall = creditBalance > 0 && isActive;
 
   return (
-    /* Outer: fill the height the Layout propagates and center everything */
-    <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in duration-300">
+    /*
+     * Explicit height = full viewport minus safe areas and nav.
+     * This works inside an overflow-y:auto scroll container because
+     * we're telling the div exactly how tall to be — no flex-1 needed.
+     */
+    <div
+      className="flex flex-col items-center justify-center animate-in fade-in duration-300"
+      style={{
+        height: `calc(100dvh - env(safe-area-inset-top, 0px) - ${NAV_H}px - env(safe-area-inset-bottom, 0px) - 8px)`,
+      }}
+    >
       {/* ── Number display ── */}
-      <div
-        className="flex items-center justify-between mb-6"
-        style={{ width: GRID_W }}
-      >
-        {/* spacer so delete stays right-aligned */}
-        <div style={{ width: BTN * 0.5 }} />
-
+      <div className="w-full flex items-center justify-between mb-5 px-2">
+        <div className="w-9" />
         <p
           className={cn(
             "flex-1 text-center font-mono font-semibold tracking-widest select-none transition-all",
-            number.length > 14 ? "text-xl" :
-            number.length > 10 ? "text-2xl" :
-            number.length > 6  ? "text-[28px]" : "text-[32px]",
+            number.length > 14 ? "text-xl"    :
+            number.length > 10 ? "text-2xl"   :
+            number.length > 6  ? "text-[28px]": "text-[32px]",
             number ? "text-white" : "text-white/25"
           )}
         >
           {number || "Enter number"}
         </p>
-
-        <div style={{ width: BTN * 0.5 }} className="flex justify-end">
+        <div className="w-9 flex justify-end">
           {number && (
             <button
               onClick={del}
-              className="flex items-center justify-center rounded-full text-white/40 hover:text-white transition-colors active:scale-90"
-              style={{ width: BTN * 0.5, height: BTN * 0.5 }}
+              className="w-9 h-9 flex items-center justify-center rounded-full
+                         text-white/40 hover:text-white hover:bg-white/8
+                         transition-all active:scale-90"
             >
-              <Delete className="h-5 w-5" />
+              <Delete className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -110,10 +109,9 @@ export default function DialPad() {
 
       {/* ── Warning banner ── */}
       {!canCall && user && (
-        <div
-          className="flex items-center gap-2 px-3 py-2 mb-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs"
-          style={{ width: GRID_W }}
-        >
+        <div className="w-full flex items-center gap-2 px-3 py-2 mb-3
+                        rounded-xl bg-amber-500/10 border border-amber-500/20
+                        text-amber-400 text-xs">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>
             {!isActive ? "Subscribe to call — R100/month" : "Top up credit on Profile."}
@@ -121,35 +119,32 @@ export default function DialPad() {
         </div>
       )}
 
-      {/* ── 3 × 4 keypad ── */}
+      {/*
+       * ── 3×4 keypad ──
+       * Width: fills parent px-4 (16px each side) capped at 300 px.
+       * Buttons: aspect-square → always perfect circles whatever the width.
+       */}
       <div
-        className="grid grid-cols-3"
-        style={{ width: GRID_W, gap: GAP }}
+        className="grid grid-cols-3 w-full mx-auto"
+        style={{ maxWidth: 300, gap: 12 }}
       >
         {DIAL_KEYS.map(({ key, sub }) => (
           <button
             key={key}
             onClick={() => press(key)}
             className={cn(
-              "group flex flex-col items-center justify-center rounded-full",
+              "group aspect-square flex flex-col items-center justify-center rounded-full",
               "bg-white/8 border border-white/10",
               "hover:bg-white/14 hover:border-white/20",
               "active:scale-90 active:bg-white/20",
               "transition-all duration-100 select-none"
             )}
-            style={{ width: BTN, height: BTN }}
           >
-            <span
-              className="font-semibold text-white group-hover:text-white/90 leading-none"
-              style={{ fontSize: 22 }}
-            >
+            <span className="text-[20px] font-semibold text-white leading-none group-hover:text-white/90">
               {key}
             </span>
             {sub && (
-              <span
-                className="font-bold tracking-[0.14em] text-white/30 mt-0.5 leading-none"
-                style={{ fontSize: 8 }}
-              >
+              <span className="text-[8px] font-bold tracking-[0.14em] text-white/30 mt-0.5 leading-none">
                 {sub}
               </span>
             )}
@@ -157,33 +152,38 @@ export default function DialPad() {
         ))}
       </div>
 
-      {/* ── Call button ── */}
-      <div style={{ height: GAP + 4 }} />
+      {/* ── Gap between keypad and call button ── */}
+      <div className="h-4" />
 
+      {/* ── Call button — 1.2× one keypad cell ── */}
       <button
         onClick={handleCall}
         disabled={isPending || !number}
         className={cn(
-          "relative flex items-center justify-center rounded-full transition-all duration-200",
-          "active:scale-90",
+          "relative flex items-center justify-center rounded-full transition-all duration-200 active:scale-90",
           canCall && number
-            ? "shadow-[0_6px_28px_-4px_rgba(52,199,89,0.55)] hover:scale-105"
+            ? "hover:scale-105 shadow-[0_6px_28px_-4px_rgba(52,199,89,0.55)]"
             : "opacity-40 cursor-not-allowed"
         )}
         style={{
-          width: CALL_BTN,
-          height: CALL_BTN,
+          /*
+           * Width = one grid cell of a 300px / 3-col / 12px-gap grid ≈ 92 px,
+           * then 1.2× → 110 px — slightly larger than any keypad button.
+           */
+          width: 70,
+          height: 70,
           background: canCall && number ? "#34c759" : "rgba(255,255,255,0.08)",
           border: canCall && number ? "none" : "1px solid rgba(255,255,255,0.12)",
         }}
       >
         {isPending ? (
-          <Loader2 className="text-white animate-spin" style={{ width: 26, height: 26 }} />
+          <Loader2 className="text-white animate-spin" style={{ width: 24, height: 24 }} />
         ) : (
-          <Phone className="text-white" style={{ width: 26, height: 26 }} />
+          <Phone className="text-white" style={{ width: 24, height: 24 }} />
         )}
         {canCall && number && (
-          <span className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+          <span
+            className="absolute inset-0 rounded-full animate-ping pointer-events-none"
             style={{ background: "rgba(52,199,89,0.2)" }}
           />
         )}

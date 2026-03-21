@@ -13,14 +13,15 @@ const navItems = [
   { href: "/profile", label: "Profile", icon: User },
 ];
 
+/* Height of the fixed bottom nav bar in px */
+export const NAV_H = 68;
+
 export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
 
   return (
-    <div
-      className="flex flex-col bg-background"
-      style={{ height: "100dvh", overflow: "hidden" }}
-    >
+    <div className="bg-background" style={{ height: "100dvh", overflow: "hidden" }}>
+
       {/* Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <img
@@ -31,25 +32,28 @@ export function Layout({ children }: LayoutProps) {
         <div className="absolute inset-0 bg-background/85 backdrop-blur-[80px]" />
       </div>
 
-      {/* Scrollable Content */}
+      {/* Scrollable content area — explicit height so children know their bounds */}
       <main
-        className="relative z-10 flex-1 overflow-y-auto flex flex-col"
+        className="relative z-10 overflow-y-auto"
         style={{
+          /* Sit below Dynamic Island / status bar */
           paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
+          /* Reserve space for nav + home indicator */
+          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 8px)`,
+          height: "100dvh",
         }}
       >
-        <div className="max-w-lg w-full mx-auto px-4 flex-1 flex flex-col">
+        <div className="max-w-lg mx-auto px-4 w-full">
           {children}
         </div>
       </main>
 
-      {/* Bottom Navigation — iOS tab-bar style */}
+      {/* Bottom Navigation — iOS tab-bar style, always on top */}
       <nav
         className="fixed bottom-0 inset-x-0 z-30"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)" }}
       >
-        <div className="max-w-lg mx-auto px-4 pb-1.5">
+        <div className="max-w-lg mx-auto px-4 pb-1">
           <div className="glass rounded-full border border-white/10 shadow-2xl shadow-black/50 flex items-center justify-around px-1 py-1.5">
             {navItems.map((item) => {
               const isActive =
