@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * Telecom Call Manager API
- * OpenAPI spec version: 0.2.0
+ * OpenAPI spec version: 0.3.0
  */
 
 export * from "./adjustCreditRequest";
@@ -13,6 +13,9 @@ export * from "./adminStats";
 export * from "./adminUserDetail";
 export * from "./adminUserListResponse";
 export * from "./authUser";
+export * from "./availableNumber";
+export * from "./buyNumberRequest";
+export * from "./buyNumberResponse";
 export * from "./callListResponse";
 export * from "./callRecord";
 export * from "./callRecordStatus";
@@ -21,8 +24,8 @@ export * from "./errorResponse";
 export * from "./healthStatus";
 export * from "./listCallsParams";
 export * from "./makeCallRequest";
-export * from "./numberActionResponse";
-export * from "./numberListResponse";
+export * from "./myNumbersResponse";
+export * from "./numberSearchResponse";
 export * from "./ownedNumber";
 export * from "./payFastPaymentData";
 export * from "./payFastPaymentDataFormFields";
@@ -31,9 +34,9 @@ export * from "./paymentListResponse";
 export * from "./paymentRecord";
 export * from "./paymentRecordPaymentType";
 export * from "./paymentRecordStatus";
-export * from "./phoneNumber";
-export * from "./phoneNumberStatus";
-export * from "./selectNumberRequest";
+export * from "./removeNumber200";
+export * from "./searchNumbersNumberType";
+export * from "./searchNumbersParams";
 export * from "./subscribeRequest";
 export * from "./subscribeRequestPlan";
 export * from "./topUpRequest";

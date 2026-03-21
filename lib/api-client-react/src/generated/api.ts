@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Api
  * Telecom Call Manager API
- * OpenAPI spec version: 0.2.0
+ * OpenAPI spec version: 0.3.0
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
@@ -24,6 +24,8 @@ import type {
   AdminUserDetail,
   AdminUserListResponse,
   AuthUser,
+  BuyNumberRequest,
+  BuyNumberResponse,
   CallListResponse,
   CallRecord,
   ChangeNumberRequest,
@@ -31,12 +33,13 @@ import type {
   HealthStatus,
   ListCallsParams,
   MakeCallRequest,
-  NumberActionResponse,
-  NumberListResponse,
+  MyNumbersResponse,
+  NumberSearchResponse,
   PayFastPaymentData,
   PayfastWebhookBody,
   PaymentListResponse,
-  SelectNumberRequest,
+  RemoveNumber200,
+  SearchNumbersParams,
   SubscribeRequest,
   TopUpRequest,
   UserProfile,
@@ -520,31 +523,31 @@ export function useGetCall<
 }
 
 /**
- * @summary List all phone numbers with ownership status
+ * @summary List user's owned phone numbers
  */
-export const getListNumbersUrl = () => {
+export const getListMyNumbersUrl = () => {
   return `/api/numbers`;
 };
 
-export const listNumbers = async (
+export const listMyNumbers = async (
   options?: RequestInit,
-): Promise<NumberListResponse> => {
-  return customFetch<NumberListResponse>(getListNumbersUrl(), {
+): Promise<MyNumbersResponse> => {
+  return customFetch<MyNumbersResponse>(getListMyNumbersUrl(), {
     ...options,
     method: "GET",
   });
 };
 
-export const getListNumbersQueryKey = () => {
+export const getListMyNumbersQueryKey = () => {
   return [`/api/numbers`] as const;
 };
 
-export const getListNumbersQueryOptions = <
-  TData = Awaited<ReturnType<typeof listNumbers>>,
+export const getListMyNumbersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMyNumbers>>,
   TError = ErrorType<ErrorResponse>,
 >(options?: {
   query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listNumbers>>,
+    Awaited<ReturnType<typeof listMyNumbers>>,
     TError,
     TData
   >;
@@ -552,40 +555,40 @@ export const getListNumbersQueryOptions = <
 }) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getListNumbersQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getListMyNumbersQueryKey();
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof listNumbers>>> = ({
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listMyNumbers>>> = ({
     signal,
-  }) => listNumbers({ signal, ...requestOptions });
+  }) => listMyNumbers({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof listNumbers>>,
+    Awaited<ReturnType<typeof listMyNumbers>>,
     TError,
     TData
   > & { queryKey: QueryKey };
 };
 
-export type ListNumbersQueryResult = NonNullable<
-  Awaited<ReturnType<typeof listNumbers>>
+export type ListMyNumbersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listMyNumbers>>
 >;
-export type ListNumbersQueryError = ErrorType<ErrorResponse>;
+export type ListMyNumbersQueryError = ErrorType<ErrorResponse>;
 
 /**
- * @summary List all phone numbers with ownership status
+ * @summary List user's owned phone numbers
  */
 
-export function useListNumbers<
-  TData = Awaited<ReturnType<typeof listNumbers>>,
+export function useListMyNumbers<
+  TData = Awaited<ReturnType<typeof listMyNumbers>>,
   TError = ErrorType<ErrorResponse>,
 >(options?: {
   query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listNumbers>>,
+    Awaited<ReturnType<typeof listMyNumbers>>,
     TError,
     TData
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListNumbersQueryOptions(options);
+  const queryOptions = getListMyNumbersQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -595,42 +598,136 @@ export function useListNumbers<
 }
 
 /**
- * @summary Select/claim a free phone number
+ * @summary Search available numbers from Telnyx
  */
-export const getSelectNumberUrl = () => {
-  return `/api/numbers/select`;
+export const getSearchNumbersUrl = (params?: SearchNumbersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/numbers/search?${stringifiedParams}`
+    : `/api/numbers/search`;
 };
 
-export const selectNumber = async (
-  selectNumberRequest: SelectNumberRequest,
+export const searchNumbers = async (
+  params?: SearchNumbersParams,
   options?: RequestInit,
-): Promise<NumberActionResponse> => {
-  return customFetch<NumberActionResponse>(getSelectNumberUrl(), {
+): Promise<NumberSearchResponse> => {
+  return customFetch<NumberSearchResponse>(getSearchNumbersUrl(params), {
     ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(selectNumberRequest),
+    method: "GET",
   });
 };
 
-export const getSelectNumberMutationOptions = <
+export const getSearchNumbersQueryKey = (params?: SearchNumbersParams) => {
+  return [`/api/numbers/search`, ...(params ? [params] : [])] as const;
+};
+
+export const getSearchNumbersQueryOptions = <
+  TData = Awaited<ReturnType<typeof searchNumbers>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: SearchNumbersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof searchNumbers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSearchNumbersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof searchNumbers>>> = ({
+    signal,
+  }) => searchNumbers(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof searchNumbers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type SearchNumbersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof searchNumbers>>
+>;
+export type SearchNumbersQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Search available numbers from Telnyx
+ */
+
+export function useSearchNumbers<
+  TData = Awaited<ReturnType<typeof searchNumbers>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: SearchNumbersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof searchNumbers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getSearchNumbersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Purchase a phone number via Telnyx
+ */
+export const getBuyNumberUrl = () => {
+  return `/api/numbers/buy`;
+};
+
+export const buyNumber = async (
+  buyNumberRequest: BuyNumberRequest,
+  options?: RequestInit,
+): Promise<BuyNumberResponse> => {
+  return customFetch<BuyNumberResponse>(getBuyNumberUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(buyNumberRequest),
+  });
+};
+
+export const getBuyNumberMutationOptions = <
   TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof selectNumber>>,
+    Awaited<ReturnType<typeof buyNumber>>,
     TError,
-    { data: BodyType<SelectNumberRequest> },
+    { data: BodyType<BuyNumberRequest> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
-  Awaited<ReturnType<typeof selectNumber>>,
+  Awaited<ReturnType<typeof buyNumber>>,
   TError,
-  { data: BodyType<SelectNumberRequest> },
+  { data: BodyType<BuyNumberRequest> },
   TContext
 > => {
-  const mutationKey = ["selectNumber"];
+  const mutationKey = ["buyNumber"];
   const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       "mutationKey" in options.mutation &&
@@ -640,44 +737,128 @@ export const getSelectNumberMutationOptions = <
     : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof selectNumber>>,
-    { data: BodyType<SelectNumberRequest> }
+    Awaited<ReturnType<typeof buyNumber>>,
+    { data: BodyType<BuyNumberRequest> }
   > = (props) => {
     const { data } = props ?? {};
 
-    return selectNumber(data, requestOptions);
+    return buyNumber(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
 };
 
-export type SelectNumberMutationResult = NonNullable<
-  Awaited<ReturnType<typeof selectNumber>>
+export type BuyNumberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof buyNumber>>
 >;
-export type SelectNumberMutationBody = BodyType<SelectNumberRequest>;
-export type SelectNumberMutationError = ErrorType<ErrorResponse>;
+export type BuyNumberMutationBody = BodyType<BuyNumberRequest>;
+export type BuyNumberMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Select/claim a free phone number
+ * @summary Purchase a phone number via Telnyx
  */
-export const useSelectNumber = <
+export const useBuyNumber = <
   TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof selectNumber>>,
+    Awaited<ReturnType<typeof buyNumber>>,
     TError,
-    { data: BodyType<SelectNumberRequest> },
+    { data: BodyType<BuyNumberRequest> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
-  Awaited<ReturnType<typeof selectNumber>>,
+  Awaited<ReturnType<typeof buyNumber>>,
   TError,
-  { data: BodyType<SelectNumberRequest> },
+  { data: BodyType<BuyNumberRequest> },
   TContext
 > => {
-  return useMutation(getSelectNumberMutationOptions(options));
+  return useMutation(getBuyNumberMutationOptions(options));
+};
+
+/**
+ * @summary Remove/release a phone number
+ */
+export const getRemoveNumberUrl = (id: string) => {
+  return `/api/numbers/${id}`;
+};
+
+export const removeNumber = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RemoveNumber200> => {
+  return customFetch<RemoveNumber200>(getRemoveNumberUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRemoveNumberMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeNumber>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeNumber>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["removeNumber"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeNumber>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return removeNumber(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveNumberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeNumber>>
+>;
+
+export type RemoveNumberMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove/release a phone number
+ */
+export const useRemoveNumber = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeNumber>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeNumber>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRemoveNumberMutationOptions(options));
 };
 
 /**
