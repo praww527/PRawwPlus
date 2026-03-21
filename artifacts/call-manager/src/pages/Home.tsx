@@ -73,7 +73,7 @@ export default function Home() {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shadow-lg shadow-primary/30">
             <Phone className="h-5 w-5 text-white" />
           </div>
-          <span className="text-lg font-display font-bold text-white">CallManager</span>
+          <span className="text-lg font-display font-bold text-white">PRaww+</span>
         </div>
         <div className="flex items-center gap-3">
           <Button
@@ -326,9 +326,9 @@ export default function Home() {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center">
             <Phone className="h-3.5 w-3.5 text-white" />
           </div>
-          <span className="text-white/50 text-sm font-medium">CallManager</span>
+          <span className="text-white/50 text-sm font-medium">PRaww+</span>
         </div>
-        <p className="text-white/30 text-xs">© 2025 CallManager. All rights reserved.</p>
+        <p className="text-white/30 text-xs">© 2025 PRaww+. All rights reserved.</p>
       </footer>
     </div>
   );

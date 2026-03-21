@@ -35,10 +35,10 @@ export async function sendVerificationEmail(email: string, token: string, baseUr
   const link = `${baseUrl}/verify-email?token=${token}`;
   await sendMail(
     email,
-    "Verify your CallManager email",
+    "Verify your PRaww+ email",
     `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0f1e;color:#e2e8f0;padding:40px;border-radius:12px">
-      <h1 style="color:#3b82f6;font-size:28px;margin-bottom:8px">CallManager</h1>
+      <h1 style="color:#3b82f6;font-size:28px;margin-bottom:8px">PRaww+</h1>
       <h2 style="color:#ffffff;font-size:20px;margin-bottom:16px">Verify your email address</h2>
       <p style="color:#94a3b8;margin-bottom:24px">Click the button below to verify your email and activate your account.</p>
       <a href="${link}" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:16px">Verify Email</a>
@@ -52,10 +52,10 @@ export async function sendPasswordResetEmail(email: string, token: string, baseU
   const link = `${baseUrl}/reset-password?token=${token}`;
   await sendMail(
     email,
-    "Reset your CallManager password",
+    "Reset your PRaww+ password",
     `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0f1e;color:#e2e8f0;padding:40px;border-radius:12px">
-      <h1 style="color:#3b82f6;font-size:28px;margin-bottom:8px">CallManager</h1>
+      <h1 style="color:#3b82f6;font-size:28px;margin-bottom:8px">PRaww+</h1>
       <h2 style="color:#ffffff;font-size:20px;margin-bottom:16px">Reset your password</h2>
       <p style="color:#94a3b8;margin-bottom:24px">Click the button below to reset your password. This link expires in 1 hour.</p>
       <a href="${link}" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:16px">Reset Password</a>
