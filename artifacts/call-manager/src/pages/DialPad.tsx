@@ -81,14 +81,21 @@ export default function DialPad() {
       }}
       className="animate-in fade-in duration-300"
     >
-      {/* Coin balance indicator */}
-      {user && isActive && (
-        <div className="flex items-center gap-1.5 mb-4 px-3 py-1.5 rounded-full glass border border-white/10">
-          <Coins className="h-3 w-3 text-amber-400" />
-          <span className="text-xs font-semibold text-amber-400">{coins} coins</span>
+      {/* Coin balance indicator — always visible */}
+      <div className={cn(
+        "flex items-center gap-1.5 mb-4 px-3.5 py-1.5 rounded-full border transition-colors",
+        coins > 0 && isActive
+          ? "glass border-white/10"
+          : "bg-red-500/8 border-red-500/20",
+      )}>
+        <Coins className={cn("h-3 w-3", coins > 0 && isActive ? "text-amber-400" : "text-red-400")} />
+        <span className={cn("text-xs font-bold tabular-nums", coins > 0 && isActive ? "text-amber-400" : "text-red-400")}>
+          {coins.toFixed(2)} coins
+        </span>
+        {coins > 0 && isActive && (
           <span className="text-[10px] text-white/30">≈ {coins} min</span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Number display */}
       <div style={{ display: "flex", alignItems: "center", width: "100%", marginBottom: 20 }}>
