@@ -500,3 +500,58 @@ export const AdminListCallsResponse = zod.object({
   limit: zod.number(),
   totalPages: zod.number(),
 });
+
+/**
+ * @summary List user's contacts
+ */
+export const ListContactsResponse = zod.object({
+  contacts: zod.array(
+    zod.object({
+      id: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      number: zod.string(),
+      fromPhone: zod.boolean(),
+      createdAt: zod.date().optional(),
+      updatedAt: zod.date().optional(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a contact
+ */
+export const CreateContactBody = zod.object({
+  name: zod.string(),
+  number: zod.string(),
+  fromPhone: zod.boolean().optional(),
+});
+
+/**
+ * @summary Bulk import contacts from phone
+ */
+export const BulkImportContactsBody = zod.object({
+  contacts: zod.array(
+    zod.object({
+      name: zod.string(),
+      number: zod.string(),
+      fromPhone: zod.boolean().optional(),
+    }),
+  ),
+});
+
+export const BulkImportContactsResponse = zod.object({
+  imported: zod.number(),
+  skipped: zod.number(),
+});
+
+/**
+ * @summary Delete a contact
+ */
+export const DeleteContactParams = zod.object({
+  contactId: zod.coerce.string(),
+});
+
+export const DeleteContactResponse = zod.object({
+  success: zod.boolean().optional(),
+});

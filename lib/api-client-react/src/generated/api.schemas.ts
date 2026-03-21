@@ -237,6 +237,35 @@ export interface AdminStats {
   recentPayments: PaymentRecord[];
 }
 
+export interface ContactRecord {
+  id: string;
+  userId: string;
+  name: string;
+  number: string;
+  fromPhone: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ContactListResponse {
+  contacts: ContactRecord[];
+}
+
+export interface CreateContactRequest {
+  name: string;
+  number: string;
+  fromPhone?: boolean;
+}
+
+export interface BulkImportContactsRequest {
+  contacts: CreateContactRequest[];
+}
+
+export interface BulkImportResult {
+  imported: number;
+  skipped: number;
+}
+
 export type ListCallsParams = {
   page?: number;
   limit?: number;
@@ -271,4 +300,8 @@ export type AdminListCallsParams = {
   page?: number;
   limit?: number;
   userId?: string;
+};
+
+export type DeleteContact200 = {
+  success?: boolean;
 };

@@ -71,6 +71,54 @@ function getPayFastCredentials() {
   return { merchantId, merchantKey, passphrase, paymentUrl };
 }
 
+function verifyPayFastSignature(body: Record<string, string>, passphrase?: string): boolean {
+  const { signature, ...rest } = body;
+  if (!signature) return false;
+
+  const ordered: Record<string, string> = {};
+  const expectedKeys = [
+    "m_payment_id","pf_payment_id","payment_status","item_name","item_description",
+    "amount_gross","amount_fee","amount_net","custom_str1","custom_str2","custom_str3",
+    "custom_str4","custom_str5","custom_int1","custom_int2","custom_int3","custom_int4",
+    "custom_int5","name_first","name_last","email_address","merchant_id",
+  ];
+  for (const key of expectedKeys) {
+    if (rest[key] !== undefined && rest[key] !== "") {
+      ordered[key] = rest[key];
+    }
+  }
+
+  let signatureStr = Object.entries(ordered)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v.trim()).replace(/%20/g, "+")}`)
+    .join("&");
+
+  if (passphrase) {
+    signatureStr += `&passphrase=${encodeURIComponent(passphrase.trim()).replace(/%20/g, "+")}`;
+  }
+
+  const expected = crypto.createHash("md5").update(signatureStr).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
+const PAYFAST_VALID_IPS = [
+  "41.74.179.194",
+  "41.74.179.195",
+  "41.74.179.196",
+  "41.74.179.197",
+  "41.74.179.198",
+  "41.74.179.199",
+  "197.97.145.144",
+  "197.97.145.145",
+  "197.97.145.146",
+  "197.97.145.147",
+];
+
+function getClientIp(req: any): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) return String(forwarded).split(",")[0].trim();
+  return req.socket?.remoteAddress ?? "";
+}
+
 router.post("/payments/subscribe", async (req, res) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -127,6 +175,24 @@ router.post("/payments/webhook", async (req, res) => {
     res.status(400).send("Invalid webhook");
     return;
   }
+
+  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+
+  if (!isSandbox) {
+    const clientIp = getClientIp(req);
+    if (!PAYFAST_VALID_IPS.includes(clientIp)) {
+      res.status(403).send("Forbidden");
+      return;
+    }
+
+    const { passphrase } = getPayFastCredentials();
+    const signatureValid = verifyPayFastSignature(body, passphrase);
+    if (!signatureValid) {
+      res.status(400).send("Invalid signature");
+      return;
+    }
+  }
+
   await connectDB();
 
   if (payment_status === "COMPLETE") {
@@ -136,13 +202,18 @@ router.post("/payments/webhook", async (req, res) => {
       return;
     }
 
+    if (payment.status === "completed") {
+      res.sendStatus(200);
+      return;
+    }
+
     const now = new Date();
     const nextPayment = new Date(now);
     nextPayment.setMonth(nextPayment.getMonth() + 1);
 
     await PaymentModel.updateOne({ _id: m_payment_id }, { status: "completed", completedAt: now });
 
-    const targetUserId = userId ?? payment.userId;
+    const targetUserId = payment.userId;
 
     if (payment.paymentType === "subscription") {
       const plan = payment.subscriptionPlan ?? custom_str2 ?? "basic";
@@ -191,7 +262,7 @@ router.get("/payments/history", async (req, res) => {
   await connectDB();
   const userId = (req as any).user.id;
   const payments = await PaymentModel.find({ userId }).sort({ createdAt: -1 }).lean();
-  res.json({ payments: payments.map((p) => ({ ...p, id: p._id })), total: payments.length });
+  res.json({ payments: payments.map((p) => ({ ...p, id: String(p._id) })), total: payments.length });
 });
 
 router.post("/credits/topup", async (req, res) => {
