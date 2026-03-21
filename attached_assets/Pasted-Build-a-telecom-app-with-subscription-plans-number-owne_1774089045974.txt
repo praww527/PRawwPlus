@@ -1,0 +1,146 @@
+Build a telecom app with subscription plans, number ownership, wallet, and call billing.
+
+--------------------------------------------------
+
+1. USERS
+- Fields:
+  id
+  email
+  password
+  verified (boolean)
+  subscriptionActive (boolean)
+  subscriptionPlan ("basic" or "pro")
+  coins (number)
+
+--------------------------------------------------
+
+2. SUBSCRIPTION PLANS
+
+Define plans:
+
+- BASIC PLAN:
+  Price: R59/month
+  Max numbers: 1
+
+- PRO PLAN:
+  Price: R109/month (or configurable)
+  Max numbers: 2
+
+--------------------------------------------------
+
+3. SUBSCRIPTION FLOW
+
+- User signs up and verifies account
+- User must choose a plan (basic or pro)
+- User pays via PayFast
+
+After successful payment (via webhook):
+- Set subscriptionActive = true
+- Save subscriptionPlan
+- (Optional) store subscriptionExpiresAt
+
+If subscriptionActive = false:
+- Block access to numbers and calling
+
+--------------------------------------------------
+
+4. NUMBER SYSTEM
+
+- Numbers are sourced from Telnyx
+- Store numbers in database:
+  number
+  userId (nullable)
+
+RULES:
+- A user can only own numbers based on their plan:
+  basic → 1 number
+  pro → 2 numbers
+
+- Before assigning:
+  - Count how many numbers user already owns
+  - If limit reached → block selection
+
+- Only assign number if:
+  userId IS NULL
+
+--------------------------------------------------
+
+5. CHANGE NUMBER (R100 ONCE-OFF)
+
+- If user already owns a number:
+  - Allow “Change Number”
+- When clicked:
+  - Charge R100 via PayFast
+
+After successful payment:
+- Remove old number (set userId = null)
+- Assign new selected number
+
+--------------------------------------------------
+
+6. WALLET SYSTEM (COINS)
+
+- Users have a wallet stored as coins
+- 1 coin = R0.90
+
+- Allow users to top up coins via PayFast
+
+--------------------------------------------------
+
+7. CALL BILLING
+
+- Charge 1 coin per minute (≈ 89c/min)
+- During call:
+  - Deduct coins in real time
+- If coins reach 0:
+  - End call automatically
+
+--------------------------------------------------
+
+8. PAYFAST INTEGRATION
+
+- Use PayFast for:
+  - Subscription payments
+  - Number change payments (R100)
+  - Wallet top-ups
+
+- Use webhook to:
+  - Verify payment (with passphrase + signature)
+  - Activate subscription
+  - Add coins
+  - Approve number change
+
+--------------------------------------------------
+
+9. SECURITY RULES
+
+- NEVER assign numbers before payment is verified
+- ALWAYS validate PayFast webhook signature
+- NEVER trust frontend data
+- Always check:
+  - subscriptionActive
+  - number limits per plan
+
+--------------------------------------------------
+
+10. UI RULES
+
+- If not subscribed:
+  → Show “Subscribe to access numbers”
+
+- If subscribed:
+  → Show numbers
+
+For each number:
+- If owned by current user → "Owned"
+- If owned by another user → "Taken"
+- If free → "Select"
+
+- If user reached plan limit:
+  → Disable all "Select" buttons
+
+--------------------------------------------------
+
+GOAL:
+
+User signs up → selects plan → pays subscription → can select number(s) based on plan → can make calls using coins → can upgrade plan or change number with payment.
