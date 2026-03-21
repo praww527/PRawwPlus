@@ -21,6 +21,8 @@ tags:
     description: Phone number management
   - name: admin
     description: Admin operations
+  - name: contacts
+    description: Contact management
 
 paths:
   /healthz:
@@ -450,6 +452,95 @@ paths:
               schema:
                 $ref: "#/components/schemas/CallListResponse"
 
+  /contacts:
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List user's contacts
+      responses:
+        "200":
+          description: List of contacts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createContact
+      tags: [contacts]
+      summary: Create a contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactRequest"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactRecord"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /contacts/bulk:
+    post:
+      operationId: bulkImportContacts
+      tags: [contacts]
+      summary: Bulk import contacts from phone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkImportContactsRequest"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkImportResult"
+
+  /contacts/{contactId}:
+    delete:
+      operationId: deleteContact
+      tags: [contacts]
+      summary: Delete a contact
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Contact deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -837,3 +928,62 @@ components:
         - callsToday
         - newUsersThisMonth
         - recentPayments
+
+    ContactRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        number:
+          type: string
+        fromPhone:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, userId, name, number, fromPhone]
+
+    ContactListResponse:
+      type: object
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContactRecord"
+      required: [contacts]
+
+    CreateContactRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        number:
+          type: string
+        fromPhone:
+          type: boolean
+      required: [name, number]
+
+    BulkImportContactsRequest:
+      type: object
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreateContactRequest"
+      required: [contacts]
+
+    BulkImportResult:
+      type: object
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+      required: [imported, skipped]

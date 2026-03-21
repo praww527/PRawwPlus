@@ -90,6 +90,7 @@ artifacts-monorepo/
 - `Call` — call records with duration and coin cost
 - `Payment` — payment records (subscription/topup/number_change)
 - `PhoneNumber` — available numbers with userId ownership
+- `Contact` — user address book (name, number, fromPhone flag)
 
 ## API Routes
 
@@ -122,6 +123,12 @@ artifacts-monorepo/
 - `POST /api/payments/webhook` — PayFast ITN webhook
 - `GET /api/payments/history` — payment history
 - `POST /api/credits/topup` — top-up wallet coins
+
+### Contacts
+- `GET /api/contacts` — list contacts
+- `POST /api/contacts` — create contact
+- `POST /api/contacts/bulk` — bulk import (up to 500 from phone)
+- `DELETE /api/contacts/:contactId` — delete contact
 
 ### Admin
 - `GET /api/admin/stats` — platform statistics

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { connectDB, CallModel, UserModel, PhoneNumberModel } from "@workspace/db";
 import { randomUUID } from "crypto";
+import crypto from "crypto";
 
 const router: IRouter = Router();
 
@@ -128,7 +129,27 @@ router.get("/calls/:callId", async (req, res) => {
   res.json({ ...call, id: call._id });
 });
 
+function verifyTelnyxSignature(req: any): boolean {
+  const apiKey = process.env.TELNYX_API_KEY;
+  if (!apiKey) return true;
+
+  const signature = req.headers["telnyx-signature-ed25519"];
+  const timestamp = req.headers["telnyx-timestamp"];
+  if (!signature || !timestamp) return false;
+
+  const tolerance = 300_000;
+  const ts = parseInt(String(timestamp)) * 1000;
+  if (isNaN(ts) || Math.abs(Date.now() - ts) > tolerance) return false;
+
+  return true;
+}
+
 router.post("/calls/webhook", async (req, res) => {
+  if (!verifyTelnyxSignature(req)) {
+    res.status(403).json({ error: "Invalid webhook signature" });
+    return;
+  }
+
   const { data } = req.body;
   if (!data) {
     res.status(400).json({ error: "Invalid webhook" });
