@@ -62,6 +62,10 @@
   /* Nav */
   --nav-bg: var(--glass-bg);
   --nav-border: var(--glass-border);
+  --nav-surface: rgba(20, 24, 38, 0.72);
+  --nav-border-top: rgba(255, 255, 255, 0.10);
+  --nav-icon-active: rgba(255, 255, 255, 1);
+  --nav-icon-inactive: rgba(255, 255, 255, 0.42);
 
   /* Modal / bottom-sheet */
   --modal-bg: hsl(224 71% 6% / 0.95);
@@ -110,6 +114,10 @@
     /* Nav */
     --nav-bg: var(--glass-bg);
     --nav-border: var(--glass-border);
+    --nav-surface: rgba(245, 245, 250, 0.80);
+    --nav-border-top: rgba(0, 0, 0, 0.10);
+    --nav-icon-active: rgba(20, 24, 38, 1);
+    --nav-icon-inactive: rgba(20, 24, 38, 0.38);
 
     /* Modal / bottom-sheet */
     --modal-bg: hsl(210 40% 97% / 0.97);
@@ -193,6 +201,14 @@
   .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .pl-safe { padding-left: env(safe-area-inset-left, 0px); }
   .pr-safe { padding-right: env(safe-area-inset-right, 0px); }
+
+  /* Nav icon states */
+  .nav-icon-active {
+    color: var(--nav-icon-active);
+  }
+  .nav-icon-inactive {
+    color: var(--nav-icon-inactive);
+  }
 
   /* Custom scrollbar — hidden on mobile, subtle on desktop */
   ::-webkit-scrollbar { width: 4px; height: 4px; }

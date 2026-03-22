@@ -23,13 +23,14 @@ export function Layout({ children }: LayoutProps) {
       className="bg-background flex flex-col"
       style={{ height: "100dvh", overflow: "hidden" }}
     >
+      {/* Frosted-glass background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <img
           src={`${import.meta.env.BASE_URL}images/bg-abstract.png`}
           alt=""
           className="w-full h-full object-cover opacity-40"
         />
-        <div className="absolute inset-0 bg-background/85 backdrop-blur-[80px]" />
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-[60px]" />
       </div>
 
       <main
@@ -41,41 +42,18 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* Liquid Glass bottom nav */}
+      {/* Flat frosted-glass bottom nav — iOS style */}
       <nav
-        className="relative z-30 shrink-0 max-w-lg w-full mx-auto px-3"
+        className="relative z-30 shrink-0 w-full"
         style={{
-          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 14px)",
-          paddingTop: "10px",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          background: "var(--nav-surface)",
+          borderTop: "0.5px solid var(--nav-border-top)",
         }}
       >
-        <div
-          className="relative rounded-[30px] flex items-center justify-around px-2 py-2 overflow-hidden"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.055) 100%)",
-            backdropFilter: "blur(52px) saturate(200%) brightness(1.08)",
-            WebkitBackdropFilter: "blur(52px) saturate(200%) brightness(1.08)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            boxShadow: [
-              "inset 0 1.5px 0 rgba(255,255,255,0.28)",
-              "inset 0 -1px 0 rgba(0,0,0,0.14)",
-              "inset 1px 0 0 rgba(255,255,255,0.07)",
-              "inset -1px 0 0 rgba(255,255,255,0.07)",
-              "0 8px 40px rgba(0,0,0,0.45)",
-              "0 2px 12px rgba(0,0,0,0.25)",
-            ].join(", "),
-          }}
-        >
-          {/* Inner top-gloss sheen */}
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 h-[42%] rounded-t-[30px]"
-            style={{
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 100%)",
-            }}
-          />
-
+        <div className="max-w-lg mx-auto flex items-center justify-around px-2 py-2">
           {navItems.map((item) => {
             const isActive =
               item.href === "/dashboard"
@@ -86,38 +64,19 @@ export function Layout({ children }: LayoutProps) {
               <Link key={item.href} href={item.href} className="flex-1">
                 <div
                   className={cn(
-                    "flex flex-col items-center gap-0.5 py-1.5 rounded-[22px] transition-all duration-200 cursor-pointer select-none",
-                    isActive ? "text-primary" : "text-muted-foreground hover:text-foreground/70"
+                    "flex flex-col items-center gap-1 py-1 cursor-pointer select-none",
+                    isActive ? "nav-icon-active" : "nav-icon-inactive"
                   )}
                 >
-                  <div
-                    className={cn(
-                      "w-10 h-8 rounded-[16px] flex items-center justify-center transition-all duration-200",
-                    )}
-                    style={
-                      isActive
-                        ? {
-                            background:
-                              "linear-gradient(180deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.14) 100%)",
-                            boxShadow: [
-                              "inset 0 1px 0 rgba(255,255,255,0.22)",
-                              "0 0 18px -4px rgba(59,130,246,0.55)",
-                            ].join(", "),
-                            border: "1px solid rgba(59,130,246,0.25)",
-                          }
-                        : {}
-                    }
-                  >
-                    <item.icon className="h-[15px] w-[15px]" />
-                  </div>
-                  <span
-                    className={cn(
-                      "text-[9px] font-semibold tracking-wide leading-none",
-                      isActive ? "text-primary" : "text-muted-foreground"
-                    )}
-                  >
+                  <item.icon className="h-[22px] w-[22px]" strokeWidth={isActive ? 2.2 : 1.8} />
+                  <span className="text-[10px] font-medium tracking-wide leading-none">
                     {item.label}
                   </span>
+                  {/* Active dot indicator */}
+                  <span
+                    className="w-1 h-1 rounded-full"
+                    style={{ opacity: isActive ? 1 : 0, background: "currentColor" }}
+                  />
                 </div>
               </Link>
             );
