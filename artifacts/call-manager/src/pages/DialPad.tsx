@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
 import { Delete, Phone, AlertCircle, Loader2, Coins } from "lucide-react";
@@ -37,9 +37,29 @@ export default function DialPad() {
     if (dial) setNumber(decodeURIComponent(dial));
   }, [search]);
 
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
   const press = (key: string) => {
-    if (key === "0" && number.length === 0) setNumber("+");
-    else setNumber((n) => (n.length < 20 ? n + key : n));
+    setNumber((n) => (n.length < 20 ? n + key : n));
+  };
+
+  const handleZeroDown = () => {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setNumber((n) => (n.length < 20 ? n + "+" : n));
+    }, 500);
+  };
+
+  const handleZeroUp = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (!longPressFired.current) {
+      press("0");
+    }
   };
 
   const del = () => setNumber((n) => n.slice(0, -1));
@@ -150,45 +170,55 @@ export default function DialPad() {
           gap: 20,
         }}
       >
-        {DIAL_KEYS.map(({ key, sub }) => (
-          <button
-            key={key}
-            onClick={() => press(key)}
-            style={{
-              width: 70,
-              height: 70,
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "transform 0.1s, background 0.1s",
-              userSelect: "none",
-            }}
-            className="hover:bg-white/[0.12] active:scale-90 active:bg-white/20"
-          >
-            <span style={{ fontSize: 22, fontWeight: 600, color: "white", lineHeight: 1 }}>
-              {key}
-            </span>
-            {sub && (
-              <span
-                style={{
-                  fontSize: 8,
-                  fontWeight: 700,
-                  letterSpacing: "0.14em",
-                  color: "rgba(255,255,255,0.3)",
-                  marginTop: 2,
-                  lineHeight: 1,
-                }}
-              >
-                {sub}
+        {DIAL_KEYS.map(({ key, sub }) => {
+          const isZero = key === "0";
+          return (
+            <button
+              key={key}
+              {...(isZero
+                ? {
+                    onPointerDown: handleZeroDown,
+                    onPointerUp: handleZeroUp,
+                    onPointerLeave: handleZeroUp,
+                    onContextMenu: (e) => e.preventDefault(),
+                  }
+                : { onClick: () => press(key) })}
+              style={{
+                width: 70,
+                height: 70,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "transform 0.1s, background 0.1s",
+                userSelect: "none",
+              }}
+              className="hover:bg-white/[0.12] active:scale-90 active:bg-white/20"
+            >
+              <span style={{ fontSize: 22, fontWeight: 600, color: "white", lineHeight: 1 }}>
+                {key}
               </span>
-            )}
-          </button>
-        ))}
+              {sub && (
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 700,
+                    letterSpacing: "0.14em",
+                    color: "rgba(255,255,255,0.3)",
+                    marginTop: 2,
+                    lineHeight: 1,
+                  }}
+                >
+                  {sub}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Call button */}
