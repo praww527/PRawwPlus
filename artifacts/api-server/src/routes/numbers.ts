@@ -211,7 +211,7 @@ router.post("/numbers/buy", async (req, res) => {
       existing.userId = userId;
       await existing.save();
     } else {
-      await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId, status: "active" });
+      await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId });
     }
     res.json({ message: "Number assigned (dev mode)", number: { number: phone_number, status: "active" } });
     return;
@@ -250,7 +250,6 @@ router.post("/numbers/buy", async (req, res) => {
         number: orderedNumber,
         telnyxNumberId,
         userId,
-        status: "active",
       });
     }
 

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
 
-export type CallState = "idle" | "outgoing" | "incoming";
+export type CallState = "idle" | "outgoing" | "incoming" | "active";
 export type CallPhase = "calling" | "connected" | "ended";
 
 export interface CallInfo {
@@ -47,7 +47,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /* Accepting an incoming call goes straight to connected */
   const acceptCall = useCallback(() => {
     setCallPhase("connected");
-    setCallState("outgoing");
+    setCallState("active");
   }, []);
 
   const declineCall = useCallback(() => {

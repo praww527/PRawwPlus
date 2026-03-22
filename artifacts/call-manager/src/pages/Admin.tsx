@@ -130,7 +130,7 @@ export default function Admin() {
                       {u.subscriptionStatus}
                     </Badge>
                     <span className="text-xs text-white/40 font-mono">
-                      {formatCurrency(u.creditBalance)}
+                      {formatCurrency(u.coins)}
                     </span>
                   </div>
                 </div>

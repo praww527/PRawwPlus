@@ -87,7 +87,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
       emailVerified: false,
       verificationToken,
       verificationTokenExpiry,
-      creditBalance: 0,
+      coins: 0,
       subscriptionStatus: "inactive",
       isAdmin: false,
     });
@@ -105,7 +105,16 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
 
 router.post("/auth/login", async (req: Request, res: Response) => {
   try {
-    await connectDB();
+    try {
+      await connectDB();
+    } catch (dbErr: any) {
+      res.status(503).json({
+        error: dbErr?.message?.includes("MONGODB_URI")
+          ? "Database not configured. Please set the MONGODB_URI secret."
+          : "Database unavailable. Please try again shortly.",
+      });
+      return;
+    }
     const { email, password } = req.body;
 
     if (!email || !password) {

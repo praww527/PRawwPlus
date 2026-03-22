@@ -25,7 +25,7 @@ export default function Dashboard() {
     );
   }
 
-  const isLowCredit = user.creditBalance < 10;
+  const isLowCredit = user.coins < 10;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -52,7 +52,7 @@ export default function Dashboard() {
               {isLowCredit && <AlertCircle className="h-4 w-4 text-amber-400" />}
             </CardDescription>
             <CardTitle className="text-4xl font-display mt-1">
-              {formatCurrency(user.creditBalance)}
+              {formatCurrency(user.coins)}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -93,7 +93,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-white/50 text-sm mt-2">
-              Total spent: {formatCurrency(user.totalCreditUsed)}
+              Total spent: {formatCurrency(user.totalCoinsUsed)}
             </p>
           </CardContent>
         </Card>

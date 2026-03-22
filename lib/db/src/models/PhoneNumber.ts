@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
-export interface IPhoneNumber extends Document {
+export interface IPhoneNumber extends Document<string> {
   _id: string;
   number: string;
   userId?: string | null;
