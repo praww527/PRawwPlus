@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useSearchNumbers, useBuyNumber, useChangeNumber } from "@workspace/api-client-react";
+import { useSearchNumbers, useBuyNumber, useChangeNumber, getSearchNumbersQueryKey } from "@workspace/api-client-react";
 import type { AvailableNumber } from "@workspace/api-client-react";
 import {
   ArrowLeft, Search, Loader2, Phone, Star, CheckCircle2,
@@ -148,7 +148,7 @@ export default function BuyNumber({ mode = "buy", oldNumberId, oldNumber }: BuyN
     refetch,
   } = useSearchNumbers(
     { country_code: countryCode, number_type: numberType, locality: locality || undefined },
-    { query: { enabled: false } }
+    { query: { enabled: false, queryKey: getSearchNumbersQueryKey({ country_code: countryCode, number_type: numberType, locality: locality || undefined }) } }
   );
 
   const { mutateAsync: buyNumber, isPending: buying } = useBuyNumber();

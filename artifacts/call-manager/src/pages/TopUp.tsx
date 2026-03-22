@@ -80,7 +80,7 @@ export default function TopUp() {
             <CardContent className="space-y-4">
               <div className="flex justify-between text-sm text-white/70 pb-4 border-b border-white/10">
                 <span>Current Balance</span>
-                <span className="font-mono">{formatCurrency(user?.creditBalance || 0)}</span>
+                <span className="font-mono">{formatCurrency(user?.coins || 0)}</span>
               </div>
               <div className="flex justify-between font-medium pb-4 border-b border-white/10">
                 <span>Top Up Amount</span>

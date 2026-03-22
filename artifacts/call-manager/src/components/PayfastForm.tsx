@@ -11,13 +11,11 @@ export function PayfastForm({ data, autoSubmit = true }: PayfastFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    if (autoSubmit && formRef.current) {
-      // Small delay to let user see the transition
-      const timer = setTimeout(() => {
-        formRef.current?.submit();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
+    if (!autoSubmit || !formRef.current) return;
+    const timer = setTimeout(() => {
+      formRef.current?.submit();
+    }, 1500);
+    return () => clearTimeout(timer);
   }, [autoSubmit, data]);
 
   return (

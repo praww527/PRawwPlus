@@ -13,7 +13,7 @@ export default function Subscription() {
 
   const handleSubscribe = async () => {
     try {
-      const data = await subscribe();
+      const data = await subscribe({ data: { plan: "pro" } });
       setPayfastData(data);
     } catch (error) {
       console.error("Subscription failed", error);

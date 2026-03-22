@@ -70,7 +70,7 @@ function PublicRoute({ component: Component }: { component: React.ComponentType 
 
 function CallOverlays() {
   const { callState } = useCall();
-  if (callState === "outgoing") return <CallingScreen />;
+  if (callState === "outgoing" || callState === "active") return <CallingScreen />;
   if (callState === "incoming") return <IncomingCallScreen />;
   return null;
 }

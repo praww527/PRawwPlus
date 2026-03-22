@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
-export interface IPayment extends Document {
+export interface IPayment extends Document<string> {
   _id: string;
   userId: string;
   amount: number;

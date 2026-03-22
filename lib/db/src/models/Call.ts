@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
-export interface ICall extends Document {
+export interface ICall extends Document<string> {
   _id: string;
   userId: string;
   callerNumber?: string;

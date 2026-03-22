@@ -50,7 +50,7 @@ export default function MakeCall() {
     }
   };
 
-  const hasBalance = (user?.creditBalance || 0) > 0;
+  const hasBalance = (user?.coins || 0) > 0;
 
   return (
     <div className="max-w-2xl mx-auto animate-in fade-in zoom-in-95 duration-500">

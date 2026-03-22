@@ -92,8 +92,13 @@ router.post("/calls", async (req, res) => {
         const data: any = await telnyxRes.json();
         telnyxCallId = data?.data?.call_leg_id ?? null;
         callStatus = "ringing";
+      } else {
+        const errBody = await telnyxRes.text().catch(() => "");
+        console.error("Telnyx API error:", telnyxRes.status, errBody);
       }
-    } catch (_e) {}
+    } catch (telnyxErr) {
+      console.error("Telnyx call failed:", telnyxErr);
+    }
   }
 
   const callRecord = await CallModel.create({
@@ -104,12 +109,12 @@ router.post("/calls", async (req, res) => {
     status: callStatus,
     duration: 0,
     cost: 0,
-    telnyxCallId,
-    notes: notes ?? null,
+    telnyxCallId: telnyxCallId ?? undefined,
+    notes: notes ?? undefined,
     startedAt: new Date(),
   });
 
-  res.json({ ...callRecord.toObject(), id: callRecord._id });
+  res.json({ ...callRecord.toJSON(), id: callRecord._id });
 });
 
 router.get("/calls/:callId", async (req, res) => {
