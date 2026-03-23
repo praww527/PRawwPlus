@@ -8,7 +8,7 @@ interface LayoutProps {
 export const NAV_H = 80;
 
 const navItems = [
-  { href: "/dashboard", label: "Keypad",  icon: Grid3x3 },
+  { href: "/dashboard", label: "Keypad",  icon: Q2 },
   { href: "/calls",     label: "Calls",   icon: Clock },
   { href: "/contacts",  label: "Contacts",icon: Users },
   { href: "/profile",   label: "Profile", icon: User },
