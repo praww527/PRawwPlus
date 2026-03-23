@@ -83,6 +83,13 @@
   --glass-border: var(--sep);
   --glass-shadow: rgba(0, 0, 0, 0.40);
 
+  /* Dial pad buttons (dark mode) */
+  --dial-btn-bg: rgba(255, 255, 255, 0.11);
+  --dial-btn-pressed: rgba(255, 255, 255, 0.20);
+
+  /* Tab bar */
+  --tab-bar-bg: var(--surface-1);
+
   /* Safe area insets */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -140,6 +147,13 @@
     --glass-bg: var(--surface-1);
     --glass-border: var(--sep);
     --glass-shadow: rgba(0, 0, 0, 0.08);
+
+    /* Dial pad buttons (light mode) */
+    --dial-btn-bg: rgba(0, 0, 0, 0.066);
+    --dial-btn-pressed: rgba(0, 0, 0, 0.13);
+
+    /* Tab bar */
+    --tab-bar-bg: #ffffff;
   }
 }
 
