@@ -8,12 +8,11 @@ import type { OwnedNumber, PaymentRecord } from "@workspace/api-client-react";
 import {
   ChevronRight, LogOut, Trash2, Phone, Coins, Receipt,
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
-  HelpCircle, Mail, CreditCard, Loader2, Shuffle, CheckCircle2,
-  AlertCircle, Plus, UserCircle2, PhoneCall, Users, X,
+  HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
+  AlertCircle, Plus, UserCircle2, X, Shuffle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
 const PLANS = [
@@ -177,21 +176,14 @@ export default function Profile() {
     );
   }
 
-  const actionBtnStyle = (color: string): React.CSSProperties => ({
-    flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-    padding: "14px 8px", borderRadius: 14,
-    background: "var(--surface-1)", border: "1px solid var(--sep)",
-    cursor: "pointer", color,
-  });
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 8, paddingTop: 4 }}>
       <PayFastRedirect data={pfData} />
 
       {/* ── User header ──────────────────────────────────── */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 4 }}>
-        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "rgba(10,132,255,0.15)", border: "2px solid rgba(10,132,255,0.30)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <UserCircle2 style={{ width: 40, height: 40, color: "hsl(var(--primary))" }} />
+        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <UserCircle2 style={{ width: 40, height: 40, color: "#ffffff" }} />
         </div>
         <div style={{ textAlign: "center" }}>
           <p style={{ fontSize: 20, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>
@@ -227,22 +219,6 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* ── Quick actions ─────────────────────────────────── */}
-      <div style={{ display: "flex", gap: 10 }}>
-        <button style={actionBtnStyle("#30d158")} onClick={() => setLocation("/dashboard")}>
-          <PhoneCall style={{ width: 20, height: 20 }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)" }}>Call</span>
-        </button>
-        <button style={actionBtnStyle("hsl(var(--primary))")} onClick={() => setLocation("/contacts")}>
-          <Users style={{ width: 20, height: 20 }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)" }}>Contacts</span>
-        </button>
-        <button style={actionBtnStyle("#ffd60a")} onClick={() => setSheet("topup")}>
-          <Coins style={{ width: 20, height: 20 }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)" }}>Top Up</span>
-        </button>
-      </div>
-
       {/* ── Account ───────────────────────────────────────── */}
       <Section title="Account">
         <Row icon={<Hash size={15} />} iconBg="rgba(10,132,255,0.20)" iconColor="hsl(var(--primary))"
@@ -269,9 +245,9 @@ export default function Profile() {
       {/* ── Preferences ───────────────────────────────────── */}
       <Section title="Preferences">
         <Row icon={<Bell size={15} />} iconBg="rgba(255,69,58,0.20)" iconColor="#ff453a"
-          label="Notifications" value="Coming soon" chevron={false} />
+          label="Notifications" onClick={() => setLocation("/notifications")} />
         <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.20)" iconColor="#30d158"
-          label="Call Settings" value="Coming soon" chevron={false} />
+          label="Call Settings" onClick={() => setLocation("/call-settings")} />
         <Row icon={<Mic size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
           label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
