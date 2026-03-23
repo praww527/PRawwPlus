@@ -296,6 +296,58 @@
     * { scrollbar-width: none; }
   }
 
+  /* ── Press / tap animation ───────────────────────────────────────── */
+  .btn-press {
+    transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.12s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-press:active {
+    transform: scale(0.88);
+    opacity: 0.72;
+  }
+
+  /* Glass action button (icon only) */
+  .btn-icon-glass {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
+    transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.12s, background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-icon-glass:active {
+    transform: scale(0.88);
+    opacity: 0.72;
+  }
+
+  /* Solid primary pill button */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 20px;
+    border-radius: 22px;
+    background: hsl(var(--primary));
+    border: none;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 14px rgba(26, 140, 255, 0.28);
+    transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.12s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-primary:active {
+    transform: scale(0.92);
+    opacity: 0.82;
+  }
+
   /* Toggle switch */
   .toggle-track {
     width: 51px;
