@@ -21,11 +21,10 @@ const DIAL_KEYS = [
   { key: "#",  sub: "" },
 ];
 
-/* Button size and grid dimensions */
-const BTN = 76;        // circle diameter px
-const COL_GAP = 22;    // gap between columns px
-const ROW_GAP = 14;    // gap between rows px
-const GRID_W = BTN * 3 + COL_GAP * 2; // 272px total grid width
+const BTN = 76;
+const COL_GAP = 22;
+const ROW_GAP = 14;
+const GRID_W = BTN * 3 + COL_GAP * 2;
 
 export default function DialPad() {
   const search = useSearch();
@@ -38,6 +37,7 @@ export default function DialPad() {
 
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
+  const zeroHandled = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(search);
@@ -49,6 +49,7 @@ export default function DialPad() {
 
   const handleZeroDown = () => {
     longPressFired.current = false;
+    zeroHandled.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressFired.current = true;
       setNumber((n) => n.length < 20 ? n + "+" : n);
@@ -57,7 +58,10 @@ export default function DialPad() {
 
   const handleZeroUp = () => {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-    if (!longPressFired.current) press("0");
+    if (!longPressFired.current && !zeroHandled.current) {
+      zeroHandled.current = true;
+      press("0");
+    }
   };
 
   const del = () => setNumber((n) => n.slice(0, -1));
@@ -81,11 +85,9 @@ export default function DialPad() {
   const coins = user?.coins ?? 0;
   const canCall = coins > 0 && isActive;
 
-  /* Number display font size — shrink for long numbers */
   const numFontSize = number.length > 14 ? 26 : number.length > 10 ? 30 : number.length > 6 ? 36 : 42;
 
   return (
-    /* Fixed overlay that fills exactly the space between safe-area-top and tab bar */
     <div style={{
       position: "fixed",
       top: "env(safe-area-inset-top, 0px)",
@@ -99,16 +101,41 @@ export default function DialPad() {
       overflowY: "auto",
     }}>
       {/* Top breathing space */}
-      <div style={{ flex: 1, minHeight: 24 }} />
+      <div style={{ flex: 1, minHeight: 16 }} />
 
-      {/* ── Warning banner (subscription / coins) ── */}
+      {/* ── Balance pill ── */}
+      {user && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 10,
+          padding: "5px 14px",
+          borderRadius: 20,
+          background: "rgba(255,214,10,0.08)",
+          border: "1px solid rgba(255,214,10,0.15)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.40)", fontWeight: 500 }}>Balance</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#ffd60a", letterSpacing: "0.02em" }}>
+            {coins.toFixed(2)}
+          </span>
+          <span style={{ fontSize: 10, color: "rgba(255,214,10,0.55)" }}>coins</span>
+        </div>
+      )}
+
+      {/* ── Warning banner ── */}
       {user && !canCall && (
         <button
           onClick={() => setLocation("/profile")}
           style={{
             display: "flex", alignItems: "center", gap: 8,
-            marginBottom: 20, padding: "10px 18px", borderRadius: 12,
-            background: "rgba(255,149,0,0.10)", border: "none",
+            marginBottom: 16, padding: "10px 18px", borderRadius: 14,
+            background: "rgba(255,149,0,0.08)",
+            border: "1px solid rgba(255,149,0,0.15)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
             cursor: "pointer", maxWidth: GRID_W + 40,
           }}
         >
@@ -128,13 +155,12 @@ export default function DialPad() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        marginBottom: 28,
+        marginBottom: 24,
         minHeight: 56,
         position: "relative",
         paddingLeft: 40,
         paddingRight: 40,
       }}>
-        {/* Number text */}
         <span style={{
           flex: 1,
           textAlign: "center",
@@ -150,7 +176,6 @@ export default function DialPad() {
           {number || "0"}
         </span>
 
-        {/* Backspace — visible only when there's a number */}
         {number.length > 0 && (
           <button
             onClick={del}
@@ -203,10 +228,7 @@ export default function DialPad() {
         marginTop: ROW_GAP + 4,
         marginBottom: 8,
       }}>
-        {/* Left spacer (same width as a dial button for alignment) */}
         <div style={{ width: BTN }} />
-
-        {/* Green call button — centered slot */}
         <div style={{ width: BTN + COL_GAP * 2, display: "flex", justifyContent: "center" }}>
           <button
             onClick={handleCall}
@@ -214,15 +236,16 @@ export default function DialPad() {
             style={{
               width: BTN + 6, height: BTN + 6,
               borderRadius: "50%",
-              background: "#34C759",
+              background: "linear-gradient(145deg, #3ddb6a, #28a84e)",
               border: "none",
               display: "flex", alignItems: "center", justifyContent: "center",
               cursor: "pointer",
               opacity: number.length >= 5 ? 1 : 0.45,
               transition: "opacity 0.2s, transform 0.1s",
               flexShrink: 0,
+              boxShadow: "0 4px 20px rgba(48,209,88,0.35)",
             }}
-            onPointerDown={(e) => { e.currentTarget.style.transform = "scale(0.94)"; }}
+            onPointerDown={(e) => { e.currentTarget.style.transform = "scale(0.93)"; }}
             onPointerUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
             onPointerLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
           >
@@ -232,18 +255,14 @@ export default function DialPad() {
             }
           </button>
         </div>
-
-        {/* Right spacer */}
         <div style={{ width: BTN }} />
       </div>
 
-      {/* Bottom breathing space */}
-      <div style={{ flex: "0 0 16px" }} />
+      <div style={{ flex: "0 0 12px" }} />
     </div>
   );
 }
 
-/* ── Reusable dial button ─────────────────────────────────────────── */
 interface DialButtonProps {
   primary: string;
   secondary: string;
@@ -276,21 +295,26 @@ function DialButton({ primary, secondary, isZero, size, onPress, onZeroDown, onZ
       style={{
         width: size, height: size,
         borderRadius: "50%",
-        background: pressed ? "var(--dial-btn-pressed)" : "var(--dial-btn-bg)",
-        border: "none",
+        background: pressed
+          ? "rgba(255,255,255,0.18)"
+          : "var(--dial-btn-bg)",
+        border: "1px solid var(--dial-btn-border)",
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
         display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center",
         cursor: "pointer",
         userSelect: "none",
         WebkitUserSelect: "none",
-        transition: "background 0.08s",
+        transition: "background 0.08s, transform 0.08s",
+        transform: pressed ? "scale(0.93)" : "scale(1)",
         padding: 0,
         gap: 0,
       }}
     >
       <span style={{
         fontSize: 30,
-        fontWeight: 400,
+        fontWeight: 300,
         color: "var(--text-1)",
         lineHeight: 1,
         fontFamily: "var(--font-sans)",
