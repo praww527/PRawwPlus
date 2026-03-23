@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Grid3x3, Clock, Users, User } from "lucide-react";
+import { Q2, Clock, Users, User } from "lucide-react";
 
 interface LayoutProps {
   children: React.ReactNode;
