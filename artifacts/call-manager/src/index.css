@@ -26,102 +26,120 @@
   --color-ring: hsl(var(--ring));
 }
 
-/* ── Dark mode (default) ──────────────────────────────────────────── */
+/* ── Dark mode ──────────────────────────────────────────────────────── */
 :root {
   color-scheme: dark;
 
-  --background: 224 71% 4%;
-  --foreground: 213 31% 91%;
-  --card: 222 47% 11% / 0.4;
-  --card-foreground: 213 31% 91%;
-  --popover: 224 71% 4% / 0.8;
-  --popover-foreground: 215 20.2% 65.1%;
-  --primary: 217.2 91.2% 59.8%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-  --secondary: 222.2 47.4% 11.2%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 223 47% 11%;
-  --muted-foreground: 215.4 16.3% 56.9%;
-  --accent: 216 34% 17%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 216 34% 17% / 0.5;
-  --input: 216 34% 17% / 0.5;
-  --ring: 224.3 76.3% 48%;
+  --background: 0 0% 7%;
+  --foreground: 0 0% 96%;
+  --card: 0 0% 11%;
+  --card-foreground: 0 0% 96%;
+  --popover: 0 0% 11%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 211 100% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 17%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 0 0% 17%;
+  --accent-foreground: 0 0% 96%;
+  --destructive: 4 86% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 100% / 0.08;
+  --input: 0 0% 17%;
+  --ring: 211 100% 53%;
   --radius: 0.75rem;
 
-  /* Glass surface colours */
-  --glass-bg: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.10);
-  --glass-shadow: rgba(0, 0, 0, 0.50);
+  /* Surfaces */
+  --surface-0: #0d0d0d;
+  --surface-1: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --surface-3: #3a3a3c;
+  --surface-pill: #242426;
 
-  /* Overlay backdrop */
-  --overlay-bg: rgba(0, 0, 0, 0.60);
+  /* Separators */
+  --sep: rgba(255, 255, 255, 0.08);
+  --sep-strong: rgba(255, 255, 255, 0.13);
+
+  /* Text */
+  --text-1: rgba(255, 255, 255, 1);
+  --text-2: rgba(255, 255, 255, 0.55);
+  --text-3: rgba(255, 255, 255, 0.30);
 
   /* Nav */
-  --nav-bg: var(--glass-bg);
-  --nav-border: var(--glass-border);
-  --nav-surface: rgba(20, 24, 38, 0.72);
-  --nav-border-top: rgba(255, 255, 255, 0.10);
-  --nav-icon-active: rgba(255, 255, 255, 1);
-  --nav-icon-inactive: rgba(255, 255, 255, 0.42);
+  --nav-pill: #1e1e20;
+  --nav-pill-border: rgba(255, 255, 255, 0.10);
+  --nav-active: hsl(var(--primary));
+  --nav-inactive: rgba(255, 255, 255, 0.45);
 
-  /* Modal / bottom-sheet */
-  --modal-bg: hsl(224 71% 6% / 0.95);
+  /* Modal */
+  --modal-bg: #1c1c1e;
   --modal-border: rgba(255, 255, 255, 0.10);
+  --overlay-bg: rgba(0, 0, 0, 0.75);
 
-  /* Safe area insets for iPhone notch / Dynamic Island / home indicator */
+  /* Legacy glass vars — now solid */
+  --glass-bg: var(--surface-1);
+  --glass-border: var(--sep);
+  --glass-shadow: rgba(0, 0, 0, 0.40);
+
+  /* Safe area insets */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
-/* ── Light mode ───────────────────────────────────────────────────── */
+/* ── Light mode ─────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
 
-    --background: 210 40% 96%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100% / 0.7;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100% / 0.9;
-    --popover-foreground: 222 47% 11%;
-    --primary: 217.2 91.2% 50%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 90%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 92%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 88%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 45%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 82% / 0.7;
-    --input: 214 32% 82% / 0.7;
-    --ring: 217.2 91.2% 50%;
+    --background: 0 0% 94%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 211 100% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 90%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 0 0% 90%;
+    --muted-foreground: 0 0% 44%;
+    --accent: 0 0% 90%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 4 86% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 0% / 0.10;
+    --input: 0 0% 90%;
+    --ring: 211 100% 45%;
 
-    /* Glass surface colours — light */
-    --glass-bg: rgba(255, 255, 255, 0.55);
-    --glass-border: rgba(0, 0, 0, 0.08);
-    --glass-shadow: rgba(0, 0, 0, 0.10);
+    --surface-0: #f2f2f7;
+    --surface-1: #ffffff;
+    --surface-2: #ebebf0;
+    --surface-3: #d8d8de;
+    --surface-pill: #e5e5ea;
 
-    /* Overlay backdrop */
-    --overlay-bg: rgba(0, 0, 0, 0.35);
+    --sep: rgba(0, 0, 0, 0.08);
+    --sep-strong: rgba(0, 0, 0, 0.14);
 
-    /* Nav */
-    --nav-bg: var(--glass-bg);
-    --nav-border: var(--glass-border);
-    --nav-surface: rgba(245, 245, 250, 0.80);
-    --nav-border-top: rgba(0, 0, 0, 0.10);
-    --nav-icon-active: rgba(20, 24, 38, 1);
-    --nav-icon-inactive: rgba(20, 24, 38, 0.38);
+    --text-1: rgba(0, 0, 0, 0.88);
+    --text-2: rgba(0, 0, 0, 0.50);
+    --text-3: rgba(0, 0, 0, 0.28);
 
-    /* Modal / bottom-sheet */
-    --modal-bg: hsl(210 40% 97% / 0.97);
-    --modal-border: rgba(0, 0, 0, 0.08);
+    --nav-pill: #e8e8ed;
+    --nav-pill-border: rgba(0, 0, 0, 0.08);
+    --nav-active: hsl(var(--primary));
+    --nav-inactive: rgba(0, 0, 0, 0.40);
+
+    --modal-bg: #ffffff;
+    --modal-border: rgba(0, 0, 0, 0.10);
+    --overlay-bg: rgba(0, 0, 0, 0.45);
+
+    --glass-bg: var(--surface-1);
+    --glass-border: var(--sep);
+    --glass-shadow: rgba(0, 0, 0, 0.08);
   }
 }
 
@@ -137,64 +155,110 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply font-sans antialiased;
+    background: var(--surface-0);
+    color: var(--text-1);
     overflow-x: hidden;
     overscroll-behavior: none;
-    background-image:
-      radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.05), transparent 40%),
-      radial-gradient(circle at 100% 50%, rgba(129, 140, 248, 0.05), transparent 50%),
-      radial-gradient(circle at 0% 100%, rgba(99, 102, 241, 0.05), transparent 50%);
-    background-attachment: fixed;
-  }
-
-  @media (prefers-color-scheme: light) {
-    body {
-      background-image:
-        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.08), transparent 40%),
-        radial-gradient(circle at 100% 50%, rgba(129, 140, 248, 0.08), transparent 50%),
-        radial-gradient(circle at 0% 100%, rgba(99, 102, 241, 0.08), transparent 50%);
-    }
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-display tracking-tight;
-    color: hsl(var(--foreground));
+    color: var(--text-1);
   }
 }
 
 @layer utilities {
+  /* ── Core surface ─────────────────────────────────────────────────── */
+  .surface {
+    background: var(--surface-1);
+    border: 1px solid var(--sep);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+
+  .surface-2 {
+    background: var(--surface-2);
+  }
+
+  /* .glass is kept as an alias for .surface so old code still works */
   .glass {
-    background: var(--glass-bg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 4px 24px -8px var(--glass-shadow);
+    background: var(--surface-1);
+    border: 1px solid var(--sep);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
   }
 
-  .glass-hover {
-    transition: background 0.3s, border-color 0.3s;
-  }
-  .glass-hover:hover {
-    background: color-mix(in srgb, var(--glass-bg) 100%, white 5%);
-    border-color: color-mix(in srgb, var(--glass-border) 100%, white 10%);
-  }
-
-  .glow-primary {
-    box-shadow: 0 0 20px -5px hsl(var(--primary) / 0.5);
+  /* Grouped section card (list container) */
+  .section-card {
+    background: var(--surface-1);
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--sep);
   }
 
-  /* Modal / overlay backdrop */
+  /* Section row — used inside .section-card */
+  .section-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    transition: background 0.12s;
+  }
+  .section-row:active {
+    background: var(--surface-2);
+  }
+
+  /* Icon badge (rounded square) */
+  .icon-badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Separator inside grouped card */
+  .row-sep {
+    height: 1px;
+    background: var(--sep);
+    margin-left: 62px;
+  }
+
+  /* Floating pill nav */
+  .nav-pill {
+    background: var(--nav-pill);
+    border: 1px solid var(--nav-pill-border);
+    border-radius: 26px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Modal / overlay */
   .overlay-backdrop {
     background: var(--overlay-bg);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
-  /* Bottom sheet / modal surface */
   .modal-surface {
     background: var(--modal-bg);
-    border-color: var(--modal-border);
+    border: 1px solid var(--modal-border);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   }
+
+  /* Section label */
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    padding: 0 4px 6px;
+  }
+
+  /* Nav icon states */
+  .nav-icon-active  { color: var(--nav-active);   }
+  .nav-icon-inactive { color: var(--nav-inactive); }
 
   /* Safe area padding helpers */
   .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
@@ -202,24 +266,13 @@
   .pl-safe { padding-left: env(safe-area-inset-left, 0px); }
   .pr-safe { padding-right: env(safe-area-inset-right, 0px); }
 
-  /* Nav icon states */
-  .nav-icon-active {
-    color: var(--nav-icon-active);
-  }
-  .nav-icon-inactive {
-    color: var(--nav-icon-inactive);
-  }
-
-  /* Custom scrollbar — hidden on mobile, subtle on desktop */
+  /* Scrollbar */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: var(--glass-border);
+    background: var(--sep-strong);
     border-radius: 9999px;
-    border: 2px solid transparent;
-    background-clip: content-box;
   }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--glass-border) 100%, white 10%); }
 
   @media (max-width: 768px) {
     ::-webkit-scrollbar { display: none; }

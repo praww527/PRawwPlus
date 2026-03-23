@@ -8,52 +8,69 @@ interface LayoutProps {
 
 const navItems = [
   { href: "/dashboard", label: "Dial Pad", icon: Phone },
-  { href: "/calls", label: "Calls", icon: History },
-  { href: "/contacts", label: "Contacts", icon: Users },
-  { href: "/profile", label: "Profile", icon: User },
+  { href: "/calls",     label: "Calls",    icon: History },
+  { href: "/contacts",  label: "Contacts", icon: Users },
+  { href: "/profile",   label: "Profile",  icon: User },
 ];
 
-export const NAV_H = 72;
+/* Height of the nav area (pill + spacing + safe area) */
+export const NAV_H = 80;
 
 export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
 
   return (
     <div
-      className="bg-background flex flex-col"
-      style={{ height: "100dvh", overflow: "hidden" }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100dvh",
+        overflow: "hidden",
+        background: "var(--surface-0)",
+      }}
     >
-      {/* Frosted-glass background */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <img
-          src={`${import.meta.env.BASE_URL}images/bg-abstract.png`}
-          alt=""
-          className="w-full h-full object-cover opacity-40"
-        />
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-[60px]" />
-      </div>
-
+      {/* Scrollable page content */}
       <main
-        className="relative z-10 flex-1 overflow-y-auto"
-        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          /* bottom padding = nav pill area so content isn't hidden behind it */
+          paddingBottom: `${NAV_H + 8}px`,
+        }}
       >
-        <div className="max-w-lg mx-auto px-4 w-full py-4">
+        <div className="max-w-lg mx-auto px-4 w-full py-5">
           {children}
         </div>
       </main>
 
-      {/* Flat frosted-glass bottom nav — iOS style */}
-      <nav
-        className="relative z-30 shrink-0 w-full"
+      {/* Floating pill bottom nav */}
+      <div
         style={{
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          backdropFilter: "blur(40px) saturate(180%)",
-          WebkitBackdropFilter: "blur(40px) saturate(180%)",
-          background: "var(--nav-surface)",
-          borderTop: "0.5px solid var(--nav-border-top)",
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 40,
+          display: "flex",
+          justifyContent: "center",
+          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)",
+          paddingLeft: 16,
+          paddingRight: 16,
+          paddingTop: 8,
+          background: "var(--surface-0)",
         }}
       >
-        <div className="max-w-lg mx-auto flex items-center justify-around px-2 py-2">
+        <nav
+          className="nav-pill"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            width: "100%",
+            maxWidth: 420,
+            padding: "6px 8px",
+          }}
+        >
           {navItems.map((item) => {
             const isActive =
               item.href === "/dashboard"
@@ -61,28 +78,48 @@ export function Layout({ children }: LayoutProps) {
                 : location.startsWith(item.href);
 
             return (
-              <Link key={item.href} href={item.href} className="flex-1">
+              <Link key={item.href} href={item.href} style={{ flex: 1 }}>
                 <div
-                  className={cn(
-                    "flex flex-col items-center gap-1 py-1 cursor-pointer select-none",
-                    isActive ? "nav-icon-active" : "nav-icon-inactive"
-                  )}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 3,
+                    padding: "7px 4px",
+                    borderRadius: 20,
+                    background: isActive ? "rgba(10,132,255,0.14)" : "transparent",
+                    cursor: "pointer",
+                    userSelect: "none",
+                    transition: "background 0.15s",
+                  }}
                 >
-                  <item.icon className="h-[22px] w-[22px]" strokeWidth={isActive ? 2.2 : 1.8} />
-                  <span className="text-[10px] font-medium tracking-wide leading-none">
+                  <item.icon
+                    style={{
+                      width: 22,
+                      height: 22,
+                      color: isActive ? "var(--nav-active)" : "var(--nav-inactive)",
+                      strokeWidth: isActive ? 2.3 : 1.9,
+                      transition: "color 0.15s",
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.01em",
+                      color: isActive ? "var(--nav-active)" : "var(--nav-inactive)",
+                      lineHeight: 1,
+                      transition: "color 0.15s",
+                    }}
+                  >
                     {item.label}
                   </span>
-                  {/* Active dot indicator */}
-                  <span
-                    className="w-1 h-1 rounded-full"
-                    style={{ opacity: isActive ? 1 : 0, background: "currentColor" }}
-                  />
                 </div>
               </Link>
             );
           })}
-        </div>
-      </nav>
+        </nav>
+      </div>
     </div>
   );
 }

@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Phone, Eye, EyeOff, ArrowLeft, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Phone, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 
 export default function LoginPage() {
@@ -19,164 +16,120 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError("");
-    setUnverified(false);
-
+    setLoading(true); setError(""); setUnverified(false);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(form),
-      });
+      const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(form) });
       const data = await res.json();
-
-      if (!res.ok) {
-        if (data.error === "email_not_verified") {
-          setUnverified(true);
-        } else {
-          setError(data.error || "Login failed");
-        }
-        return;
-      }
-
-      refetch();
-      setLocation("/");
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+      if (!res.ok) { data.error === "email_not_verified" ? setUnverified(true) : setError(data.error || "Login failed"); return; }
+      refetch(); setLocation("/");
+    } catch { setError("Network error. Please try again."); }
+    finally { setLoading(false); }
   };
 
   const resendVerification = async () => {
     setResendLoading(true);
-    try {
-      await fetch("/api/auth/resend-verification", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email }),
-      });
-      setResendDone(true);
-    } finally {
-      setResendLoading(false);
-    }
+    try { await fetch("/api/auth/resend-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: form.email }) }); setResendDone(true); }
+    finally { setResendLoading(false); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "14px 16px", borderRadius: 12,
+    background: "var(--surface-2)", border: "1px solid var(--sep)",
+    color: "var(--text-1)", fontSize: 16, outline: "none",
+    fontFamily: "inherit",
   };
 
   return (
-    <div
-      className="flex items-center justify-center bg-background overflow-y-auto"
-      style={{ minHeight: "100dvh", padding: "max(env(safe-area-inset-top,16px),24px) 16px max(env(safe-area-inset-bottom,16px),24px)" }}
-    >
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-950/60 via-background to-indigo-950/40 pointer-events-none" />
+    <div style={{ minHeight: "100dvh", background: "var(--surface-0)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+      <div style={{ width: "100%", maxWidth: 400 }}>
 
-      <div className="relative z-10 w-full max-w-md">
-        <button
-          onClick={() => setLocation("/")}
-          className="flex items-center gap-2 text-white/40 hover:text-white/70 mb-8 transition-colors text-sm"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to home
-        </button>
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 16,
+            background: "hsl(var(--primary))",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 12px",
+          }}>
+            <Phone style={{ width: 26, height: 26, color: "#fff" }} />
+          </div>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>PRaww+</h1>
+          <p style={{ fontSize: 15, color: "var(--text-2)", marginTop: 4 }}>Sign in to your account</p>
+        </div>
 
-        <div className="glass rounded-3xl p-8 border border-white/10 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-56 h-56 bg-primary/8 rounded-full blur-[80px] pointer-events-none" />
+        {/* Card */}
+        <div className="section-card" style={{ padding: "0 0 4px" }}>
+          {unverified && (
+            <div style={{ margin: "0 0 2px", padding: "14px 20px", background: "rgba(255,214,10,0.08)", borderBottom: "1px solid var(--sep)" }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#ffd60a", marginBottom: 4 }}>Email not verified</p>
+              <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 8 }}>Please verify your email before logging in.</p>
+              {resendDone
+                ? <p style={{ fontSize: 13, color: "#30d158" }}>Verification email resent!</p>
+                : <button onClick={resendVerification} disabled={resendLoading} style={{ fontSize: 13, color: "hsl(var(--primary))", fontWeight: 600, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                    {resendLoading ? "Sending…" : "Resend verification email"}
+                  </button>}
+            </div>
+          )}
 
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shadow-lg shadow-primary/25">
-                <Phone className="h-5 w-5 text-white" />
-              </div>
-              <span className="text-lg font-display font-bold text-white">PRaww+</span>
+          <form onSubmit={handleSubmit}>
+            {/* Email */}
+            <div style={{ padding: "16px 20px 0" }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Email</label>
+              <input
+                type="email" placeholder="you@example.com"
+                value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                required style={inputStyle}
+              />
             </div>
 
-            <h1 className="text-2xl font-display font-bold text-white mb-1">Welcome back</h1>
-            <p className="text-white/45 text-sm mb-8">Sign in to your account</p>
+            {/* Password */}
+            <div style={{ padding: "14px 20px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Password</label>
+                <button type="button" onClick={() => setLocation("/forgot-password")} style={{ fontSize: 13, color: "hsl(var(--primary))", fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+                  Forgot?
+                </button>
+              </div>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPassword ? "text" : "password"} placeholder="Your password"
+                  value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  required style={{ ...inputStyle, paddingRight: 48 }}
+                />
+                <button type="button" onClick={() => setShowPassword((v) => !v)}
+                  style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer" }}>
+                  {showPassword ? <EyeOff style={{ width: 18, height: 18, color: "var(--text-3)" }} /> : <Eye style={{ width: 18, height: 18, color: "var(--text-3)" }} />}
+                </button>
+              </div>
+            </div>
 
-            {unverified && (
-              <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-4 mb-6">
-                <p className="text-amber-400 text-sm font-medium mb-1">Email not verified</p>
-                <p className="text-white/55 text-sm mb-3">Please verify your email before logging in.</p>
-                {resendDone ? (
-                  <p className="text-green-400 text-sm">Verification email resent! Check your inbox.</p>
-                ) : (
-                  <button
-                    onClick={resendVerification}
-                    disabled={resendLoading}
-                    className="text-primary hover:text-primary/80 text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    {resendLoading ? "Sending…" : "Resend verification email"}
-                  </button>
-                )}
+            {error && (
+              <div style={{ margin: "12px 20px 0", padding: "12px 14px", borderRadius: 10, background: "rgba(255,69,58,0.10)", border: "1px solid rgba(255,69,58,0.20)" }}>
+                <p style={{ fontSize: 13, color: "#ff453a" }}>{error}</p>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-1.5">
-                <Label className="text-white/70 text-sm">Email Address</Label>
-                <Input
-                  type="email"
-                  placeholder="you@example.com"
-                  value={form.email}
-                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  required
-                  className="h-12 bg-white/5 border-white/10 text-white placeholder:text-white/25 focus:border-primary/50 focus:ring-primary/20"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label className="text-white/70 text-sm">Password</Label>
-                  <button
-                    type="button"
-                    onClick={() => setLocation("/forgot-password")}
-                    className="text-primary/70 hover:text-primary text-xs transition-colors"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Your password"
-                    value={form.password}
-                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    required
-                    className="h-12 bg-white/5 border-white/10 text-white placeholder:text-white/25 focus:border-primary/50 focus:ring-primary/20 pr-11"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
-                  </button>
-                </div>
-              </div>
-
-              {error && (
-                <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-red-400 text-sm">
-                  {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full h-12 text-base bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
-              >
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sign In"}
-              </Button>
-            </form>
-
-            <p className="text-center text-sm text-white/40 mt-6">
-              Don't have an account?{" "}
-              <button onClick={() => setLocation("/signup")} className="text-primary hover:text-primary/80 font-medium transition-colors">
-                Sign up free
+            <div style={{ padding: "20px 20px 16px" }}>
+              <button type="submit" disabled={loading} style={{
+                width: "100%", padding: "14px 0", borderRadius: 12,
+                background: "hsl(var(--primary))", border: "none",
+                color: "#fff", fontSize: 16, fontWeight: 600,
+                cursor: loading ? "default" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                opacity: loading ? 0.8 : 1,
+              }}>
+                {loading ? <><Loader2 style={{ width: 18, height: 18 }} className="animate-spin" /> Signing in…</> : "Sign In"}
               </button>
-            </p>
-          </div>
+            </div>
+          </form>
         </div>
+
+        <p style={{ textAlign: "center", fontSize: 14, color: "var(--text-2)", marginTop: 20 }}>
+          Don't have an account?{" "}
+          <button onClick={() => setLocation("/signup")} style={{ color: "hsl(var(--primary))", fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>
+            Sign up free
+          </button>
+        </p>
       </div>
     </div>
   );
