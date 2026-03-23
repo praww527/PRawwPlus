@@ -5,7 +5,6 @@ import {
   useCreateContact, useBulkImportContacts, useDeleteContact,
 } from "@workspace/api-client-react";
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useCall } from "@/context/CallContext";
 
@@ -28,6 +27,21 @@ const hasContactsApi =
 
 const PROMPT_KEY = "contacts_import_prompted_v2";
 
+/* ── Shared glass input style ──────────────────────────────────────── */
+const glassInput: React.CSSProperties = {
+  width: "100%",
+  padding: "11px 14px",
+  borderRadius: 14,
+  background: "var(--glass-bg)",
+  border: "1px solid var(--glass-border)",
+  backdropFilter: "blur(16px)",
+  WebkitBackdropFilter: "blur(16px)",
+  color: "var(--text-1)",
+  fontSize: 15,
+  outline: "none",
+};
+
+/* ── Import selection modal ─────────────────────────────────────────── */
 function ImportModal({ entries, onImport, onClose }: {
   entries: PhoneEntry[];
   onImport: (selected: PhoneEntry[]) => void;
@@ -41,13 +55,17 @@ function ImportModal({ entries, onImport, onClose }: {
   });
 
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
-      <div className="modal-surface" style={{ width: "100%", maxWidth: 420, borderRadius: 20, padding: "20px 0", display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="modal-surface" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: "20px 0", display: "flex", flexDirection: "column", maxHeight: "80dvh" }}>
+        {/* Handle */}
+        <div style={{ display: "flex", justifyContent: "center", paddingBottom: 12 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
+        </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px 16px" }}>
           <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>
             Select Contacts ({selected.size}/{entries.length})
           </p>
-          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--surface-2)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X style={{ width: 15, height: 15, color: "var(--text-2)" }} />
           </button>
         </div>
@@ -60,16 +78,19 @@ function ImportModal({ entries, onImport, onClose }: {
             <button key={e.number} onClick={() => toggle(e.number)}
               style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 12,
-                padding: "10px 8px", borderRadius: 12, marginBottom: 4,
-                background: selected.has(e.number) ? "rgba(10,132,255,0.12)" : "transparent",
-                border: "none", cursor: "pointer", textAlign: "left",
+                padding: "10px 8px", borderRadius: 14, marginBottom: 4,
+                background: selected.has(e.number) ? "rgba(255,255,255,0.08)" : "transparent",
+                border: `1px solid ${selected.has(e.number) ? "rgba(255,255,255,0.12)" : "transparent"}`,
+                cursor: "pointer", textAlign: "left",
+                backdropFilter: selected.has(e.number) ? "blur(10px)" : undefined,
               }}>
               <div style={{
-                width: 36, height: 36, borderRadius: "50%",
-                background: selected.has(e.number) ? "rgba(10,132,255,0.18)" : "var(--surface-2)",
+                width: 38, height: 38, borderRadius: "50%",
+                background: selected.has(e.number) ? "rgba(255,255,255,0.12)" : "var(--glass-bg)",
+                border: "1px solid var(--glass-border)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 12, fontWeight: 700,
-                color: selected.has(e.number) ? "hsl(var(--primary))" : "var(--text-2)",
+                fontSize: 13, fontWeight: 700,
+                color: "var(--text-1)",
                 flexShrink: 0,
               }}>
                 {initials(e.name, e.number)}
@@ -95,11 +116,11 @@ function ImportModal({ entries, onImport, onClose }: {
         </div>
         <div style={{ display: "flex", gap: 10, padding: "16px 20px 0" }}>
           <button onClick={onClose}
-            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: "var(--surface-2)", border: "none", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            style={{ flex: 1, padding: "12px 0", borderRadius: 14, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
             Cancel
           </button>
           <button onClick={() => onImport(entries.filter((e) => selected.has(e.number)))} disabled={selected.size === 0}
-            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: selected.size === 0 ? "var(--surface-2)" : "hsl(var(--primary))", border: "none", color: selected.size === 0 ? "var(--text-3)" : "#fff", fontSize: 15, fontWeight: 600, cursor: selected.size === 0 ? "default" : "pointer" }}>
+            style={{ flex: 1, padding: "12px 0", borderRadius: 14, background: selected.size === 0 ? "var(--glass-bg)" : "hsl(var(--primary))", border: "none", color: selected.size === 0 ? "var(--text-3)" : "#fff", fontSize: 15, fontWeight: 600, cursor: selected.size === 0 ? "default" : "pointer" }}>
             Import {selected.size > 0 ? `(${selected.size})` : ""}
           </button>
         </div>
@@ -108,39 +129,59 @@ function ImportModal({ entries, onImport, onClose }: {
   );
 }
 
+/* ── Add contact modal ──────────────────────────────────────────────── */
 function AddContactModal({ onAdd, onClose }: { onAdd: (name: string, number: string) => void; onClose: () => void }) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
-  const inputStyle = {
-    width: "100%", padding: "12px 14px", borderRadius: 12,
-    background: "var(--surface-2)", border: "1px solid var(--sep)",
-    color: "var(--text-1)", fontSize: 15, outline: "none",
-  };
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
-      <div className="modal-surface" style={{ width: "100%", maxWidth: 420, borderRadius: 20, padding: 20 }}>
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="modal-surface" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: 20 }}>
+        {/* Handle */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
+        </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>Add Contact</p>
-          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--surface-2)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X style={{ width: 15, height: 15, color: "var(--text-2)" }} />
           </button>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <input style={inputStyle} type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <input style={{ ...inputStyle, fontFamily: "monospace" }} type="tel" placeholder="+27821234567" value={number} onChange={(e) => setNumber(e.target.value)} />
+          <input style={glassInput} type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input style={{ ...glassInput, fontFamily: "monospace" }} type="tel" placeholder="+27821234567" value={number} onChange={(e) => setNumber(e.target.value)} />
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
           <button onClick={onClose}
-            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: "var(--surface-2)", border: "none", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            style={{ flex: 1, padding: "13px 0", borderRadius: 14, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
             Cancel
           </button>
           <button onClick={() => name.trim() && number.trim() && onAdd(name.trim(), number.trim())}
             disabled={!name.trim() || !number.trim()}
-            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: !name.trim() || !number.trim() ? "default" : "pointer", opacity: !name.trim() || !number.trim() ? 0.45 : 1 }}>
+            style={{ flex: 1, padding: "13px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: !name.trim() || !number.trim() ? "default" : "pointer", opacity: !name.trim() || !number.trim() ? 0.45 : 1 }}>
             Add
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Avatar component ───────────────────────────────────────────────── */
+function Avatar({ name, number }: { name: string; number: string }) {
+  return (
+    <div style={{
+      width: 44, height: 44, borderRadius: "50%",
+      background: "var(--glass-bg)",
+      border: "1px solid var(--glass-border)",
+      backdropFilter: "blur(12px)",
+      WebkitBackdropFilter: "blur(12px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 14, fontWeight: 700,
+      color: "var(--text-1)",
+      flexShrink: 0,
+      boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+    }}>
+      {initials(name, number)}
     </div>
   );
 }
@@ -252,56 +293,82 @@ export default function Contacts() {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 4 }}>
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: "var(--text-1)" }}>Contacts</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>Contacts</h1>
             <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 2 }}>{contacts.length} contact{contacts.length !== 1 ? "s" : ""}</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {hasContactsApi && (
-              <button onClick={triggerPhoneImport} disabled={importing}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 12, background: "var(--surface-1)", border: "1px solid var(--sep)", color: "var(--text-2)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {importing ? <RefreshCw style={{ width: 15, height: 15 }} className="animate-spin" /> : <Download style={{ width: 15, height: 15 }} />}
+              <button
+                onClick={triggerPhoneImport}
+                disabled={importing}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "9px 16px", borderRadius: 22,
+                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+                  backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                  color: "var(--text-2)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                {importing
+                  ? <RefreshCw style={{ width: 14, height: 14 }} className="animate-spin" />
+                  : <Download style={{ width: 14, height: 14 }} />
+                }
                 Import
               </button>
             )}
-            <button onClick={() => setShowAddModal(true)}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              <Plus style={{ width: 15, height: 15 }} />
+            <button
+              onClick={() => setShowAddModal(true)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "9px 16px", borderRadius: 22,
+                background: "hsl(var(--primary))", border: "none",
+                color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                boxShadow: "0 2px 12px rgba(26,140,255,0.30)",
+              }}
+            >
+              <Plus style={{ width: 14, height: 14 }} />
               Add
             </button>
           </div>
         </div>
 
-        {/* Search */}
+        {/* Search bar — glass */}
         <div style={{ position: "relative" }}>
-          <Search style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, color: "var(--text-3)", pointerEvents: "none" }} />
+          <Search style={{
+            position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)",
+            width: 16, height: 16, color: "var(--text-3)", pointerEvents: "none",
+          }} />
           <input
             type="text"
-            placeholder="Search…"
+            placeholder="Search contacts…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{
-              width: "100%", padding: "11px 40px", borderRadius: 12,
-              background: "var(--surface-1)", border: "1px solid var(--sep)",
-              color: "var(--text-1)", fontSize: 15, outline: "none",
+              ...glassInput,
+              paddingLeft: 40, paddingRight: 36,
+              borderRadius: 18,
             }}
           />
           {query && (
-            <button onClick={() => setQuery("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer" }}>
+            <button
+              onClick={() => setQuery("")}
+              style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer" }}
+            >
               <X style={{ width: 16, height: 16, color: "var(--text-3)" }} />
             </button>
           )}
         </div>
 
-        {/* List */}
+        {/* Contact list */}
         {isLoading ? (
           <div className="section-card">
             {[...Array(5)].map((_, i) => (
               <div key={i}>
-                <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 42, height: 42, borderRadius: "50%", background: "var(--surface-2)", flexShrink: 0 }} />
+                <div style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--glass-bg)", border: "1px solid var(--glass-border)", flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ height: 14, width: "55%", borderRadius: 6, background: "var(--surface-2)", marginBottom: 6 }} />
-                    <div style={{ height: 11, width: "35%", borderRadius: 6, background: "var(--surface-2)" }} />
+                    <div style={{ height: 14, width: "55%", borderRadius: 6, background: "var(--glass-bg)", marginBottom: 6 }} />
+                    <div style={{ height: 11, width: "35%", borderRadius: 6, background: "var(--glass-bg)" }} />
                   </div>
                 </div>
                 {i < 4 && <div className="row-sep" />}
@@ -310,15 +377,28 @@ export default function Contacts() {
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: "60px 0", textAlign: "center" }}>
-            <div style={{ width: 64, height: 64, borderRadius: 20, background: "var(--surface-1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-              <UserCircle2 style={{ width: 28, height: 28, color: "var(--text-3)" }} />
+            <div style={{
+              width: 72, height: 72, borderRadius: 24,
+              background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+              backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              margin: "0 auto 16px",
+            }}>
+              <UserCircle2 style={{ width: 30, height: 30, color: "var(--text-3)" }} />
             </div>
             <p style={{ color: "var(--text-2)", fontSize: 15, marginBottom: 16 }}>
               {query ? "No contacts match your search" : "No contacts yet"}
             </p>
             {!query && (
-              <button onClick={() => setShowAddModal(true)}
-                style={{ padding: "10px 20px", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+              <button
+                onClick={() => setShowAddModal(true)}
+                style={{
+                  padding: "11px 24px", borderRadius: 22,
+                  background: "hsl(var(--primary))", border: "none",
+                  color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer",
+                  boxShadow: "0 2px 12px rgba(26,140,255,0.28)",
+                }}
+              >
                 Add your first contact
               </button>
             )}
@@ -329,33 +409,47 @@ export default function Contacts() {
               const callCount = callCounts.get(contact.number) ?? 0;
               return (
                 <div key={contact.id}>
-                  <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                    {/* Avatar */}
-                    <div style={{
-                      width: 42, height: 42, borderRadius: "50%",
-                      background: "rgba(10,132,255,0.15)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 13, fontWeight: 700, color: "hsl(var(--primary))",
-                      flexShrink: 0,
-                    }}>
-                      {initials(contact.name, contact.number)}
-                    </div>
+                  <div style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                    <Avatar name={contact.name} number={contact.number} />
 
-                    {/* Info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{contact.name}</p>
-                      <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>{contact.number}</p>
-                      {callCount > 0 && <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>{callCount} call{callCount !== 1 ? "s" : ""}</p>}
+                      <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {contact.name}
+                      </p>
+                      <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>
+                        {contact.number}
+                      </p>
+                      {callCount > 0 && (
+                        <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>
+                          {callCount} call{callCount !== 1 ? "s" : ""}
+                        </p>
+                      )}
                     </div>
 
-                    {/* Actions */}
+                    {/* Action buttons — glass */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button onClick={() => handleDelete(contact.id, contact.name)}
-                        style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                      <button
+                        onClick={() => handleDelete(contact.id, contact.name)}
+                        style={{
+                          width: 36, height: 36, borderRadius: 12,
+                          background: "rgba(255,69,58,0.10)",
+                          border: "1px solid rgba(255,69,58,0.15)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                      >
                         <Trash2 style={{ width: 15, height: 15, color: "#ff453a" }} />
                       </button>
-                      <button onClick={() => handleCall(contact.number, contact.name)}
-                        style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(48,209,88,0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                      <button
+                        onClick={() => handleCall(contact.number, contact.name)}
+                        style={{
+                          width: 36, height: 36, borderRadius: 12,
+                          background: "rgba(48,209,88,0.12)",
+                          border: "1px solid rgba(48,209,88,0.18)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                      >
                         <Phone style={{ width: 15, height: 15, color: "#30d158" }} />
                       </button>
                     </div>

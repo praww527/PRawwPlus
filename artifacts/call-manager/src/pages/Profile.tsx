@@ -108,7 +108,155 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact";
+/* ── Inline: Notifications toggles ────────────────────────────────── */
+function ToggleSwitch({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
+  return (
+    <div
+      className="toggle-track"
+      style={{ background: enabled ? "hsl(var(--primary))" : "rgba(128,128,128,0.25)" }}
+      onClick={onToggle}
+    >
+      <div className="toggle-thumb" style={{ left: enabled ? 22 : 2 }} />
+    </div>
+  );
+}
+
+function InlineToggleRow({ icon, iconBg, iconColor, label, description, enabled, onToggle }: {
+  icon: React.ReactNode; iconBg: string; iconColor: string;
+  label: string; description?: string; enabled: boolean; onToggle: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+      <div className="icon-badge" style={{ background: iconBg, flexShrink: 0 }}>
+        <span style={{ color: iconColor }}>{icon}</span>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-1)", margin: 0 }}>{label}</p>
+        {description && <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", lineHeight: 1.3 }}>{description}</p>}
+      </div>
+      <ToggleSwitch enabled={enabled} onToggle={onToggle} />
+    </div>
+  );
+}
+
+function InlineSelectRow({ icon, iconBg, iconColor, label, value, options, onChange }: {
+  icon: React.ReactNode; iconBg: string; iconColor: string;
+  label: string; value: string; options: string[]; onChange: (v: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+      <div className="icon-badge" style={{ background: iconBg, flexShrink: 0 }}>
+        <span style={{ color: iconColor }}>{icon}</span>
+      </div>
+      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: "var(--text-1)" }}>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        style={{ background: "var(--glass-bg)", border: "1px solid var(--glass-border)", borderRadius: 8, color: "var(--text-2)", fontSize: 13, padding: "4px 8px", cursor: "pointer", outline: "none" }}>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function InlineSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const kids = Array.isArray(children) ? children : [children];
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <p className="section-label" style={{ paddingLeft: 0, marginBottom: 6 }}>{title}</p>
+      <div className="section-card" style={{ padding: "0 16px" }}>
+        {kids.map((child, i) => (
+          <div key={i}>
+            {child}
+            {i < kids.length - 1 && <div style={{ height: 1, background: "var(--sep)", margin: "0 -16px 0" }} />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NotificationsSheet() {
+  const [s, setS] = useState({
+    incomingCalls: true, missedCalls: true, voicemail: true,
+    lowBalance: true, sms: false, promotions: false,
+    weeklyReport: false, sound: true, vibration: true, badge: true,
+  });
+  const toggle = (k: keyof typeof s) => setS((prev) => ({ ...prev, [k]: !prev[k] }));
+  return (
+    <div>
+      <InlineSection title="Calls">
+        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
+          label="Incoming Calls" description="Alert when someone calls you" enabled={s.incomingCalls} onToggle={() => toggle("incomingCalls")} />
+        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(255,69,58,0.18)" iconColor="#ff453a"
+          label="Missed Calls" description="Notify when you miss a call" enabled={s.missedCalls} onToggle={() => toggle("missedCalls")} />
+        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(94,92,230,0.18)" iconColor="#5e5ce6"
+          label="Voicemail" description="Alert when you receive a voicemail" enabled={s.voicemail} onToggle={() => toggle("voicemail")} />
+      </InlineSection>
+      <InlineSection title="Account">
+        <InlineToggleRow icon={<Zap size={15} />} iconBg="rgba(255,149,0,0.18)" iconColor="#ff9500"
+          label="Low Balance Alert" description="Notify when coins drop below 5" enabled={s.lowBalance} onToggle={() => toggle("lowBalance")} />
+        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
+          label="SMS Notifications" description="Receive alerts via text message" enabled={s.sms} onToggle={() => toggle("sms")} />
+      </InlineSection>
+      <InlineSection title="Delivery">
+        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
+          label="Sound" description="Play sound for notifications" enabled={s.sound} onToggle={() => toggle("sound")} />
+        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(120,65,190,0.18)" iconColor="#bf5af2"
+          label="Vibration" description="Vibrate on notification" enabled={s.vibration} onToggle={() => toggle("vibration")} />
+        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
+          label="App Badge" description="Show unread count on app icon" enabled={s.badge} onToggle={() => toggle("badge")} />
+      </InlineSection>
+      <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)" }}>Settings saved automatically</p>
+    </div>
+  );
+}
+
+function CallSettingsSheet() {
+  const [s, setS] = useState({
+    wifiCalling: true, noiseCancellation: true, autoAnswer: false,
+    recordCalls: false, hd: true, earpiece: false, forwarding: false, waitingTone: true,
+  });
+  const [codec, setCodec] = useState("Opus HD");
+  const [ringtone, setRingtone] = useState("Default");
+  const [forwardTo, setForwardTo] = useState("Voicemail");
+  const toggle = (k: keyof typeof s) => setS((prev) => ({ ...prev, [k]: !prev[k] }));
+  return (
+    <div>
+      <InlineSection title="Audio & Quality">
+        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
+          label="Wi-Fi Calling" description="Use internet for better call quality" enabled={s.wifiCalling} onToggle={() => toggle("wifiCalling")} />
+        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
+          label="Noise Cancellation" description="Filter background noise" enabled={s.noiseCancellation} onToggle={() => toggle("noiseCancellation")} />
+        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(94,92,230,0.18)" iconColor="#5e5ce6"
+          label="HD Voice" description="High-definition audio when supported" enabled={s.hd} onToggle={() => toggle("hd")} />
+        <InlineSelectRow icon={<Mic size={15} />} iconBg="rgba(120,65,190,0.18)" iconColor="#bf5af2"
+          label="Audio Codec" value={codec} options={["Opus HD", "G.711", "G.722", "G.729"]} onChange={setCodec} />
+      </InlineSection>
+      <InlineSection title="Incoming Calls">
+        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(255,149,0,0.18)" iconColor="#ff9500"
+          label="Auto-Answer" description="Answer calls after 5 seconds" enabled={s.autoAnswer} onToggle={() => toggle("autoAnswer")} />
+        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.15)" iconColor="#30d158"
+          label="Call Waiting Tone" description="Tone when another call comes in" enabled={s.waitingTone} onToggle={() => toggle("waitingTone")} />
+        <InlineSelectRow icon={<Phone size={15} />} iconBg="rgba(255,214,10,0.15)" iconColor="#ffd60a"
+          label="Ringtone" value={ringtone} options={["Default", "Chime", "Classic", "Silent"]} onChange={setRingtone} />
+      </InlineSection>
+      <InlineSection title="Call Forwarding">
+        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
+          label="Forward Calls" description="Redirect incoming calls" enabled={s.forwarding} onToggle={() => toggle("forwarding")} />
+        <InlineSelectRow icon={<Phone size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
+          label="Forward To" value={forwardTo} options={["Voicemail", "Another Number", "Off"]} onChange={setForwardTo} />
+      </InlineSection>
+      <InlineSection title="Privacy">
+        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
+          label="Record Calls" description="Auto-record all calls locally" enabled={s.recordCalls} onToggle={() => toggle("recordCalls")} />
+        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
+          label="Use Earpiece" description="Route audio to earpiece by default" enabled={s.earpiece} onToggle={() => toggle("earpiece")} />
+      </InlineSection>
+      <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)" }}>Settings apply to all future calls</p>
+    </div>
+  );
+}
+
+type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "notifications" | "call-settings";
 
 export default function Profile() {
   const { logout } = useAuth();
@@ -245,9 +393,9 @@ export default function Profile() {
       {/* ── Preferences ───────────────────────────────────── */}
       <Section title="Preferences">
         <Row icon={<Bell size={15} />} iconBg="rgba(255,69,58,0.20)" iconColor="#ff453a"
-          label="Notifications" onClick={() => setLocation("/notifications")} />
+          label="Notifications" onClick={() => setSheet("notifications")} />
         <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.20)" iconColor="#30d158"
-          label="Call Settings" onClick={() => setLocation("/call-settings")} />
+          label="Call Settings" onClick={() => setSheet("call-settings")} />
         <Row icon={<Mic size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
           label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
@@ -467,6 +615,20 @@ export default function Profile() {
               <p>We comply with the Protection of Personal Information Act (POPIA) of South Africa.</p>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* ── Sheet: Notifications ───────────────────────────── */}
+      {sheet === "notifications" && (
+        <Modal title="Notifications" onClose={() => setSheet("none")}>
+          <NotificationsSheet />
+        </Modal>
+      )}
+
+      {/* ── Sheet: Call Settings ───────────────────────────── */}
+      {sheet === "call-settings" && (
+        <Modal title="Call Settings" onClose={() => setSheet("none")}>
+          <CallSettingsSheet />
         </Modal>
       )}
 
