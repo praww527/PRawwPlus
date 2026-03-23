@@ -1,22 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
-  useListCalls,
-  useListMyNumbers,
-  useListContacts,
-  useCreateContact,
-  useBulkImportContacts,
-  useDeleteContact,
+  useListCalls, useListMyNumbers, useListContacts,
+  useCreateContact, useBulkImportContacts, useDeleteContact,
 } from "@workspace/api-client-react";
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useCall } from "@/context/CallContext";
 
-interface PhoneEntry {
-  name: string;
-  number: string;
-}
+interface PhoneEntry { name: string; number: string; }
 
 function initials(name?: string, number?: string) {
   if (name) {
@@ -35,80 +28,78 @@ const hasContactsApi =
 
 const PROMPT_KEY = "contacts_import_prompted_v2";
 
-function ImportModal({
-  entries,
-  onImport,
-  onClose,
-}: {
+function ImportModal({ entries, onImport, onClose }: {
   entries: PhoneEntry[];
   onImport: (selected: PhoneEntry[]) => void;
   onClose: () => void;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(entries.map((e) => e.number))
-  );
-
-  const toggle = (number: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(number)) next.delete(number);
-      else next.add(number);
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    if (selected.size === entries.length) setSelected(new Set());
-    else setSelected(new Set(entries.map((e) => e.number)));
-  };
+  const [selected, setSelected] = useState<Set<string>>(new Set(entries.map((e) => e.number)));
+  const toggle = (number: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(number) ? next.delete(number) : next.add(number);
+    return next;
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-sm glass rounded-3xl border border-white/15 p-5 animate-in slide-in-from-bottom-4 duration-300 shadow-2xl flex flex-col max-h-[80vh]">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-white">
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
+      <div className="modal-surface" style={{ width: "100%", maxWidth: 420, borderRadius: 20, padding: "20px 0", display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px 16px" }}>
+          <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>
             Select Contacts ({selected.size}/{entries.length})
-          </h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full glass border border-white/10 flex items-center justify-center text-white/40 hover:text-white transition-colors">
-            <X className="h-4 w-4" />
+          </p>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--surface-2)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X style={{ width: 15, height: 15, color: "var(--text-2)" }} />
           </button>
         </div>
-        <button onClick={toggleAll} className="text-xs text-primary/80 hover:text-primary text-left mb-3 font-semibold">
+        <button onClick={() => selected.size === entries.length ? setSelected(new Set()) : setSelected(new Set(entries.map(e => e.number)))}
+          style={{ textAlign: "left", padding: "0 20px 12px", fontSize: 13, fontWeight: 600, color: "hsl(var(--primary))", background: "none", border: "none", cursor: "pointer" }}>
           {selected.size === entries.length ? "Deselect all" : "Select all"}
         </button>
-        <div className="overflow-y-auto flex-1 space-y-1.5 pr-1">
+        <div style={{ overflowY: "auto", flex: 1, padding: "0 12px" }}>
           {entries.map((e) => (
             <button key={e.number} onClick={() => toggle(e.number)}
-              className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl border transition-all text-left",
-                selected.has(e.number) ? "bg-primary/15 border-primary/30" : "glass border-white/8 hover:border-white/15"
-              )}>
-              <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border",
-                selected.has(e.number) ? "bg-primary/20 border-primary/40 text-primary" : "bg-white/5 border-white/15 text-white/50"
-              )}>
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 12,
+                padding: "10px 8px", borderRadius: 12, marginBottom: 4,
+                background: selected.has(e.number) ? "rgba(10,132,255,0.12)" : "transparent",
+                border: "none", cursor: "pointer", textAlign: "left",
+              }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: "50%",
+                background: selected.has(e.number) ? "rgba(10,132,255,0.18)" : "var(--surface-2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 12, fontWeight: 700,
+                color: selected.has(e.number) ? "hsl(var(--primary))" : "var(--text-2)",
+                flexShrink: 0,
+              }}>
                 {initials(e.name, e.number)}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{e.name}</p>
-                <p className="text-xs text-white/45 font-mono truncate">{e.number}</p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</p>
+                <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace" }}>{e.number}</p>
               </div>
-              <div className={cn("w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center",
-                selected.has(e.number) ? "bg-primary border-primary" : "border-white/20"
-              )}>
+              <div style={{
+                width: 20, height: 20, borderRadius: "50%",
+                border: selected.has(e.number) ? "none" : "2px solid var(--sep-strong)",
+                background: selected.has(e.number) ? "hsl(var(--primary))" : "transparent",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
                 {selected.has(e.number) && (
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 13l4 4L19 7"/>
                   </svg>
                 )}
               </div>
             </button>
           ))}
         </div>
-        <div className="flex gap-3 mt-4">
-          <button onClick={onClose} className="flex-1 py-3 rounded-2xl glass border border-white/10 text-white/60 text-sm font-semibold hover:text-white transition-all">
+        <div style={{ display: "flex", gap: 10, padding: "16px 20px 0" }}>
+          <button onClick={onClose}
+            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: "var(--surface-2)", border: "none", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
             Cancel
           </button>
           <button onClick={() => onImport(entries.filter((e) => selected.has(e.number)))} disabled={selected.size === 0}
-            className="flex-1 py-3 rounded-2xl bg-primary/20 border border-primary/30 text-primary text-sm font-semibold hover:bg-primary/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: selected.size === 0 ? "var(--surface-2)" : "hsl(var(--primary))", border: "none", color: selected.size === 0 ? "var(--text-3)" : "#fff", fontSize: 15, fontWeight: 600, cursor: selected.size === 0 ? "default" : "pointer" }}>
             Import {selected.size > 0 ? `(${selected.size})` : ""}
           </button>
         </div>
@@ -120,25 +111,32 @@ function ImportModal({
 function AddContactModal({ onAdd, onClose }: { onAdd: (name: string, number: string) => void; onClose: () => void }) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
+  const inputStyle = {
+    width: "100%", padding: "12px 14px", borderRadius: 12,
+    background: "var(--surface-2)", border: "1px solid var(--sep)",
+    color: "var(--text-1)", fontSize: 15, outline: "none",
+  };
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-sm glass rounded-3xl border border-white/15 p-6 animate-in slide-in-from-bottom-4 duration-300 shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold text-white">Add Contact</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full glass border border-white/10 flex items-center justify-center text-white/40 hover:text-white transition-colors">
-            <X className="h-4 w-4" />
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
+      <div className="modal-surface" style={{ width: "100%", maxWidth: 420, borderRadius: 20, padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>Add Contact</p>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--surface-2)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X style={{ width: 15, height: 15, color: "var(--text-2)" }} />
           </button>
         </div>
-        <div className="space-y-3">
-          <input type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-3 rounded-2xl glass border border-white/15 text-white placeholder:text-white/30 bg-transparent focus:outline-none focus:border-primary/50 text-sm" />
-          <input type="tel" placeholder="+1234567890" value={number} onChange={(e) => setNumber(e.target.value)}
-            className="w-full px-4 py-3 rounded-2xl glass border border-white/15 text-white placeholder:text-white/30 bg-transparent focus:outline-none focus:border-primary/50 text-sm font-mono" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input style={inputStyle} type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input style={{ ...inputStyle, fontFamily: "monospace" }} type="tel" placeholder="+27821234567" value={number} onChange={(e) => setNumber(e.target.value)} />
         </div>
-        <div className="flex gap-3 mt-5">
-          <button onClick={onClose} className="flex-1 py-3 rounded-2xl glass border border-white/10 text-white/60 text-sm font-semibold hover:text-white transition-all">Cancel</button>
-          <button onClick={() => name.trim() && number.trim() && onAdd(name.trim(), number.trim())} disabled={!name.trim() || !number.trim()}
-            className="flex-1 py-3 rounded-2xl bg-primary/20 border border-primary/30 text-primary text-sm font-semibold hover:bg-primary/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+          <button onClick={onClose}
+            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: "var(--surface-2)", border: "none", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={() => name.trim() && number.trim() && onAdd(name.trim(), number.trim())}
+            disabled={!name.trim() || !number.trim()}
+            style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: !name.trim() || !number.trim() ? "default" : "pointer", opacity: !name.trim() || !number.trim() ? 0.45 : 1 }}>
             Add
           </button>
         </div>
@@ -173,16 +171,14 @@ export default function Contacts() {
   }
 
   useEffect(() => {
-    if (!hasContactsApi) return;
-    if (prompted.current) return;
+    if (!hasContactsApi || prompted.current) return;
     prompted.current = true;
-    const already = sessionStorage.getItem(PROMPT_KEY);
-    if (!already) triggerPhoneImport();
+    if (!sessionStorage.getItem(PROMPT_KEY)) triggerPhoneImport();
   }, []);
 
   const triggerPhoneImport = async () => {
     if (!hasContactsApi) {
-      toast({ title: "Not supported", description: "Your browser doesn't support phone contact import. Try from a mobile device.", variant: "destructive" });
+      toast({ title: "Not supported", description: "Your browser doesn't support phone contact import.", variant: "destructive" });
       return;
     }
     try {
@@ -196,16 +192,11 @@ export default function Contacts() {
           if (name && number) entries.push({ name, number });
         }
       }
-      if (entries.length === 0) {
-        toast({ title: "No contacts selected" });
-        return;
-      }
+      if (entries.length === 0) { toast({ title: "No contacts selected" }); return; }
       setPhoneEntries(entries);
       setShowImportModal(true);
     } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        toast({ title: "Import failed", description: "Could not access your contacts.", variant: "destructive" });
-      }
+      if (err?.name !== "AbortError") toast({ title: "Import failed", variant: "destructive" });
     }
   };
 
@@ -213,16 +204,11 @@ export default function Contacts() {
     setShowImportModal(false);
     setImporting(true);
     try {
-      const result = await bulkImport.mutateAsync({
-        data: { contacts: selected.map((e) => ({ name: e.name, number: e.number, fromPhone: true })) },
-      });
+      const result = await bulkImport.mutateAsync({ data: { contacts: selected.map((e) => ({ name: e.name, number: e.number, fromPhone: true })) } });
       await refetch();
-      toast({ title: "Contacts imported", description: `${result.imported} contact${result.imported !== 1 ? "s" : ""} imported${result.skipped > 0 ? `, ${result.skipped} skipped` : ""}.` });
-    } catch {
-      toast({ title: "Import failed", description: "Failed to save contacts.", variant: "destructive" });
-    } finally {
-      setImporting(false);
-    }
+      toast({ title: "Contacts imported", description: `${result.imported} imported.` });
+    } catch { toast({ title: "Import failed", variant: "destructive" }); }
+    finally { setImporting(false); }
   };
 
   const handleAddContact = async (name: string, number: string) => {
@@ -230,20 +216,16 @@ export default function Contacts() {
     try {
       await createContact.mutateAsync({ data: { name, number, fromPhone: false } });
       await refetch();
-      toast({ title: "Contact added", description: `${name} has been saved.` });
-    } catch {
-      toast({ title: "Failed to add", description: "Could not save contact.", variant: "destructive" });
-    }
+      toast({ title: "Contact added" });
+    } catch { toast({ title: "Failed to add", variant: "destructive" }); }
   };
 
   const handleDelete = async (contactId: string, name: string) => {
     try {
       await deleteContact.mutateAsync({ contactId });
       await refetch();
-      toast({ title: "Deleted", description: `${name} removed.` });
-    } catch {
-      toast({ title: "Failed to delete", description: "Could not remove contact.", variant: "destructive" });
-    }
+      toast({ title: `${name} removed` });
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
   };
 
   const handleCall = (number: string, name?: string) => {
@@ -266,87 +248,119 @@ export default function Contacts() {
       {showImportModal && <ImportModal entries={phoneEntries} onImport={handleImport} onClose={() => setShowImportModal(false)} />}
       {showAddModal && <AddContactModal onAdd={handleAddContact} onClose={() => setShowAddModal(false)} />}
 
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="flex items-center justify-between">
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 4 }}>
           <div>
-            <h1 className="text-2xl font-bold text-white">Contacts</h1>
-            <p className="text-white/50 text-sm mt-0.5">{contacts.length} contact{contacts.length !== 1 ? "s" : ""}</p>
+            <h1 className="text-2xl font-bold" style={{ color: "var(--text-1)" }}>Contacts</h1>
+            <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 2 }}>{contacts.length} contact{contacts.length !== 1 ? "s" : ""}</p>
           </div>
-          <div className="flex gap-2">
+          <div style={{ display: "flex", gap: 8 }}>
             {hasContactsApi && (
-              <button onClick={triggerPhoneImport} disabled={importing} title="Import from phone"
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl glass border border-white/10 text-white/60 hover:text-white hover:border-white/20 transition-all text-sm font-semibold active:scale-95">
-                {importing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span className="hidden sm:inline">Import</span>
+              <button onClick={triggerPhoneImport} disabled={importing}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 12, background: "var(--surface-1)", border: "1px solid var(--sep)", color: "var(--text-2)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {importing ? <RefreshCw style={{ width: 15, height: 15 }} className="animate-spin" /> : <Download style={{ width: 15, height: 15 }} />}
+                Import
               </button>
             )}
             <button onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-primary/20 border border-primary/30 text-primary hover:bg-primary/30 transition-all text-sm font-semibold active:scale-95">
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Add</span>
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              <Plus style={{ width: 15, height: 15 }} />
+              Add
             </button>
           </div>
         </div>
 
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 pointer-events-none" />
-          <input type="text" placeholder="Search contacts..." value={query} onChange={(e) => setQuery(e.target.value)}
-            className="w-full pl-11 pr-4 py-3 rounded-2xl glass border border-white/10 text-white placeholder:text-white/30 bg-transparent focus:outline-none focus:border-primary/40 text-sm" />
+        {/* Search */}
+        <div style={{ position: "relative" }}>
+          <Search style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, color: "var(--text-3)", pointerEvents: "none" }} />
+          <input
+            type="text"
+            placeholder="Search…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              width: "100%", padding: "11px 40px", borderRadius: 12,
+              background: "var(--surface-1)", border: "1px solid var(--sep)",
+              color: "var(--text-1)", fontSize: 15, outline: "none",
+            }}
+          />
           {query && (
-            <button onClick={() => setQuery("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white">
-              <X className="h-4 w-4" />
+            <button onClick={() => setQuery("")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer" }}>
+              <X style={{ width: 16, height: 16, color: "var(--text-3)" }} />
             </button>
           )}
         </div>
 
+        {/* List */}
         {isLoading ? (
-          <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-16 rounded-2xl glass animate-pulse" />)}</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-              <UserCircle2 className="h-8 w-8 text-white/20" />
-            </div>
-            <p className="text-white/40 text-sm mb-4">{query ? "No contacts match your search" : "No contacts yet"}</p>
-            {!query && (
-              <div className="flex flex-wrap justify-center gap-3">
-                {hasContactsApi && (
-                  <button onClick={triggerPhoneImport}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl glass border border-white/10 text-white/60 hover:text-white text-sm font-semibold transition-all">
-                    <Download className="h-4 w-4" /> Import from phone
-                  </button>
-                )}
-                <button onClick={() => setShowAddModal(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-primary/20 border border-primary/30 text-primary hover:bg-primary/30 text-sm font-semibold transition-all">
-                  <Plus className="h-4 w-4" /> Add manually
-                </button>
+          <div className="section-card">
+            {[...Array(5)].map((_, i) => (
+              <div key={i}>
+                <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: "50%", background: "var(--surface-2)", flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ height: 14, width: "55%", borderRadius: 6, background: "var(--surface-2)", marginBottom: 6 }} />
+                    <div style={{ height: 11, width: "35%", borderRadius: 6, background: "var(--surface-2)" }} />
+                  </div>
+                </div>
+                {i < 4 && <div className="row-sep" />}
               </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: "60px 0", textAlign: "center" }}>
+            <div style={{ width: 64, height: 64, borderRadius: 20, background: "var(--surface-1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+              <UserCircle2 style={{ width: 28, height: 28, color: "var(--text-3)" }} />
+            </div>
+            <p style={{ color: "var(--text-2)", fontSize: 15, marginBottom: 16 }}>
+              {query ? "No contacts match your search" : "No contacts yet"}
+            </p>
+            {!query && (
+              <button onClick={() => setShowAddModal(true)}
+                style={{ padding: "10px 20px", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                Add your first contact
+              </button>
             )}
           </div>
         ) : (
-          <div className="space-y-2">
-            {filtered.map((contact) => {
+          <div className="section-card">
+            {filtered.map((contact, i, arr) => {
               const callCount = callCounts.get(contact.number) ?? 0;
               return (
-                <div key={contact.id}
-                  className="flex items-center gap-3 px-4 py-3 rounded-2xl glass border border-white/8 hover:border-primary/20 hover:bg-white/[0.03] transition-all group">
-                  <div className="w-11 h-11 rounded-full bg-primary/12 border border-primary/20 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary font-mono">{initials(contact.name, contact.number)}</span>
+                <div key={contact.id}>
+                  <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                    {/* Avatar */}
+                    <div style={{
+                      width: 42, height: 42, borderRadius: "50%",
+                      background: "rgba(10,132,255,0.15)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 13, fontWeight: 700, color: "hsl(var(--primary))",
+                      flexShrink: 0,
+                    }}>
+                      {initials(contact.name, contact.number)}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{contact.name}</p>
+                      <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>{contact.number}</p>
+                      {callCount > 0 && <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>{callCount} call{callCount !== 1 ? "s" : ""}</p>}
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => handleDelete(contact.id, contact.name)}
+                        style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                        <Trash2 style={{ width: 15, height: 15, color: "#ff453a" }} />
+                      </button>
+                      <button onClick={() => handleCall(contact.number, contact.name)}
+                        style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(48,209,88,0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                        <Phone style={{ width: 15, height: 15, color: "#30d158" }} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-white text-sm truncate leading-snug">{contact.name}</p>
-                    <p className="font-mono text-xs text-white/45 truncate leading-snug">{contact.number}</p>
-                    {callCount > 0 && <p className="text-[11px] text-white/30 mt-0.5">{callCount} call{callCount !== 1 ? "s" : ""}</p>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleDelete(contact.id, contact.name)}
-                      className="w-9 h-9 rounded-full bg-red-500/8 border border-red-500/15 flex items-center justify-center text-red-400/50 hover:text-red-400 hover:bg-red-500/15 opacity-0 group-hover:opacity-100 transition-all active:scale-90">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={() => handleCall(contact.number, contact.name)}
-                      className="w-11 h-11 rounded-full bg-green-500/12 border border-green-500/20 flex items-center justify-center text-green-400 hover:bg-green-500/22 hover:scale-105 active:scale-90 transition-all shrink-0">
-                      <Phone className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {i < arr.length - 1 && <div className="row-sep" />}
                 </div>
               );
             })}

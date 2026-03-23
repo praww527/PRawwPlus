@@ -5,7 +5,7 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("glass rounded-2xl overflow-hidden", className)}
+      className={cn("section-card", className)}
       {...props}
     />
   )
@@ -16,7 +16,7 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("flex flex-col space-y-1.5 p-6", className)}
+      className={cn("flex flex-col space-y-1.5 p-5", className)}
       {...props}
     />
   )
@@ -27,7 +27,8 @@ const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HT
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn("font-display text-xl font-semibold leading-none tracking-tight text-white", className)}
+      className={cn("font-display text-lg font-semibold leading-tight tracking-tight", className)}
+      style={{ color: "var(--text-1)" }}
       {...props}
     />
   )
@@ -38,7 +39,8 @@ const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttribu
   ({ className, ...props }, ref) => (
     <p
       ref={ref}
-      className={cn("text-sm text-white/60", className)}
+      className={cn("text-sm", className)}
+      style={{ color: "var(--text-2)" }}
       {...props}
     />
   )
@@ -47,7 +49,7 @@ CardDescription.displayName = "CardDescription"
 
 const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+    <div ref={ref} className={cn("px-5 pb-5 pt-0", className)} {...props} />
   )
 )
 CardContent.displayName = "CardContent"
@@ -56,7 +58,7 @@ const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("flex items-center p-6 pt-0", className)}
+      className={cn("flex items-center px-5 pb-5 pt-0", className)}
       {...props}
     />
   )
