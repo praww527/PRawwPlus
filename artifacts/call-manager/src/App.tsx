@@ -22,8 +22,6 @@ import Admin           from "@/pages/Admin";
 import CallingScreen      from "@/pages/CallingScreen";
 import IncomingCallScreen from "@/pages/IncomingCallScreen";
 import BuyNumber          from "@/pages/BuyNumber";
-import NotificationsPage  from "@/pages/NotificationsPage";
-import CallSettingsPage   from "@/pages/CallSettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -105,8 +103,8 @@ function Router() {
       <Route path="/contacts"        component={() => <ProtectedRoute component={Contacts} />} />
       <Route path="/profile"         component={() => <ProtectedRoute component={Profile} />} />
       <Route path="/buy-number"      component={BuyNumberRoute} />
-      <Route path="/notifications"   component={() => <ProtectedRoute component={NotificationsPage} />} />
-      <Route path="/call-settings"   component={() => <ProtectedRoute component={CallSettingsPage} />} />
+      <Route path="/notifications"   component={() => <Redirect to="/dashboard" />} />
+      <Route path="/call-settings"   component={() => <Redirect to="/dashboard" />} />
       <Route path="/numbers"         component={() => <Redirect to="/profile" />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
     </Switch>

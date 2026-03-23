@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Grid3x3, Clock, Users, User } from "lucide-react";
+import { Grid3x3, Clock, Users, User, X } from "lucide-react";
+import Profile from "@/pages/Profile";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -11,13 +13,21 @@ const navItems = [
   { href: "/dashboard", label: "Keypad",   icon: Grid3x3 },
   { href: "/calls",     label: "Calls",    icon: Clock },
   { href: "/contacts",  label: "Contacts", icon: Users },
-  { href: "/profile",   label: "Profile",  icon: User },
+  { href: "/profile",   label: "Profile",  icon: User,   isModal: true },
 ];
 
 export const NAV_H = NAV_BAR_H;
 
 export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const isNavActive = (item: typeof navItems[number]) => {
+    if (item.isModal) return profileOpen;
+    return item.href === "/dashboard"
+      ? location === "/dashboard"
+      : location.startsWith(item.href);
+  };
 
   return (
     <div style={{
@@ -27,6 +37,7 @@ export function Layout({ children }: LayoutProps) {
       overflow: "hidden",
       background: "var(--surface-0)",
     }}>
+      {/* Page content */}
       <main style={{
         flex: 1,
         overflowY: "auto",
@@ -38,12 +49,76 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* Floating pill nav bar */}
+      {/* ── Profile modal sheet ───────────────────────────── */}
+      {profileOpen && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 60,
+            display: "flex", flexDirection: "column", justifyContent: "flex-end",
+          }}
+        >
+          {/* Blurred backdrop */}
+          <div
+            onClick={() => setProfileOpen(false)}
+            style={{
+              position: "absolute", inset: 0,
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
+            }}
+          />
+
+          {/* Sheet */}
+          <div
+            style={{
+              position: "relative",
+              height: "91dvh",
+              borderRadius: "24px 24px 0 0",
+              background: "var(--modal-bg)",
+              border: "1px solid var(--modal-border)",
+              borderBottom: "none",
+              backdropFilter: "blur(32px)",
+              WebkitBackdropFilter: "blur(32px)",
+              boxShadow: "0 -16px 60px rgba(0,0,0,0.55)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            {/* Drag handle + close */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              paddingTop: 12, paddingBottom: 4, flexShrink: 0, position: "relative",
+            }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
+              <button
+                onClick={() => setProfileOpen(false)}
+                style={{
+                  position: "absolute", right: 16,
+                  width: 30, height: 30, borderRadius: "50%",
+                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <X style={{ width: 14, height: 14, color: "var(--text-2)" }} />
+              </button>
+            </div>
+
+            {/* Scrollable profile content */}
+            <div style={{ overflowY: "auto", flex: 1, paddingBottom: `calc(16px + env(safe-area-inset-bottom, 0px))` }}>
+              <div style={{ maxWidth: 512, margin: "0 auto", padding: "8px 16px 20px" }}>
+                <Profile />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Floating pill nav bar ─────────────────────────── */}
       <div style={{
         position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
+        bottom: 0, left: 0, right: 0,
         zIndex: 40,
         display: "flex",
         justifyContent: "center",
@@ -51,82 +126,69 @@ export function Layout({ children }: LayoutProps) {
         paddingBottom: `calc(14px + env(safe-area-inset-bottom, 0px))`,
         pointerEvents: "none",
       }}>
-        <nav
-          style={{
-            display: "flex",
-            alignItems: "center",
-            paddingLeft: 6,
-            paddingRight: 6,
-            paddingTop: 6,
-            paddingBottom: 6,
-            gap: 2,
-            pointerEvents: "all",
-            background: "rgba(12, 12, 20, 0.72)",
-            border: "1px solid rgba(255, 255, 255, 0.10)",
-            borderRadius: 36,
-            backdropFilter: "blur(32px) saturate(1.6)",
-            WebkitBackdropFilter: "blur(32px) saturate(1.6)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.07) inset",
-          }}
-        >
+        <nav style={{
+          display: "flex",
+          alignItems: "center",
+          paddingLeft: 6, paddingRight: 6,
+          paddingTop: 6, paddingBottom: 6,
+          gap: 2,
+          pointerEvents: "all",
+          background: "var(--nav-pill)",
+          border: "1px solid var(--nav-pill-border)",
+          borderRadius: 36,
+          backdropFilter: "blur(32px) saturate(1.5)",
+          WebkitBackdropFilter: "blur(32px) saturate(1.5)",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.06) inset",
+        }}>
           {navItems.map((item) => {
-            const isActive =
-              item.href === "/dashboard"
-                ? location === "/dashboard"
-                : location.startsWith(item.href);
+            const active = isNavActive(item);
 
-            return (
-              <Link key={item.href} href={item.href} style={{ textDecoration: "none" }}>
-                <div style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 4,
-                  padding: "6px 20px",
-                  borderRadius: 28,
-                  cursor: "pointer",
-                  userSelect: "none",
-                  minWidth: 64,
-                  position: "relative",
-                  /* Glass capsule for active — no colour fill, just frosted glass */
-                  background: isActive
-                    ? "rgba(255, 255, 255, 0.09)"
-                    : "transparent",
-                  border: isActive
-                    ? "1px solid rgba(255, 255, 255, 0.15)"
-                    : "1px solid transparent",
-                  boxShadow: isActive
-                    ? "0 1px 0 rgba(255,255,255,0.10) inset, 0 2px 12px rgba(0,0,0,0.25)"
+            const handleClick = item.isModal
+              ? (e: React.MouseEvent) => { e.preventDefault(); setProfileOpen(true); }
+              : undefined;
+
+            const inner = (
+              <div
+                onClick={handleClick}
+                style={{
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center",
+                  gap: 4, padding: "6px 20px",
+                  borderRadius: 28, cursor: "pointer",
+                  userSelect: "none", minWidth: 64,
+                  background: active ? "rgba(255,255,255,0.09)" : "transparent",
+                  border: active ? "1px solid rgba(255,255,255,0.15)" : "1px solid transparent",
+                  boxShadow: active
+                    ? "0 1px 0 rgba(255,255,255,0.10) inset, 0 2px 12px rgba(0,0,0,0.22)"
                     : "none",
                   transition: "background 0.22s, border-color 0.22s, box-shadow 0.22s",
+                }}
+              >
+                <item.icon style={{
+                  width: 21, height: 21,
+                  color: active ? "var(--nav-active)" : "var(--nav-inactive)",
+                  strokeWidth: active ? 2.1 : 1.6,
+                  transition: "color 0.22s",
+                  filter: active ? "drop-shadow(0 0 5px rgba(255,255,255,0.25))" : "none",
+                }} />
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: active ? 600 : 400,
+                  color: active ? "var(--nav-active)" : "var(--nav-inactive)",
+                  lineHeight: 1,
+                  letterSpacing: "0.01em",
+                  transition: "color 0.22s",
                 }}>
-                  <item.icon style={{
-                    width: 21,
-                    height: 21,
-                    /* Active = bright white; inactive = muted */
-                    color: isActive
-                      ? "rgba(255, 255, 255, 0.95)"
-                      : "rgba(255, 255, 255, 0.32)",
-                    strokeWidth: isActive ? 2.1 : 1.6,
-                    transition: "color 0.22s, stroke-width 0.22s",
-                    filter: isActive
-                      ? "drop-shadow(0 0 6px rgba(255,255,255,0.30))"
-                      : "none",
-                  }} />
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: isActive ? 600 : 400,
-                    color: isActive
-                      ? "rgba(255, 255, 255, 0.90)"
-                      : "rgba(255, 255, 255, 0.30)",
-                    lineHeight: 1,
-                    letterSpacing: "0.01em",
-                    transition: "color 0.22s",
-                  }}>
-                    {item.label}
-                  </span>
-                </div>
+                  {item.label}
+                </span>
+              </div>
+            );
+
+            return item.isModal ? (
+              <div key={item.href}>{inner}</div>
+            ) : (
+              <Link key={item.href} href={item.href} style={{ textDecoration: "none" }}>
+                {inner}
               </Link>
             );
           })}
