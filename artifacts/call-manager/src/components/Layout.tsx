@@ -5,7 +5,7 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-const NAV_BAR_H = 80; // total bottom reservation (floating pill + gap)
+const NAV_BAR_H = 80;
 
 const navItems = [
   { href: "/dashboard", label: "Keypad",   icon: Grid3x3 },
@@ -27,7 +27,6 @@ export function Layout({ children }: LayoutProps) {
       overflow: "hidden",
       background: "var(--surface-0)",
     }}>
-      {/* Page content */}
       <main style={{
         flex: 1,
         overflowY: "auto",
@@ -53,16 +52,21 @@ export function Layout({ children }: LayoutProps) {
         pointerEvents: "none",
       }}>
         <nav
-          className="nav-pill"
           style={{
             display: "flex",
             alignItems: "center",
-            paddingLeft: 8,
-            paddingRight: 8,
+            paddingLeft: 6,
+            paddingRight: 6,
             paddingTop: 6,
             paddingBottom: 6,
             gap: 2,
             pointerEvents: "all",
+            background: "rgba(12, 12, 20, 0.72)",
+            border: "1px solid rgba(255, 255, 255, 0.10)",
+            borderRadius: 36,
+            backdropFilter: "blur(32px) saturate(1.6)",
+            WebkitBackdropFilter: "blur(32px) saturate(1.6)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.07) inset",
           }}
         >
           {navItems.map((item) => {
@@ -79,28 +83,46 @@ export function Layout({ children }: LayoutProps) {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 4,
-                  padding: "6px 18px",
+                  padding: "6px 20px",
                   borderRadius: 28,
                   cursor: "pointer",
                   userSelect: "none",
-                  background: isActive ? "rgba(26, 140, 255, 0.13)" : "transparent",
-                  transition: "background 0.18s",
-                  minWidth: 62,
+                  minWidth: 64,
+                  position: "relative",
+                  /* Glass capsule for active — no colour fill, just frosted glass */
+                  background: isActive
+                    ? "rgba(255, 255, 255, 0.09)"
+                    : "transparent",
+                  border: isActive
+                    ? "1px solid rgba(255, 255, 255, 0.15)"
+                    : "1px solid transparent",
+                  boxShadow: isActive
+                    ? "0 1px 0 rgba(255,255,255,0.10) inset, 0 2px 12px rgba(0,0,0,0.25)"
+                    : "none",
+                  transition: "background 0.22s, border-color 0.22s, box-shadow 0.22s",
                 }}>
                   <item.icon style={{
-                    width: 22,
-                    height: 22,
-                    color: isActive ? "#1a8cff" : "var(--nav-inactive)",
-                    strokeWidth: isActive ? 2.2 : 1.7,
-                    transition: "color 0.18s, stroke-width 0.18s",
+                    width: 21,
+                    height: 21,
+                    /* Active = bright white; inactive = muted */
+                    color: isActive
+                      ? "rgba(255, 255, 255, 0.95)"
+                      : "rgba(255, 255, 255, 0.32)",
+                    strokeWidth: isActive ? 2.1 : 1.6,
+                    transition: "color 0.22s, stroke-width 0.22s",
+                    filter: isActive
+                      ? "drop-shadow(0 0 6px rgba(255,255,255,0.30))"
+                      : "none",
                   }} />
                   <span style={{
                     fontSize: 10,
-                    fontWeight: isActive ? 650 : 500,
-                    color: isActive ? "#1a8cff" : "var(--nav-inactive)",
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive
+                      ? "rgba(255, 255, 255, 0.90)"
+                      : "rgba(255, 255, 255, 0.30)",
                     lineHeight: 1,
                     letterSpacing: "0.01em",
-                    transition: "color 0.18s",
+                    transition: "color 0.22s",
                   }}>
                     {item.label}
                   </span>
