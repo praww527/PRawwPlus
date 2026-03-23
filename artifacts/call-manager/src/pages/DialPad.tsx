@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, AlertCircle, Loader2, Coins } from "lucide-react";
+import { Delete, Phone, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
@@ -20,6 +20,12 @@ const DIAL_KEYS = [
   { key: "0",  sub: "+" },
   { key: "#",  sub: "" },
 ];
+
+/* Button size and grid dimensions */
+const BTN = 76;        // circle diameter px
+const COL_GAP = 22;    // gap between columns px
+const ROW_GAP = 14;    // gap between rows px
+const GRID_W = BTN * 3 + COL_GAP * 2; // 272px total grid width
 
 export default function DialPad() {
   const search = useSearch();
@@ -57,7 +63,10 @@ export default function DialPad() {
   const del = () => setNumber((n) => n.slice(0, -1));
 
   const handleCall = async () => {
-    if (!number || number.length < 5) { toast({ title: "Enter a valid phone number", variant: "destructive" }); return; }
+    if (!number || number.length < 5) {
+      toast({ title: "Enter a valid phone number", variant: "destructive" });
+      return;
+    }
     startOutgoing({ number });
     try {
       await initiateCall({ data: { recipientNumber: number } });
@@ -68,137 +77,240 @@ export default function DialPad() {
     }
   };
 
-  const coins = user?.coins ?? 0;
   const isActive = user?.subscriptionStatus === "active";
+  const coins = user?.coins ?? 0;
   const canCall = coins > 0 && isActive;
 
-  const outerH = `calc(100dvh - env(safe-area-inset-top,0px) - ${NAV_H + 20}px - env(safe-area-inset-bottom,0px))`;
+  /* Number display font size — shrink for long numbers */
+  const numFontSize = number.length > 14 ? 26 : number.length > 10 ? 30 : number.length > 6 ? 36 : 42;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: outerH, paddingBottom: 16 }}>
+    /* Fixed overlay that fills exactly the space between safe-area-top and tab bar */
+    <div style={{
+      position: "fixed",
+      top: "env(safe-area-inset-top, 0px)",
+      left: 0,
+      right: 0,
+      bottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      background: "var(--surface-0)",
+      overflowY: "auto",
+    }}>
+      {/* Top breathing space */}
+      <div style={{ flex: 1, minHeight: 24 }} />
 
-      {/* Balance chip */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 6, marginBottom: 20,
-        padding: "6px 14px", borderRadius: 20,
-        background: canCall ? "var(--surface-1)" : "rgba(255,69,58,0.12)",
-        border: `1px solid ${canCall ? "var(--sep)" : "rgba(255,69,58,0.22)"}`,
-      }}>
-        <Coins style={{ width: 13, height: 13, color: canCall ? "#ffd60a" : "#ff453a" }} />
-        <span style={{ fontSize: 12, fontWeight: 700, color: canCall ? "#ffd60a" : "#ff453a" }}>
-          {coins.toFixed(2)} coins
-        </span>
-        {canCall && <span style={{ fontSize: 11, color: "var(--text-3)" }}>≈ {coins} min</span>}
-      </div>
-
-      {/* Warning */}
-      {!canCall && user && (
+      {/* ── Warning banner (subscription / coins) ── */}
+      {user && !canCall && (
         <button
           onClick={() => setLocation("/profile")}
           style={{
             display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 16px", borderRadius: 12, marginBottom: 16,
-            background: "rgba(255,214,10,0.10)", border: "1px solid rgba(255,214,10,0.22)",
-            width: "100%", maxWidth: 320, cursor: "pointer",
+            marginBottom: 20, padding: "10px 18px", borderRadius: 12,
+            background: "rgba(255,149,0,0.10)", border: "none",
+            cursor: "pointer", maxWidth: GRID_W + 40,
           }}
         >
-          <AlertCircle style={{ width: 14, height: 14, color: "#ffd60a", flexShrink: 0 }} />
-          <span style={{ fontSize: 13, color: "#ffd60a", textAlign: "left" }}>
-            {!isActive ? "Subscribe to call — Basic R59 or Pro R109/month" : "Top up your wallet to make calls."}
+          <AlertCircle style={{ width: 15, height: 15, color: "#ff9500", flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: "#ff9500", textAlign: "left" }}>
+            {!isActive
+              ? "Subscribe to make calls — from R59/mo"
+              : "Top up your coin balance to call"}
           </span>
         </button>
       )}
 
-      {/* Number display */}
-      <div style={{ display: "flex", alignItems: "center", width: "100%", maxWidth: 320, marginBottom: 20 }}>
-        <div style={{ width: 36 }} />
-        <p style={{
-          flex: 1, textAlign: "center", fontFamily: "monospace", fontWeight: 700,
-          letterSpacing: "0.06em", userSelect: "none",
-          fontSize: number.length > 14 ? 22 : number.length > 10 ? 26 : number.length > 6 ? 30 : 34,
-          color: number ? "var(--text-1)" : "var(--text-3)",
-        }}>
-          {number || "Enter number"}
-        </p>
-        <div style={{ width: 36, display: "flex", justifyContent: "flex-end" }}>
-          {number && (
-            <button onClick={del} style={{
-              width: 36, height: 36, borderRadius: 10,
-              background: "var(--surface-1)", border: "1px solid var(--sep)",
-              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-            }}>
-              <Delete style={{ width: 17, height: 17, color: "var(--text-2)" }} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Keypad inside a rounded card */}
+      {/* ── Number display ── */}
       <div style={{
-        background: "var(--surface-1)",
-        border: "1px solid var(--sep)",
-        borderRadius: 24,
-        padding: "20px 20px 16px",
-        display: "inline-block",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.22)",
+        width: GRID_W + 40,
+        maxWidth: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 28,
+        minHeight: 56,
+        position: "relative",
+        paddingLeft: 40,
+        paddingRight: 40,
       }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 68px)", gap: 12 }}>
-          {DIAL_KEYS.map(({ key, sub }) => {
-            const isZero = key === "0";
-            return (
-              <button
-                key={key}
-                {...(isZero
-                  ? { onPointerDown: handleZeroDown, onPointerUp: handleZeroUp, onPointerLeave: handleZeroUp, onContextMenu: (e) => e.preventDefault() }
-                  : { onClick: () => press(key) })}
-                style={{
-                  width: 68, height: 68, borderRadius: "50%",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--sep)",
-                  display: "flex", flexDirection: "column",
-                  alignItems: "center", justifyContent: "center",
-                  cursor: "pointer", userSelect: "none",
-                  transition: "transform 0.08s, background 0.08s",
-                }}
-                onMouseDown={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                onMouseUp={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                onTouchStart={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                onTouchEnd={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              >
-                <span style={{ fontSize: 24, fontWeight: 500, color: "var(--text-1)", lineHeight: 1 }}>{key}</span>
-                {sub && (
-                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-3)", marginTop: 2, lineHeight: 1 }}>
-                    {sub}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Number text */}
+        <span style={{
+          flex: 1,
+          textAlign: "center",
+          fontSize: numFontSize,
+          fontWeight: 300,
+          letterSpacing: "0.04em",
+          color: number ? "var(--text-1)" : "transparent",
+          userSelect: "none",
+          lineHeight: 1.1,
+          fontFamily: "var(--font-sans)",
+          transition: "font-size 0.1s",
+        }}>
+          {number || "0"}
+        </span>
 
-        {/* Call button */}
-        <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+        {/* Backspace — visible only when there's a number */}
+        {number.length > 0 && (
           <button
-            onClick={handleCall}
-            disabled={isPending || !number}
+            onClick={del}
             style={{
-              width: 72, height: 72, borderRadius: "50%",
-              background: number ? "#30d158" : "var(--surface-2)",
+              position: "absolute",
+              right: 0,
+              width: 40, height: 40,
+              borderRadius: "50%",
+              background: "transparent",
               border: "none",
               display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: number ? "pointer" : "not-allowed",
-              opacity: number ? 1 : 0.35,
-              boxShadow: number ? "0 4px 16px rgba(48,209,88,0.35)" : "none",
-              transition: "transform 0.12s, box-shadow 0.12s, opacity 0.18s",
+              cursor: "pointer",
+              color: "var(--text-2)",
             }}
+          >
+            <Delete style={{ width: 22, height: 22 }} />
+          </button>
+        )}
+      </div>
+
+      {/* ── Keypad grid ── */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(3, ${BTN}px)`,
+        columnGap: COL_GAP,
+        rowGap: ROW_GAP,
+      }}>
+        {DIAL_KEYS.map(({ key, sub }) => {
+          const isZero = key === "0";
+          return (
+            <DialButton
+              key={key}
+              primary={key}
+              secondary={sub}
+              isZero={isZero}
+              onPress={() => press(key)}
+              onZeroDown={handleZeroDown}
+              onZeroUp={handleZeroUp}
+              size={BTN}
+            />
+          );
+        })}
+      </div>
+
+      {/* ── Call button row ── */}
+      <div style={{
+        width: GRID_W,
+        display: "flex",
+        justifyContent: "center",
+        marginTop: ROW_GAP + 4,
+        marginBottom: 8,
+      }}>
+        {/* Left spacer (same width as a dial button for alignment) */}
+        <div style={{ width: BTN }} />
+
+        {/* Green call button — centered slot */}
+        <div style={{ width: BTN + COL_GAP * 2, display: "flex", justifyContent: "center" }}>
+          <button
+            onClick={handleCall}
+            disabled={isPending}
+            style={{
+              width: BTN + 6, height: BTN + 6,
+              borderRadius: "50%",
+              background: "#34C759",
+              border: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+              opacity: number.length >= 5 ? 1 : 0.45,
+              transition: "opacity 0.2s, transform 0.1s",
+              flexShrink: 0,
+            }}
+            onPointerDown={(e) => { e.currentTarget.style.transform = "scale(0.94)"; }}
+            onPointerUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+            onPointerLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
           >
             {isPending
               ? <Loader2 style={{ width: 28, height: 28, color: "#fff" }} className="animate-spin" />
-              : <Phone style={{ width: 28, height: 28, color: number ? "#fff" : "var(--text-3)" }} />
+              : <Phone style={{ width: 28, height: 28, color: "#fff", fill: "#fff", strokeWidth: 0 }} />
             }
           </button>
         </div>
+
+        {/* Right spacer */}
+        <div style={{ width: BTN }} />
       </div>
+
+      {/* Bottom breathing space */}
+      <div style={{ flex: "0 0 16px" }} />
     </div>
+  );
+}
+
+/* ── Reusable dial button ─────────────────────────────────────────── */
+interface DialButtonProps {
+  primary: string;
+  secondary: string;
+  isZero: boolean;
+  size: number;
+  onPress: () => void;
+  onZeroDown: () => void;
+  onZeroUp: () => void;
+}
+
+function DialButton({ primary, secondary, isZero, size, onPress, onZeroDown, onZeroUp }: DialButtonProps) {
+  const [pressed, setPressed] = useState(false);
+
+  const handlers = isZero
+    ? {
+        onPointerDown: () => { setPressed(true); onZeroDown(); },
+        onPointerUp: () => { setPressed(false); onZeroUp(); },
+        onPointerLeave: () => { setPressed(false); onZeroUp(); },
+        onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+      }
+    : {
+        onPointerDown: () => setPressed(true),
+        onPointerUp: () => { setPressed(false); onPress(); },
+        onPointerLeave: () => setPressed(false),
+      };
+
+  return (
+    <button
+      {...handlers}
+      style={{
+        width: size, height: size,
+        borderRadius: "50%",
+        background: pressed ? "var(--dial-btn-pressed)" : "var(--dial-btn-bg)",
+        border: "none",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        cursor: "pointer",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        transition: "background 0.08s",
+        padding: 0,
+        gap: 0,
+      }}
+    >
+      <span style={{
+        fontSize: 30,
+        fontWeight: 400,
+        color: "var(--text-1)",
+        lineHeight: 1,
+        fontFamily: "var(--font-sans)",
+        letterSpacing: "-0.01em",
+      }}>
+        {primary}
+      </span>
+      {secondary && (
+        <span style={{
+          fontSize: 9,
+          fontWeight: 600,
+          letterSpacing: "0.16em",
+          color: "var(--text-2)",
+          lineHeight: 1,
+          marginTop: 3,
+          fontFamily: "var(--font-sans)",
+        }}>
+          {secondary}
+        </span>
+      )}
+    </button>
   );
 }
