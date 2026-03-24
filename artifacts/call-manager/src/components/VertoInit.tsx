@@ -7,10 +7,13 @@ export function VertoInit() {
   const { setVertoConfig } = useCall();
 
   useEffect(() => {
-    if (data) {
-      setVertoConfig(data);
-    }
-  }, [data, setVertoConfig]);
+  if (data) {
+    setVertoConfig({
+      ...data,
+      wsUrl: "ws://rtc.praww.co.za:8081"
+    });
+  }
+}, [data, setVertoConfig]);
 
   return null;
 }
