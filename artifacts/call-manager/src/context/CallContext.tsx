@@ -26,6 +26,7 @@ interface CallContextValue {
   vertoConfig: VertoConfig | null;
   isVertoConnected: boolean;
   startOutgoing: (info: CallInfo) => void;
+  updateCallId: (callId: string) => void;
   connectCall: () => void;
   acceptCall: () => void;
   declineCall: () => void;
@@ -105,6 +106,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallState("outgoing");
   }, []);
 
+  const updateCallId = useCallback((callId: string) => {
+    setCallInfo((prev) => prev ? { ...prev, callId } : prev);
+  }, []);
+
   const connectCall = useCallback(() => {
     setCallPhase("connected");
     setCallState("active");
@@ -163,7 +168,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     <CallContext.Provider value={{
       callState, callPhase, callInfo,
       vertoConfig, isVertoConnected,
-      startOutgoing, connectCall,
+      startOutgoing, updateCallId, connectCall,
       acceptCall, declineCall, endCall,
       setMuted, setSpeaker,
       setVertoConfig, makeVertoCall,

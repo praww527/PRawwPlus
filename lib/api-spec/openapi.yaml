@@ -696,10 +696,13 @@ components:
         password:
           type: string
           description: User's FreeSWITCH password
+        coins:
+          type: number
+          description: Current coin balance sent to FreeSWITCH at login time
         configured:
           type: boolean
           description: Whether FreeSWITCH is configured on the server
-      required: [wsUrl, domain, extension, login, password, configured]
+      required: [wsUrl, domain, extension, login, password, coins, configured]
 
     OwnedNumber:
       type: object

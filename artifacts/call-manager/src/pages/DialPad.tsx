@@ -38,7 +38,7 @@ export default function DialPad() {
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const {
-    startOutgoing, connectCall, endCall,
+    startOutgoing, updateCallId, connectCall, endCall,
     isVertoConnected, vertoConfig,
     makeVertoCall, callInfo: activeCallInfo,
   } = useCall();
@@ -100,6 +100,8 @@ export default function DialPad() {
     }
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
+
+    // Show calling UI immediately
     startOutgoing({ number, callType });
 
     try {
@@ -109,12 +111,19 @@ export default function DialPad() {
         fsCallId = await makeVertoCall(number);
       }
 
+      // Create the DB call record and get its ID
       const record = await initiateCall({
         data: {
           recipientNumber: number,
           fsCallId: fsCallId ?? undefined,
         },
       });
+
+      // Store the DB record ID in callInfo so CallingScreen can signal call end
+      // and the backend can properly deduct coins
+      if (record?.id) {
+        updateCallId(record.id);
+      }
 
       if (!fsCallId) {
         connectCall();

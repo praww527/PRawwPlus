@@ -22,6 +22,7 @@ export interface VertoConfig {
   extension: number;
   login: string;      // "extension@domain"
   password: string;
+  coins: number;
   configured: boolean;
 }
 
@@ -157,13 +158,15 @@ export class VertoClient {
   private async handleOpen() {
     console.log("[Verto] WebSocket open — sending login");
     try {
-      // Step 1: login
+      // Step 1: login — pass balance so FreeSWITCH can enforce coin checks
       await this.request("login", {
         login:         this.config.login,   // "extension@domain"
         passwd:        this.config.password,
         sessid:        this.sessId,
         loginParams:   {},                   // required by mod_verto
-        userVariables: {},
+        userVariables: {
+          coins: this.config.coins,
+        },
       });
       console.log("[Verto] Login OK — sending verto.clientReady");
 
