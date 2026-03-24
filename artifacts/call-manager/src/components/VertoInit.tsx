@@ -8,9 +8,10 @@ export function VertoInit() {
 
   useEffect(() => {
   if (data) {
-    setVertoConfig;
+    setVertoConfig(data);
   }
 }, [data, setVertoConfig]);
+
 
   return null;
 }
