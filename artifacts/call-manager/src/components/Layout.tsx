@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { Phone, Clock, Users, User } from "lucide-react";
+import { VertoInit } from "@/components/VertoInit";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -32,14 +33,14 @@ export function Layout({ children }: LayoutProps) {
         background: "var(--surface-0)",
       }}
     >
-      {/* Page content */}
+      <VertoInit />
+
       <main
         style={{
           flex: 1,
           overflowY: "auto",
           paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom:
-            "calc(94px + env(safe-area-inset-bottom, 0px))",
+          paddingBottom: "calc(94px + env(safe-area-inset-bottom, 0px))",
         }}
       >
         <div
@@ -54,7 +55,6 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* ── GLASS NAVBAR (FIXED) ───────────────── */}
       <div
         style={{
           position: "fixed",
@@ -65,8 +65,7 @@ export function Layout({ children }: LayoutProps) {
           display: "flex",
           justifyContent: "center",
           alignItems: "flex-end",
-          paddingBottom:
-            "calc(14px + env(safe-area-inset-bottom, 0px))",
+          paddingBottom: "calc(14px + env(safe-area-inset-bottom, 0px))",
           pointerEvents: "none",
         }}
       >
@@ -78,18 +77,11 @@ export function Layout({ children }: LayoutProps) {
             gap: 2,
             pointerEvents: "all",
             borderRadius: 36,
-
-            // ✅ REAL GLASS (like PRaww Reads)
             background: "rgba(255,255,255,0.12)",
-            backdropFilter:
-              "blur(28px) saturate(200%) brightness(1.08)",
-            WebkitBackdropFilter:
-              "blur(28px) saturate(200%) brightness(1.08)",
-
+            backdropFilter: "blur(28px) saturate(200%) brightness(1.08)",
+            WebkitBackdropFilter: "blur(28px) saturate(200%) brightness(1.08)",
             border: "1px solid rgba(255,255,255,0.25)",
-
-            boxShadow:
-              "0 12px 40px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.15)",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.15)",
           }}
         >
           {navItems.map((item) => {
@@ -113,16 +105,10 @@ export function Layout({ children }: LayoutProps) {
                     cursor: "pointer",
                     userSelect: "none",
                     minWidth: 64,
-
-                    // ✅ FIXED ACTIVE STATE (liquid, not button)
-                    background: active
-                      ? "rgba(255,255,255,0.28)"
-                      : "transparent",
-
+                    background: active ? "rgba(255,255,255,0.28)" : "transparent",
                     boxShadow: active
                       ? "inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 4px rgba(0,0,0,0.08)"
                       : "none",
-
                     transition: "all 0.2s ease",
                   }}
                 >
@@ -130,22 +116,16 @@ export function Layout({ children }: LayoutProps) {
                     style={{
                       width: 21,
                       height: 21,
-                      color: active
-                        ? "#3b82f6" // blue active
-                        : "rgba(255,255,255,0.5)",
-
+                      color: active ? "#3b82f6" : "rgba(255,255,255,0.5)",
                       strokeWidth: active ? 2.2 : 1.6,
                       transition: "all 0.2s ease",
                     }}
                   />
-
                   <span
                     style={{
                       fontSize: 10,
                       fontWeight: 600,
-                      color: active
-                        ? "#3b82f6"
-                        : "rgba(255,255,255,0.5)",
+                      color: active ? "#3b82f6" : "rgba(255,255,255,0.5)",
                       lineHeight: 1,
                       transition: "all 0.2s ease",
                     }}

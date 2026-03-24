@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Api
-  version: 0.3.0
+  version: 0.4.0
   description: PRaww+ Telecom API
 servers:
   - url: /api
@@ -23,6 +23,8 @@ tags:
     description: Admin operations
   - name: contacts
     description: Contact management
+  - name: verto
+    description: FreeSWITCH Verto WebRTC
 
 paths:
   /healthz:
@@ -70,6 +72,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /verto/config:
+    get:
+      operationId: getVertoConfig
+      tags: [verto]
+      summary: Get FreeSWITCH Verto WebRTC configuration for the current user
+      responses:
+        "200":
+          description: Verto configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VertoConfig"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /calls:
     get:
       operationId: listCalls
@@ -96,7 +117,7 @@ paths:
     post:
       operationId: makeCall
       tags: [calls]
-      summary: Initiate a new call
+      summary: Log and initiate a new call
       requestBody:
         required: true
         content:
@@ -105,7 +126,7 @@ paths:
               $ref: "#/components/schemas/MakeCallRequest"
       responses:
         "200":
-          description: Call initiated
+          description: Call record created
           content:
             application/json:
               schema:
@@ -136,6 +157,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/CallRecord"
 
+  /calls/{callId}/end:
+    post:
+      operationId: endCall
+      tags: [calls]
+      summary: Signal call ended and record duration / deduct coins
+      parameters:
+        - name: callId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EndCallRequest"
+      responses:
+        "200":
+          description: Updated call record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallRecord"
+
   /numbers:
     get:
       operationId: listMyNumbers
@@ -159,7 +205,7 @@ paths:
     get:
       operationId: searchNumbers
       tags: [numbers]
-      summary: Search available numbers from Telnyx
+      summary: Search available numbers
       parameters:
         - name: country_code
           in: query
@@ -190,7 +236,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "502":
-          description: Telnyx error
+          description: Provider error
           content:
             application/json:
               schema:
@@ -200,7 +246,7 @@ paths:
     post:
       operationId: buyNumber
       tags: [numbers]
-      summary: Purchase a phone number via Telnyx
+      summary: Purchase a phone number
       requestBody:
         required: true
         content:
@@ -614,6 +660,10 @@ components:
           type: number
         isAdmin:
           type: boolean
+        extension:
+          type: integer
+          nullable: true
+          description: User's FreeSWITCH extension number (e.g. 1000)
         createdAt:
           type: string
           format: date-time
@@ -627,6 +677,29 @@ components:
         - totalCoinsUsed
         - isAdmin
         - createdAt
+
+    VertoConfig:
+      type: object
+      properties:
+        wsUrl:
+          type: string
+          description: FreeSWITCH Verto WebSocket URL (wss://...)
+        domain:
+          type: string
+          description: FreeSWITCH SIP domain
+        extension:
+          type: integer
+          description: User's extension number
+        login:
+          type: string
+          description: SIP login (extension@domain)
+        password:
+          type: string
+          description: User's FreeSWITCH password
+        configured:
+          type: boolean
+          description: Whether FreeSWITCH is configured on the server
+      required: [wsUrl, domain, extension, login, password, configured]
 
     OwnedNumber:
       type: object
@@ -724,6 +797,9 @@ components:
           type: string
         recipientNumber:
           type: string
+        callType:
+          type: string
+          enum: [internal, external]
         status:
           type: string
           enum: [initiated, ringing, in-progress, completed, failed, busy, no-answer]
@@ -731,8 +807,8 @@ components:
           type: integer
         cost:
           type: number
-          description: Coins used
-        telnyxCallId:
+          description: Coins used (only for external calls)
+        fsCallId:
           type: string
           nullable: true
         notes:
@@ -749,10 +825,7 @@ components:
         createdAt:
           type: string
           format: date-time
-        username:
-          type: string
-          nullable: true
-      required: [id, userId, recipientNumber, status, duration, cost, createdAt]
+      required: [id, userId, recipientNumber, callType, status, duration, cost, createdAt]
 
     CallListResponse:
       type: object
@@ -778,7 +851,20 @@ components:
           type: string
         notes:
           type: string
+        fsCallId:
+          type: string
       required: [recipientNumber]
+
+    EndCallRequest:
+      type: object
+      properties:
+        duration:
+          type: integer
+          description: Call duration in seconds
+        status:
+          type: string
+          enum: [completed, failed, no-answer, busy]
+      required: [duration]
 
     SubscribeRequest:
       type: object
@@ -857,13 +943,23 @@ components:
           type: integer
       required: [payments, total]
 
+    AdjustCreditRequest:
+      type: object
+      properties:
+        delta:
+          type: number
+          description: Amount to add (positive) or remove (negative)
+        reason:
+          type: string
+      required: [delta]
+
     AdminUserListResponse:
       type: object
       properties:
         users:
           type: array
           items:
-            $ref: "#/components/schemas/UserProfile"
+            $ref: "#/components/schemas/AdminUserSummary"
         total:
           type: integer
         page:
@@ -874,60 +970,87 @@ components:
           type: integer
       required: [users, total, page, limit, totalPages]
 
+    AdminUserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        coins:
+          type: number
+        subscriptionStatus:
+          type: string
+        subscriptionPlan:
+          type: string
+        totalCallsUsed:
+          type: integer
+        totalCoinsUsed:
+          type: number
+        isAdmin:
+          type: boolean
+        extension:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, coins, subscriptionStatus, subscriptionPlan, totalCallsUsed, totalCoinsUsed, isAdmin, createdAt]
+
     AdminUserDetail:
       type: object
       properties:
-        user:
-          $ref: "#/components/schemas/UserProfile"
-        recentCalls:
-          type: array
-          items:
-            $ref: "#/components/schemas/CallRecord"
-        recentPayments:
-          type: array
-          items:
-            $ref: "#/components/schemas/PaymentRecord"
-      required: [user, recentCalls, recentPayments]
-
-    AdjustCreditRequest:
-      type: object
-      properties:
-        amount:
-          type: number
-        reason:
+        id:
           type: string
-      required: [amount, reason]
+        email:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        coins:
+          type: number
+        subscriptionStatus:
+          type: string
+        subscriptionPlan:
+          type: string
+        subscriptionExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        totalCallsUsed:
+          type: integer
+        totalCoinsUsed:
+          type: number
+        isAdmin:
+          type: boolean
+        extension:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, email, coins, subscriptionStatus, subscriptionPlan, totalCallsUsed, totalCoinsUsed, isAdmin, createdAt, updatedAt]
 
     AdminStats:
       type: object
       properties:
         totalUsers:
           type: integer
-        activeSubscriptions:
-          type: integer
         totalCalls:
-          type: integer
-        totalCallMinutes:
           type: integer
         totalRevenue:
           type: number
-        callsToday:
+        activeSubscriptions:
           type: integer
-        newUsersThisMonth:
-          type: integer
-        recentPayments:
-          type: array
-          items:
-            $ref: "#/components/schemas/PaymentRecord"
-      required:
-        - totalUsers
-        - activeSubscriptions
-        - totalCalls
-        - totalCallMinutes
-        - totalRevenue
-        - callsToday
-        - newUsersThisMonth
-        - recentPayments
+      required: [totalUsers, totalCalls, totalRevenue, activeSubscriptions]
 
     ContactRecord:
       type: object
@@ -938,17 +1061,15 @@ components:
           type: string
         name:
           type: string
-        number:
+        phoneNumber:
           type: string
-        fromPhone:
-          type: boolean
+        email:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-      required: [id, userId, name, number, fromPhone]
+      required: [id, userId, name, phoneNumber, createdAt]
 
     ContactListResponse:
       type: object
@@ -957,18 +1078,20 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ContactRecord"
-      required: [contacts]
+        total:
+          type: integer
+      required: [contacts, total]
 
     CreateContactRequest:
       type: object
       properties:
         name:
           type: string
-        number:
+        phoneNumber:
           type: string
-        fromPhone:
-          type: boolean
-      required: [name, number]
+        email:
+          type: string
+      required: [name, phoneNumber]
 
     BulkImportContactsRequest:
       type: object
@@ -986,4 +1109,6 @@ components:
           type: integer
         skipped:
           type: integer
-      required: [imported, skipped]
+        total:
+          type: integer
+      required: [imported, skipped, total]

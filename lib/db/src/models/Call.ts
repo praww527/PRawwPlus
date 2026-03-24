@@ -5,10 +5,11 @@ export interface ICall extends Document<string> {
   userId: string;
   callerNumber?: string;
   recipientNumber: string;
+  callType: "internal" | "external";
   status: string;
   duration: number;
   cost: number;
-  telnyxCallId?: string;
+  fsCallId?: string;
   notes?: string;
   startedAt?: Date;
   endedAt?: Date;
@@ -22,10 +23,11 @@ const CallSchema = new Schema<ICall>(
     userId: { type: String, required: true, index: true },
     callerNumber: { type: String },
     recipientNumber: { type: String, required: true },
+    callType: { type: String, enum: ["internal", "external"], default: "external" },
     status: { type: String, default: "initiated" },
     duration: { type: Number, default: 0 },
     cost: { type: Number, default: 0 },
-    telnyxCallId: { type: String },
+    fsCallId: { type: String },
     notes: { type: String },
     startedAt: { type: Date },
     endedAt: { type: Date },

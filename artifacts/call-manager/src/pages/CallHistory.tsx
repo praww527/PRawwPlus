@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListCalls, useListMyNumbers } from "@workspace/api-client-react";
+import { useListCalls } from "@workspace/api-client-react";
 import { formatCurrency, formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
 import {
@@ -7,7 +7,6 @@ import {
   PhoneMissed, PhoneOff, FileText, Phone,
 } from "lucide-react";
 import { useCall } from "@/context/CallContext";
-import { useToast } from "@/hooks/use-toast";
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "completed") return <PhoneOutgoing className="h-4 w-4" style={{ color: "#30d158" }} />;
@@ -21,26 +20,32 @@ function statusColors(status: string) {
   return                             { bg: "rgba(255,214,10,0.13)", label: "#ffd60a" };
 }
 
+function isInternal(num: string): boolean {
+  const d = num.replace(/\D/g, "");
+  return d.length >= 3 && d.length <= 4;
+}
+
 export default function CallHistory() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useListCalls({ page, limit: 20 });
-  const { data: numbersData } = useListMyNumbers();
-  const { startOutgoing } = useCall();
-  const { toast } = useToast();
+  const { startOutgoing, makeVertoCall, connectCall, endCall, isVertoConnected } = useCall();
 
-  const primaryNumber = numbersData?.myNumbers?.[0] ?? null;
-
-  const handleCallBack = (number: string) => {
-    if (!primaryNumber) {
-      toast({ title: "No number assigned", description: "Claim a number first.", variant: "destructive" });
-      return;
+  const handleCallBack = async (number: string) => {
+    const callType: "internal" | "external" = isInternal(number) ? "internal" : "external";
+    startOutgoing({ number, callType });
+    try {
+      if (isVertoConnected) {
+        await makeVertoCall(number);
+      } else {
+        connectCall();
+      }
+    } catch {
+      endCall();
     }
-    startOutgoing({ number });
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Header */}
       <div style={{ paddingTop: 4 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>
           Recents
@@ -82,10 +87,10 @@ export default function CallHistory() {
         <div className="section-card">
           {data?.calls.map((call, i, arr) => {
             const colors = statusColors(call.status);
+            const internal = call.callType === "internal";
             return (
               <div key={call.id}>
                 <div style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                  {/* Status icon badge */}
                   <div style={{
                     width: 42, height: 42, borderRadius: 13,
                     background: colors.bg,
@@ -96,7 +101,6 @@ export default function CallHistory() {
                     <StatusIcon status={call.status} />
                   </div>
 
-                  {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{
                       fontFamily: "monospace",
@@ -114,6 +118,12 @@ export default function CallHistory() {
                       <span style={{ fontSize: 12, color: "var(--text-3)" }}>
                         {format(new Date(call.createdAt), "MMM d, h:mm a")}
                       </span>
+                      {internal && (
+                        <>
+                          <span style={{ color: "var(--sep-strong)", fontSize: 11 }}>·</span>
+                          <span style={{ fontSize: 11, color: "#30d158", fontWeight: 600 }}>EXT</span>
+                        </>
+                      )}
                       {call.duration > 0 && (
                         <>
                           <span style={{ color: "var(--sep-strong)", fontSize: 11 }}>·</span>
@@ -126,11 +136,10 @@ export default function CallHistory() {
                     </div>
                   </div>
 
-                  {/* Cost + Call-back */}
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                     <div style={{ textAlign: "right" }}>
                       <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", margin: 0 }}>
-                        {formatCurrency(call.cost)}
+                        {internal ? "Free" : formatCurrency(call.cost)}
                       </p>
                       <p style={{
                         fontSize: 10, fontWeight: 600,
@@ -142,7 +151,6 @@ export default function CallHistory() {
                       </p>
                     </div>
 
-                    {/* Glass call-back button */}
                     <button
                       className="btn-press"
                       onClick={() => handleCallBack(call.recipientNumber)}
@@ -167,7 +175,6 @@ export default function CallHistory() {
         </div>
       )}
 
-      {/* Pagination */}
       {data && data.totalPages > 1 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
           <p style={{ fontSize: 12, color: "var(--text-3)" }}>

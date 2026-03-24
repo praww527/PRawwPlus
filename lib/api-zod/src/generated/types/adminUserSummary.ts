@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.4.0
  */
 
-export interface AdminUserDetail {
+export interface AdminUserSummary {
   id: string;
   email: string;
   name?: string;
@@ -14,11 +14,9 @@ export interface AdminUserDetail {
   coins: number;
   subscriptionStatus: string;
   subscriptionPlan: string;
-  subscriptionExpiresAt?: Date | null;
   totalCallsUsed: number;
   totalCoinsUsed: number;
   isAdmin: boolean;
   extension?: number | null;
   createdAt: Date;
-  updatedAt: Date;
 }

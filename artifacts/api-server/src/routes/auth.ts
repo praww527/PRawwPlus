@@ -11,6 +11,7 @@ import {
   type SessionData,
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
+import { assignExtensionIfNeeded } from "../lib/extension";
 
 const router: IRouter = Router();
 
@@ -142,6 +143,8 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       return;
     }
 
+    await assignExtensionIfNeeded(user._id as string);
+
     const sessionData: SessionData = {
       user: {
         id: user._id as string,
@@ -185,6 +188,8 @@ router.post("/auth/verify-email", async (req: Request, res: Response) => {
     user.verificationToken = undefined;
     user.verificationTokenExpiry = undefined;
     await user.save();
+
+    await assignExtensionIfNeeded(user._id as string);
 
     const sessionData: SessionData = {
       user: {
