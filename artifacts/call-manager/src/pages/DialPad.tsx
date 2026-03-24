@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, AlertCircle, Loader2 } from "lucide-react";
+import { Delete, Phone, AlertCircle, Loader2, Wifi, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
@@ -26,13 +26,22 @@ const COL_GAP = 22;
 const ROW_GAP = 14;
 const GRID_W = BTN * 3 + COL_GAP * 2;
 
+function isInternalNumber(num: string): boolean {
+  const digits = num.replace(/\D/g, "");
+  return digits.length >= 3 && digits.length <= 4;
+}
+
 export default function DialPad() {
   const search = useSearch();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
-  const { startOutgoing, connectCall, endCall } = useCall();
+  const {
+    startOutgoing, connectCall, endCall,
+    isVertoConnected, vertoConfig,
+    makeVertoCall, callInfo: activeCallInfo,
+  } = useCall();
   const [number, setNumber] = useState("");
 
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,25 +75,63 @@ export default function DialPad() {
 
   const del = () => setNumber((n) => n.slice(0, -1));
 
+  const isInternal = isInternalNumber(number);
+  const coins = user?.coins ?? 0;
+  const isActive = user?.subscriptionStatus === "active";
+  const canCallExternal = coins > 0 && isActive;
+  const minLength = 3;
+
   const handleCall = async () => {
-    if (!number || number.length < 5) {
-      toast({ title: "Enter a valid phone number", variant: "destructive" });
+    if (!number || number.length < minLength) {
+      toast({
+        title: "Enter a valid number or extension",
+        variant: "destructive",
+      });
       return;
     }
-    startOutgoing({ number });
+
+    if (!isInternal && !canCallExternal) {
+      toast({
+        title: "Cannot make external call",
+        description: !isActive ? "Subscribe to make external calls" : "Top up your balance",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const callType: "internal" | "external" = isInternal ? "internal" : "external";
+    startOutgoing({ number, callType });
+
     try {
-      await initiateCall({ data: { recipientNumber: number } });
-      connectCall();
+      let fsCallId: string | null = null;
+
+      if (vertoConfig?.configured && isVertoConnected) {
+        fsCallId = await makeVertoCall(number);
+      }
+
+      const record = await initiateCall({
+        data: {
+          recipientNumber: number,
+          fsCallId: fsCallId ?? undefined,
+        },
+      });
+
+      if (!fsCallId) {
+        connectCall();
+      }
     } catch (err: any) {
       endCall();
-      toast({ title: "Call failed", description: err?.message ?? "Check your subscription and coin balance.", variant: "destructive" });
+      toast({
+        title: "Call failed",
+        description: err?.message ?? (isInternal
+          ? "Could not reach that extension."
+          : "Check your subscription and coin balance."),
+        variant: "destructive",
+      });
     }
   };
 
-  const isActive = user?.subscriptionStatus === "active";
-  const coins = user?.coins ?? 0;
-  const canCall = coins > 0 && isActive;
-
+  const extension = user?.extension;
   const numFontSize = number.length > 14 ? 26 : number.length > 10 ? 30 : number.length > 6 ? 36 : 42;
 
   return (
@@ -100,10 +147,38 @@ export default function DialPad() {
       background: "var(--surface-0)",
       overflowY: "auto",
     }}>
-      {/* Top breathing space */}
       <div style={{ flex: 1, minHeight: 16 }} />
 
-      {/* ── Balance pill ── */}
+      {extension && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 8,
+          padding: "6px 16px",
+          borderRadius: 20,
+          background: "rgba(0,199,255,0.07)",
+          border: "1px solid rgba(0,199,255,0.15)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Your Extension
+          </span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#00c7ff", letterSpacing: "0.04em" }}>
+            {extension}
+          </span>
+          {vertoConfig?.configured && (
+            <span style={{ display: "flex", alignItems: "center" }}>
+              {isVertoConnected
+                ? <Wifi style={{ width: 12, height: 12, color: "#30d158" }} />
+                : <WifiOff style={{ width: 12, height: 12, color: "#ff9500" }} />
+              }
+            </span>
+          )}
+        </div>
+      )}
+
       {user && (
         <div style={{
           display: "flex",
@@ -125,8 +200,27 @@ export default function DialPad() {
         </div>
       )}
 
-      {/* ── Warning banner ── */}
-      {user && !canCall && (
+      {number.length >= 3 && (
+        <div style={{
+          marginBottom: 8,
+          padding: "4px 12px",
+          borderRadius: 12,
+          background: isInternal ? "rgba(48,209,88,0.08)" : "rgba(255,159,10,0.08)",
+          border: `1px solid ${isInternal ? "rgba(48,209,88,0.2)" : "rgba(255,159,10,0.2)"}`,
+        }}>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: isInternal ? "#30d158" : "#ff9f0a",
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+          }}>
+            {isInternal ? "Extension Call · Free" : "External Call · Coins"}
+          </span>
+        </div>
+      )}
+
+      {user && !isInternal && !canCallExternal && number.length >= 5 && (
         <button
           onClick={() => setLocation("/profile")}
           style={{
@@ -142,13 +236,12 @@ export default function DialPad() {
           <AlertCircle style={{ width: 15, height: 15, color: "#ff9500", flexShrink: 0 }} />
           <span style={{ fontSize: 13, color: "#ff9500", textAlign: "left" }}>
             {!isActive
-              ? "Subscribe to make calls — from R59/mo"
-              : "Top up your coin balance to call"}
+              ? "Subscribe for external calls — from R59/mo"
+              : "Top up your coin balance to call externally"}
           </span>
         </button>
       )}
 
-      {/* ── Number display ── */}
       <div style={{
         width: GRID_W + 40,
         maxWidth: "100%",
@@ -196,7 +289,6 @@ export default function DialPad() {
         )}
       </div>
 
-      {/* ── Keypad grid ── */}
       <div style={{
         display: "grid",
         gridTemplateColumns: `repeat(3, ${BTN}px)`,
@@ -220,7 +312,6 @@ export default function DialPad() {
         })}
       </div>
 
-      {/* ── Call button row ── */}
       <div style={{
         width: GRID_W,
         display: "flex",
@@ -232,7 +323,7 @@ export default function DialPad() {
         <div style={{ width: BTN + COL_GAP * 2, display: "flex", justifyContent: "center" }}>
           <button
             onClick={handleCall}
-            disabled={isPending}
+            disabled={isPending || number.length < minLength}
             style={{
               width: BTN + 6, height: BTN + 6,
               borderRadius: "50%",
@@ -240,7 +331,7 @@ export default function DialPad() {
               border: "none",
               display: "flex", alignItems: "center", justifyContent: "center",
               cursor: "pointer",
-              opacity: number.length >= 5 ? 1 : 0.45,
+              opacity: number.length >= minLength ? 1 : 0.45,
               transition: "opacity 0.2s, transform 0.1s",
               flexShrink: 0,
               boxShadow: "0 4px 20px rgba(48,209,88,0.35)",

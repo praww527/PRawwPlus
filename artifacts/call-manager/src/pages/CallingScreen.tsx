@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX } from "lucide-react";
 import { useCall } from "@/context/CallContext";
+import { useEndCall } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 
 function formatDuration(secs: number) {
@@ -19,23 +20,24 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 }
 
 export default function CallingScreen() {
-  const { callInfo, callPhase, endCall } = useCall();
+  const { callInfo, callPhase, endCall, setMuted, setSpeaker } = useCall();
+  const { mutateAsync: signalEndCall } = useEndCall();
   const [elapsed, setElapsed] = useState(0);
-  const [muted, setMuted]     = useState(false);
-  const [speaker, setSpeaker] = useState(false);
+  const [muted, setMutedState] = useState(false);
+  const [speaker, setSpeakerState] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
 
-  /* Timer only runs while connected */
   useEffect(() => {
     if (callPhase === "connected") {
+      startTimeRef.current = Date.now();
       intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      /* Reset to 00:00 when a new call starts */
       if (callPhase === "calling") setElapsed(0);
     }
     return () => {
@@ -43,16 +45,60 @@ export default function CallingScreen() {
     };
   }, [callPhase]);
 
-  /* Status label */
+  const handleMute = () => {
+    const next = !muted;
+    setMutedState(next);
+    setMuted(next);
+  };
+
+  const handleSpeaker = () => {
+    const next = !speaker;
+    setSpeakerState(next);
+    setSpeaker(next);
+  };
+
+  const handleEndCall = async () => {
+    const durationSecs = callPhase === "connected"
+      ? Math.floor((Date.now() - startTimeRef.current) / 1000)
+      : 0;
+
+    if (callInfo?.callId) {
+      try {
+        await signalEndCall({
+          callId: callInfo.callId,
+          data: { duration: durationSecs, status: "completed" },
+        });
+      } catch {}
+    }
+    endCall(durationSecs);
+  };
+
   const statusLabel =
-    callPhase === "calling"   ? "Calling…"   :
-    callPhase === "ended"     ? "Call Ended"  :
-    null; /* connected — show only the timer */
+    callPhase === "calling" ? "Calling…" :
+    callPhase === "ended"   ? "Call Ended" :
+    null;
+
+  const isInternal = callInfo?.callType === "internal";
 
   const controls = [
-    { icon: muted   ? MicOff  : Mic,     label: "Mute",    active: muted,      onPress: () => setMuted((v) => !v) },
-    { icon: Keyboard,                     label: "Keypad",  active: showKeypad, onPress: () => setShowKeypad((v) => !v) },
-    { icon: speaker ? Volume2 : VolumeX, label: "Speaker", active: speaker,    onPress: () => setSpeaker((v) => !v) },
+    {
+      icon: muted ? MicOff : Mic,
+      label: "Mute",
+      active: muted,
+      onPress: handleMute,
+    },
+    {
+      icon: Keyboard,
+      label: "Keypad",
+      active: showKeypad,
+      onPress: () => setShowKeypad((v) => !v),
+    },
+    {
+      icon: speaker ? Volume2 : VolumeX,
+      label: "Speaker",
+      active: speaker,
+      onPress: handleSpeaker,
+    },
   ];
 
   return (
@@ -64,16 +110,12 @@ export default function CallingScreen() {
         paddingBottom: "env(safe-area-inset-bottom,34px)",
       }}
     >
-      {/* ── Top info ── */}
       <div className="flex flex-col items-center mt-14 mb-6">
-        {/* Status label — only shown in calling / ended phases */}
         {statusLabel && (
-          <p
-            className={cn(
-              "text-sm tracking-widest uppercase font-medium mb-3 transition-all",
-              callPhase === "ended" ? "text-white/35" : "text-white/45"
-            )}
-          >
+          <p className={cn(
+            "text-sm tracking-widest uppercase font-medium mb-3 transition-all",
+            callPhase === "ended" ? "text-white/35" : "text-white/45"
+          )}>
             {statusLabel}
           </p>
         )}
@@ -86,18 +128,27 @@ export default function CallingScreen() {
           <p className="text-white/40 text-sm font-mono mt-1">{callInfo.number}</p>
         )}
 
-        {/* Timer — always visible; frozen at 00:00 until connected */}
-        <p
-          className={cn(
-            "text-sm tabular-nums mt-2 transition-colors",
-            callPhase === "connected" ? "text-white/70" : "text-white/30"
-          )}
-        >
+        {isInternal && (
+          <span style={{
+            marginTop: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#30d158",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+          }}>
+            Internal · Free
+          </span>
+        )}
+
+        <p className={cn(
+          "text-sm tabular-nums mt-2 transition-colors",
+          callPhase === "connected" ? "text-white/70" : "text-white/30"
+        )}>
           {formatDuration(elapsed)}
         </p>
       </div>
 
-      {/* ── Avatar ── */}
       <div className="flex-1 flex items-center justify-center">
         <div className="relative flex items-center justify-center">
           {callPhase === "calling" && (
@@ -123,7 +174,6 @@ export default function CallingScreen() {
         </div>
       </div>
 
-      {/* ── Secondary controls — disabled while calling/ended ── */}
       <div className="flex gap-10 mb-8">
         {controls.map(({ icon: Icon, label, active, onPress }) => (
           <div key={label} className="flex flex-col items-center gap-2">
@@ -146,10 +196,9 @@ export default function CallingScreen() {
         ))}
       </div>
 
-      {/* ── End call ── */}
       <div className="flex flex-col items-center mb-8 gap-2">
         <button
-          onClick={endCall}
+          onClick={handleEndCall}
           disabled={callPhase === "ended"}
           className={cn(
             "flex items-center justify-center rounded-full transition-all",

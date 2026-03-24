@@ -6,12 +6,12 @@
  * OpenAPI spec version: 0.4.0
  */
 
-export type PaymentRecordStatus =
-  (typeof PaymentRecordStatus)[keyof typeof PaymentRecordStatus];
+export type EndCallRequestStatus =
+  (typeof EndCallRequestStatus)[keyof typeof EndCallRequestStatus];
 
-export const PaymentRecordStatus = {
-  pending: "pending",
+export const EndCallRequestStatus = {
   completed: "completed",
   failed: "failed",
-  cancelled: "cancelled",
+  "no-answer": "no-answer",
+  busy: "busy",
 } as const;

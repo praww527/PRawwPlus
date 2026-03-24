@@ -21,6 +21,8 @@ export interface IUser extends Document<string> {
   totalCallsUsed: number;
   totalCoinsUsed: number;
   isAdmin: boolean;
+  extension?: number;
+  fsPassword?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +49,8 @@ const UserSchema = new Schema<IUser>(
     totalCallsUsed: { type: Number, default: 0 },
     totalCoinsUsed: { type: Number, default: 0 },
     isAdmin: { type: Boolean, default: false },
+    extension: { type: Number, index: true, sparse: true },
+    fsPassword: { type: String },
   },
   { timestamps: true, _id: false }
 );

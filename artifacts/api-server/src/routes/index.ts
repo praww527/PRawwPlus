@@ -7,6 +7,7 @@ import paymentsRouter from "./payments";
 import numbersRouter from "./numbers";
 import adminRouter from "./admin";
 import contactsRouter from "./contacts";
+import vertoRouter from "./verto";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(paymentsRouter);
 router.use(numbersRouter);
 router.use(adminRouter);
 router.use(contactsRouter);
+router.use(vertoRouter);
 
 export default router;
