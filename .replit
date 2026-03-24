@@ -64,3 +64,9 @@ externalPort = 8080
 [[ports]]
 localPort = 8081
 externalPort = 8081
+
+[userenv]
+
+[userenv.shared]
+FREESWITCH_DOMAIN = "rtc.praww.co.za"
+FREESWITCH_WS_URL = "wss://rtc.praww.co.za:8082"
