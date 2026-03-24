@@ -6,9 +6,11 @@ let isConnected = false;
 export async function connectDB(): Promise<void> {
   if (isConnected) return;
 
-  if (!process.env.MONGODB_URI) {
+  // Accept MONGO_URI or MONGODB_URI (either name works)
+  const uri = process.env.MONGODB_URI ?? process.env.MONGO_URI;
+  if (!uri) {
     throw new Error(
-      "MONGODB_URI is not configured. Please add it in the Secrets panel.",
+      "No MongoDB connection string found. Set MONGODB_URI or MONGO_URI in the Secrets panel.",
     );
   }
 
@@ -17,7 +19,7 @@ export async function connectDB(): Promise<void> {
   }
 
   connectionPromise = mongoose
-    .connect(process.env.MONGODB_URI, {
+    .connect(uri, {
       serverSelectionTimeoutMS: 8000,
       connectTimeoutMS: 8000,
       socketTimeoutMS: 30000,
