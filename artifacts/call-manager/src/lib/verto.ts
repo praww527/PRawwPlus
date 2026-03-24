@@ -1,141 +1,319 @@
+/**
+ * FreeSWITCH Verto WebRTC Client
+ *
+ * Protocol: JSON-RPC 2.0 over WebSocket (subprotocol "verto")
+ *
+ * Handshake sequence:
+ *   1. Client connects → sends `login`
+ *   2. Server responds to `login` with result
+ *   3. Client sends `verto.clientReady`       ← REQUIRED — current client missing this!
+ *   4. Server responds to `verto.clientReady` → we fire onConnected()
+ *
+ * Call flow (outgoing):
+ *   Client sends `verto.invite` (with SDP offer)
+ *   Server sends `verto.media`  (early media / ringing SDP)
+ *   Server sends `verto.answer` (answer SDP)
+ *   Either side sends `verto.bye` to hang up
+ */
+
 export interface VertoConfig {
   wsUrl: string;
   domain: string;
   extension: number;
-  login: string;
+  login: string;      // "extension@domain"
   password: string;
   configured: boolean;
 }
 
 export interface VertoCallbacks {
-  onIncoming: (callId: string, callerNumber: string, sdp: string) => void;
-  onAnswer: (callId: string, sdp: string) => void;
-  onHangup: (callId: string) => void;
-  onConnected: () => void;
+  onIncoming:     (callId: string, callerNumber: string, sdp: string) => void;
+  onAnswer:       (callId: string, sdp: string) => void;
+  onHangup:       (callId: string) => void;
+  onConnected:    () => void;
   onDisconnected: () => void;
-  onError: (err: string) => void;
+  onError:        (err: string) => void;
 }
 
-interface PendingMsg {
-  resolve: (val: any) => void;
-  reject: (err: any) => void;
+interface Pending {
+  resolve: (val: unknown) => void;
+  reject:  (err: unknown) => void;
+  timeout: ReturnType<typeof setTimeout>;
 }
+
+const RPC_TIMEOUT_MS  = 10_000;
+const ICE_TIMEOUT_MS  = 4_000;
+const RECONNECT_MS    = 5_000;
 
 export class VertoClient {
-  private ws: WebSocket | null = null;
-  private pc: RTCPeerConnection | null = null;
-  private localStream: MediaStream | null = null;
-  private remoteAudio: HTMLAudioElement | null = null;
-  private sessId: string;
-  private msgId = 1;
-  private pending = new Map<number, PendingMsg>();
+  private ws:           WebSocket | null = null;
+  private pc:           RTCPeerConnection | null = null;
+  private localStream:  MediaStream | null = null;
+  private remoteAudio:  HTMLAudioElement | null = null;
+  private sessId:       string;
+  private msgId =       1;
+  private pending =     new Map<number, Pending>();
   private currentCallId: string | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private destroyed = false;
+  private destroyed =   false;
 
   constructor(
-    private config: VertoConfig,
-    private callbacks: VertoCallbacks
+    private config:    VertoConfig,
+    private callbacks: VertoCallbacks,
   ) {
     this.sessId = crypto.randomUUID();
   }
+
+  // ─── Public API ──────────────────────────────────────────────────────────
 
   connect() {
     if (!this.config.wsUrl) {
       this.callbacks.onError("FreeSWITCH WebSocket URL not configured");
       return;
     }
+    if (this.ws && this.ws.readyState < WebSocket.CLOSING) return; // already open
+
     try {
-      this.ws = new WebSocket(this.config.wsUrl, "verto");
-      this.ws.onopen = () => this.onOpen();
-      this.ws.onmessage = (e) => this.onMessage(e);
-      this.ws.onclose = () => this.onClose();
-      this.ws.onerror = () => this.callbacks.onError("WebSocket connection error");
-    } catch (e: any) {
-      this.callbacks.onError(e?.message ?? "Failed to connect");
+      // "verto" MUST be the negotiated sub-protocol
+      this.ws = new WebSocket(this.config.wsUrl, ["verto"]);
+      this.ws.onopen    = ()  => this.handleOpen();
+      this.ws.onmessage = (e) => this.handleMessage(e);
+      this.ws.onclose   = ()  => this.handleClose();
+      this.ws.onerror   = ()  => this.callbacks.onError("WebSocket connection error");
+    } catch (err: unknown) {
+      this.callbacks.onError((err as Error)?.message ?? "Failed to connect");
     }
   }
 
-  private onOpen() {
-    this.send("login", {
-      login: this.config.login,
-      passwd: this.config.password,
-      sessid: this.sessId,
+  disconnect() {
+    this.destroyed = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.clearAllPending(new Error("Client disconnected"));
+    if (this.currentCallId) this.sendNotify("verto.bye", { callID: this.currentCallId, sessid: this.sessId });
+    this.cleanupMedia();
+    this.ws?.close();
+    this.ws = null;
+  }
+
+  async makeCall(to: string): Promise<string> {
+    const callId = crypto.randomUUID();
+    this.currentCallId = callId;
+
+    const pc = await this.setupPeerConnection(callId);
+
+    const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+    await pc.setLocalDescription(offer);
+    await this.waitForIce(pc);
+
+    await this.request("verto.invite", {
+      callID:       callId,
+      sessid:       this.sessId,
+      sdp:          pc.localDescription!.sdp,
+      dialogParams: this.buildDialogParams(callId, to),
+    });
+
+    return callId;
+  }
+
+  async answerCall(callId: string, remoteSdp: string): Promise<void> {
+    const pc = await this.setupPeerConnection(callId);
+
+    await pc.setRemoteDescription({ type: "offer", sdp: remoteSdp });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await this.waitForIce(pc);
+
+    await this.request("verto.answer", {
+      callID:       callId,
+      sessid:       this.sessId,
+      sdp:          pc.localDescription!.sdp,
+      dialogParams: { callID: callId },
     });
   }
 
-  private onClose() {
-    this.callbacks.onDisconnected();
-    if (!this.destroyed) {
-      this.reconnectTimer = setTimeout(() => this.connect(), 5000);
+  hangup(callId?: string) {
+    const id = callId ?? this.currentCallId;
+    if (id) {
+      this.request("verto.bye", {
+        callID: id,
+        sessid: this.sessId,
+        dialogParams: { callID: id },
+      }).catch(() => {});
+    }
+    this.cleanupMedia();
+    this.currentCallId = null;
+  }
+
+  setMuted(muted: boolean) {
+    if (!this.localStream) return;
+    for (const t of this.localStream.getAudioTracks()) t.enabled = !muted;
+  }
+
+  setSpeakerEnabled(_enabled: boolean) {
+    if (this.remoteAudio) this.remoteAudio.volume = 1;
+  }
+
+  // ─── WebSocket Handlers ───────────────────────────────────────────────────
+
+  private async handleOpen() {
+    console.log("[Verto] WebSocket open — sending login");
+    try {
+      // Step 1: login
+      await this.request("login", {
+        login:         this.config.login,   // "extension@domain"
+        passwd:        this.config.password,
+        sessid:        this.sessId,
+        loginParams:   {},                   // required by mod_verto
+        userVariables: {},
+      });
+      console.log("[Verto] Login OK — sending verto.clientReady");
+
+      // Step 2: signal we are ready (REQUIRED — without this FS ignores the client)
+      await this.request("verto.clientReady", { sessid: this.sessId });
+      console.log("[Verto] verto.clientReady acknowledged — connected");
+
+      this.callbacks.onConnected();
+    } catch (err: unknown) {
+      console.error("[Verto] Handshake failed:", err);
+      this.callbacks.onError(`Verto handshake failed: ${(err as Error)?.message ?? err}`);
+      this.ws?.close();
     }
   }
 
-  private onMessage(e: MessageEvent) {
-    let msg: any;
-    try { msg = JSON.parse(e.data); } catch { return; }
+  private handleClose() {
+    this.callbacks.onDisconnected();
+    this.clearAllPending(new Error("WebSocket closed"));
+    if (!this.destroyed) {
+      console.log(`[Verto] Disconnected — reconnecting in ${RECONNECT_MS}ms`);
+      this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_MS);
+    }
+  }
 
-    if (msg.id && this.pending.has(msg.id)) {
+  private handleMessage(e: MessageEvent) {
+    let msg: Record<string, unknown>;
+    try { msg = JSON.parse(e.data as string); } catch { return; }
+
+    // JSON-RPC response (has numeric id)
+    if (typeof msg.id === "number" && this.pending.has(msg.id)) {
       const p = this.pending.get(msg.id)!;
       this.pending.delete(msg.id);
+      clearTimeout(p.timeout);
       if (msg.error) p.reject(msg.error);
-      else p.resolve(msg.result);
+      else           p.resolve(msg.result);
       return;
     }
 
-    const method: string = msg.method ?? "";
-    const params = msg.params ?? {};
+    // Server-initiated notifications
+    const method = (msg.method as string) ?? "";
+    const params  = (msg.params as Record<string, unknown>) ?? {};
 
-    if (method === "verto.clientReady") {
-      this.callbacks.onConnected();
-    } else if (method === "verto.invite") {
-      const callId: string = params.callID;
-      const sdp: string = params.sdp ?? "";
-      const caller: string = params.dialogParams?.caller_id_number ?? params.dialogParams?.from ?? "Unknown";
-      this.currentCallId = callId;
-      this.callbacks.onIncoming(callId, caller, sdp);
-    } else if (method === "verto.answer") {
-      const callId: string = params.callID;
-      const sdp: string = params.sdp ?? "";
-      this.callbacks.onAnswer(callId, sdp);
-    } else if (method === "verto.bye") {
-      const callId: string = params.callID;
-      this.callbacks.onHangup(callId);
-      this.cleanupPeerConnection();
-    } else if (method === "verto.media") {
-      const sdp: string = params.sdp ?? "";
-      if (this.pc) {
-        this.pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
+    switch (method) {
+      case "verto.clientReady":
+        // Some FS versions send this as a push (no id) — treat as connected too
+        this.callbacks.onConnected();
+        break;
+
+      case "verto.invite": {
+        const callId      = params.callID as string;
+        const sdp         = (params.sdp as string) ?? "";
+        const dp          = (params.dialogParams as Record<string, string>) ?? {};
+        const callerNum   = dp.caller_id_number ?? dp.from ?? "Unknown";
+        this.currentCallId = callId;
+        this.callbacks.onIncoming(callId, callerNum, sdp);
+        break;
       }
+
+      case "verto.answer": {
+        const callId = params.callID as string;
+        const sdp    = (params.sdp as string) ?? "";
+        if (this.pc && sdp) {
+          this.pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
+        }
+        this.callbacks.onAnswer(callId, sdp);
+        break;
+      }
+
+      case "verto.media": {
+        // Early media — ringing tone SDP
+        const sdp = (params.sdp as string) ?? "";
+        if (this.pc && sdp) {
+          this.pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
+        }
+        break;
+      }
+
+      case "verto.bye": {
+        const callId = params.callID as string;
+        this.callbacks.onHangup(callId);
+        this.cleanupMedia();
+        this.currentCallId = null;
+        break;
+      }
+
+      case "verto.info":
+        // Could carry DTMF, hold/resume, etc. — ignore for now
+        break;
+
+      default:
+        break;
     }
   }
 
-  private send(method: string, params: Record<string, any>): Promise<any> {
+  // ─── JSON-RPC Helpers ─────────────────────────────────────────────────────
+
+  /** Send a JSON-RPC request and wait for the response (with timeout). */
+  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error("WebSocket not open"));
+        return;
+      }
       const id = this.msgId++;
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`RPC timeout for method "${method}"`));
+      }, RPC_TIMEOUT_MS);
+
+      this.pending.set(id, { resolve, reject, timeout: timer });
+
       const msg = JSON.stringify({ jsonrpc: "2.0", id, method, params });
       try {
-        this.ws?.send(msg);
-      } catch (e) {
+        this.ws.send(msg);
+      } catch (err) {
         this.pending.delete(id);
-        reject(e);
+        clearTimeout(timer);
+        reject(err);
       }
     });
   }
 
-  private sendNotify(method: string, params: Record<string, any>) {
-    const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
-    try { this.ws?.send(msg); } catch {}
+  /** Send a JSON-RPC notification (no id, fire-and-forget). */
+  private sendNotify(method: string, params: Record<string, unknown>) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try {
+      this.ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+    } catch {}
   }
 
-  private async setupPeerConnection(): Promise<RTCPeerConnection> {
-    this.cleanupPeerConnection();
+  private clearAllPending(err: Error) {
+    for (const [, p] of this.pending) {
+      clearTimeout(p.timeout);
+      p.reject(err);
+    }
+    this.pending.clear();
+  }
+
+  // ─── WebRTC Helpers ───────────────────────────────────────────────────────
+
+  private async setupPeerConnection(callId: string): Promise<RTCPeerConnection> {
+    this.cleanupMedia();
 
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
     });
     this.pc = pc;
 
@@ -148,110 +326,70 @@ export class VertoClient {
         this.remoteAudio = new Audio();
         this.remoteAudio.autoplay = true;
       }
-      this.remoteAudio.srcObject = e.streams[0];
+      this.remoteAudio.srcObject = e.streams[0] ?? null;
+    };
+
+    // Trickle ICE → send candidates via verto.info
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        this.sendNotify("verto.info", {
+          callID:  callId,
+          sessid:  this.sessId,
+          params:  { message: { candidate: e.candidate } },
+        });
+      }
     };
 
     return pc;
   }
 
-  async makeCall(to: string): Promise<string> {
-    const callId = crypto.randomUUID();
-    this.currentCallId = callId;
-
-    const pc = await this.setupPeerConnection();
-    const offer = await pc.createOffer({ offerToReceiveAudio: true });
-    await pc.setLocalDescription(offer);
-
-    await new Promise<void>((resolve) => {
+  /** Wait until ICE gathering is complete or ICE_TIMEOUT_MS elapses. */
+  private waitForIce(pc: RTCPeerConnection): Promise<void> {
+    return new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") { resolve(); return; }
-      pc.onicegatheringstatechange = () => {
-        if (pc.iceGatheringState === "complete") resolve();
-      };
-      setTimeout(resolve, 3000);
+      const done = () => { pc.removeEventListener("icegatheringstatechange", check); resolve(); };
+      const check = () => { if (pc.iceGatheringState === "complete") done(); };
+      pc.addEventListener("icegatheringstatechange", check);
+      setTimeout(done, ICE_TIMEOUT_MS);
     });
+  }
 
-    const finalSdp = pc.localDescription!.sdp;
-
-    this.sendNotify("verto.invite", {
-      callID: callId,
-      sdp: finalSdp,
-      dialogParams: {
-        callID: callId,
-        to: `${to}@${this.config.domain}`,
-        from: `${this.config.extension}@${this.config.domain}`,
-        caller_id_name: String(this.config.extension),
-        caller_id_number: String(this.config.extension),
-        remoteSdp: "",
+  private buildDialogParams(callId: string, to: string): Record<string, unknown> {
+    const ext = String(this.config.extension);
+    return {
+      callID:              callId,
+      to:                  to.includes("@") ? to : `${to}@${this.config.domain}`,
+      from:                `${ext}@${this.config.domain}`,
+      caller_id_name:      ext,
+      caller_id_number:    ext,
+      outgoingBandwidth:   "default",
+      incomingBandwidth:   "default",
+      audioParams: {
+        googAutoGainControl:  true,
+        googNoiseSuppression: true,
+        googHighpassFilter:   true,
       },
-    });
-
-    return callId;
+      screenShare: false,
+      useVideo:    false,
+      useStereo:   false,
+      useCamera:   false,
+      useMic:      "any",
+      useSpeak:    "any",
+    };
   }
 
-  async answerCall(callId: string, remoteSdp: string): Promise<void> {
-    const pc = await this.setupPeerConnection();
-
-    await pc.setRemoteDescription({ type: "offer", sdp: remoteSdp });
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    await new Promise<void>((resolve) => {
-      if (pc.iceGatheringState === "complete") { resolve(); return; }
-      pc.onicegatheringstatechange = () => {
-        if (pc.iceGatheringState === "complete") resolve();
-      };
-      setTimeout(resolve, 3000);
-    });
-
-    this.sendNotify("verto.answer", {
-      callID: callId,
-      sdp: pc.localDescription!.sdp,
-      dialogParams: { callID: callId },
-    });
-  }
-
-  hangup(callId?: string) {
-    const id = callId ?? this.currentCallId;
-    if (id) {
-      this.sendNotify("verto.bye", {
-        callID: id,
-        dialogParams: { callID: id },
-      });
-    }
-    this.cleanupPeerConnection();
-    this.currentCallId = null;
-  }
-
-  setMuted(muted: boolean) {
+  private cleanupMedia() {
     if (this.localStream) {
-      for (const track of this.localStream.getAudioTracks()) {
-        track.enabled = !muted;
-      }
-    }
-  }
-
-  setSpeakerEnabled(_enabled: boolean) {
-    if (this.remoteAudio) {
-      this.remoteAudio.volume = 1;
-    }
-  }
-
-  private cleanupPeerConnection() {
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks()) track.stop();
+      for (const t of this.localStream.getTracks()) t.stop();
       this.localStream = null;
     }
     if (this.pc) {
       this.pc.close();
       this.pc = null;
     }
-  }
-
-  disconnect() {
-    this.destroyed = true;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.hangup();
-    this.ws?.close();
-    this.ws = null;
+    if (this.remoteAudio) {
+      this.remoteAudio.srcObject = null;
+      this.remoteAudio = null;
+    }
   }
 }
