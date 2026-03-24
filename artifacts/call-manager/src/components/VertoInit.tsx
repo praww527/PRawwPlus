@@ -8,10 +8,7 @@ export function VertoInit() {
 
   useEffect(() => {
   if (data) {
-    setVertoConfig({
-      ...data,
-      wsUrl: "ws://rtc.praww.co.za:8081"
-    });
+    setVertoConfig;
   }
 }, [data, setVertoConfig]);
 
