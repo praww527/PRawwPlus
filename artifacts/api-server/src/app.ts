@@ -21,6 +21,14 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`)
     : [];
 
+// Build the WebSocket origin for CSP connect-src so browsers allow the Verto WS
+const fsWsUrl = process.env.FREESWITCH_WS_URL ?? "";
+const fsWsOrigin = fsWsUrl
+  ? (() => {
+      try { return new URL(fsWsUrl).origin; } catch { return ""; }
+    })()
+  : "";
+
 app.use(
   pinoHttp({
     logger,
@@ -60,9 +68,10 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   // Relaxed CSP — the SPA loads scripts, fonts, and inline styles
+  const connectSrc = ["'self'", fsWsOrigin].filter(Boolean).join(" ");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'",
+    `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src ${connectSrc}; frame-ancestors 'none'`,
   );
   next();
 });

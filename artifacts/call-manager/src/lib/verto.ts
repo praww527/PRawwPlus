@@ -75,11 +75,15 @@ export class VertoClient {
 
     try {
       // "verto" MUST be the negotiated sub-protocol
+      console.log("[Verto] Connecting to", this.config.wsUrl);
       this.ws = new WebSocket(this.config.wsUrl, ["verto"]);
       this.ws.onopen    = ()  => this.handleOpen();
       this.ws.onmessage = (e) => this.handleMessage(e);
-      this.ws.onclose   = ()  => this.handleClose();
-      this.ws.onerror   = ()  => this.callbacks.onError("WebSocket connection error");
+      this.ws.onclose   = (e) => this.handleClose(e);
+      this.ws.onerror   = (e) => {
+        console.error("[Verto] WebSocket error", e);
+        this.callbacks.onError("WebSocket connection error");
+      };
     } catch (err: unknown) {
       this.callbacks.onError((err as Error)?.message ?? "Failed to connect");
     }
@@ -156,9 +160,12 @@ export class VertoClient {
   // ─── WebSocket Handlers ───────────────────────────────────────────────────
 
   private async handleOpen() {
-    console.log("[Verto] WebSocket open — sending login");
+    console.log("[Verto] WebSocket open — sending login", {
+      login: this.config.login,
+      sessid: this.sessId,
+    });
     try {
-      // Step 1: login — pass balance so FreeSWITCH can enforce coin checks
+      // Step 1: login — JSON-RPC request; FreeSWITCH responds with same id
       await this.request("login", {
         login:         this.config.login,   // "extension@domain"
         passwd:        this.config.password,
@@ -170,9 +177,12 @@ export class VertoClient {
       });
       console.log("[Verto] Login OK — sending verto.clientReady");
 
-      // Step 2: signal we are ready (REQUIRED — without this FS ignores the client)
-      await this.request("verto.clientReady", { sessid: this.sessId });
-      console.log("[Verto] verto.clientReady acknowledged — connected");
+      // Step 2: notify FreeSWITCH we are ready.
+      // This MUST be a fire-and-forget notification (no id) — mod_verto does NOT
+      // send a JSON-RPC response to verto.clientReady; if we await it we will
+      // hit the 10-second RPC timeout and drop the connection.
+      this.sendNotify("verto.clientReady", { sessid: this.sessId });
+      console.log("[Verto] verto.clientReady sent — marking connected");
 
       this.callbacks.onConnected();
     } catch (err: unknown) {
@@ -182,11 +192,12 @@ export class VertoClient {
     }
   }
 
-  private handleClose() {
+  private handleClose(ev: CloseEvent) {
+    console.log("[Verto] WebSocket closed", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
     this.callbacks.onDisconnected();
     this.clearAllPending(new Error("WebSocket closed"));
     if (!this.destroyed) {
-      console.log(`[Verto] Disconnected — reconnecting in ${RECONNECT_MS}ms`);
+      console.log(`[Verto] Reconnecting in ${RECONNECT_MS}ms`);
       this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_MS);
     }
   }
