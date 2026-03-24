@@ -74,11 +74,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallState("incoming");
       },
 
-      onAnswer: (_callId, sdp) => {
-        const pc: RTCPeerConnection | null = (clientRef.current as any)?.pc ?? null;
-        if (pc) {
-          pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
-        }
+      onAnswer: (_callId, _sdp) => {
+        // Remote SDP is applied inside VertoClient.handleMessage before this fires
         setCallPhase("connected");
         setCallState("active");
       },
