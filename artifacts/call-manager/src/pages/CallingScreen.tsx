@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
-import { useEndCall } from "@workspace/api-client-react";
+import { useEndCall, getGetMeQueryKey } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 
 function formatDuration(secs: number) {
@@ -22,28 +23,95 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 export default function CallingScreen() {
   const { callInfo, callPhase, endCall, setMuted, setSpeaker } = useCall();
   const { mutateAsync: signalEndCall } = useEndCall();
+  const queryClient = useQueryClient();
+
   const [elapsed, setElapsed] = useState(0);
   const [muted, setMutedState] = useState(false);
   const [speaker, setSpeakerState] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number>(0);
 
+  const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
+  // Mirror elapsed in a ref so the "ended" effect can read the latest value
+  // without being listed as a dependency (which would re-run every second)
+  const elapsedRef   = useRef<number>(0);
+  // Prevent double-deduction: set to true as soon as we fire signalEndCall
+  const signalledRef = useRef<boolean>(false);
+
+  // ── Timer: starts when connected, pauses on every other phase ─────────────
   useEffect(() => {
     if (callPhase === "connected") {
       startTimeRef.current = Date.now();
-      intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      intervalRef.current = setInterval(() => {
+        setElapsed((e) => {
+          const next = e + 1;
+          elapsedRef.current = next;
+          return next;
+        });
+      }, 1000);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      if (callPhase === "calling") setElapsed(0);
+      if (callPhase === "calling") {
+        setElapsed(0);
+        elapsedRef.current = 0;
+      }
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [callPhase]);
+
+  // ── Signal backend whenever call ends (covers remote hangup) ──────────────
+  // This fires when the remote party hangs up via FreeSWITCH verto.bye.
+  // If the user clicked End Call first, signalledRef is already true so we skip.
+  useEffect(() => {
+    if (callPhase !== "ended") return;
+    if (signalledRef.current) return;
+    if (!callInfo?.callId) return;
+
+    signalledRef.current = true;
+    const duration = elapsedRef.current;
+
+    signalEndCall({
+      callId: callInfo.callId,
+      data: { duration, status: "completed" },
+    })
+      .catch(() => {})
+      .finally(() => {
+        // Refresh coin balance in the UI
+        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callPhase]);
+
+  // ── User-initiated hang up ─────────────────────────────────────────────────
+  const handleEndCall = useCallback(async () => {
+    const durationSecs = callPhase === "connected"
+      ? Math.floor((Date.now() - startTimeRef.current) / 1000)
+      : elapsedRef.current;
+
+    // Guard: only signal once
+    if (!signalledRef.current) {
+      signalledRef.current = true;
+      if (callInfo?.callId) {
+        try {
+          await signalEndCall({
+            callId: callInfo.callId,
+            data: { duration: durationSecs, status: "completed" },
+          });
+        } catch {
+          // best-effort — even if the request fails, hang up locally
+        } finally {
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+        }
+      }
+    }
+
+    endCall(durationSecs);
+  }, [callInfo, callPhase, endCall, queryClient, signalEndCall]);
 
   const handleMute = () => {
     const next = !muted;
@@ -55,22 +123,6 @@ export default function CallingScreen() {
     const next = !speaker;
     setSpeakerState(next);
     setSpeaker(next);
-  };
-
-  const handleEndCall = async () => {
-    const durationSecs = callPhase === "connected"
-      ? Math.floor((Date.now() - startTimeRef.current) / 1000)
-      : 0;
-
-    if (callInfo?.callId) {
-      try {
-        await signalEndCall({
-          callId: callInfo.callId,
-          data: { duration: durationSecs, status: "completed" },
-        });
-      } catch {}
-    }
-    endCall(durationSecs);
   };
 
   const statusLabel =

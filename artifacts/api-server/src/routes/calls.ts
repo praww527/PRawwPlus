@@ -119,6 +119,14 @@ router.post("/calls/:callId/end", async (req, res) => {
     return;
   }
 
+  // Idempotency: if the call was already ended (by webhook or prior request), return
+  // the existing record without deducting coins again
+  if (call.endedAt) {
+    const existing = await CallModel.findById(callId).lean();
+    res.json({ ...existing, id: existing!._id });
+    return;
+  }
+
   const durationSecs = typeof duration === "number" ? Math.max(0, Math.floor(duration)) : 0;
   const finalStatus = status ?? "completed";
 
@@ -133,10 +141,16 @@ router.post("/calls/:callId/end", async (req, res) => {
   );
 
   if (coinsUsed > 0) {
-    await UserModel.updateOne(
-      { _id: userId },
-      { $inc: { coins: -coinsUsed, totalCallsUsed: 1, totalCoinsUsed: coinsUsed } }
-    );
+    // Aggregation pipeline update: deduct coins but never go below 0
+    await UserModel.updateOne({ _id: userId }, [
+      {
+        $set: {
+          coins: { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
+          totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
+          totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
+        },
+      },
+    ]);
   } else {
     await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } });
   }
@@ -161,20 +175,31 @@ router.post("/calls/webhook/freeswitch", async (req, res) => {
     if (event === "CHANNEL_ANSWER") {
       await CallModel.updateOne({ _id: callId }, { status: "in-progress", startedAt: new Date() });
     } else if (event === "CHANNEL_HANGUP" || event === "CHANNEL_HANGUP_COMPLETE") {
+      // Idempotency: skip if already ended
+      if (call.endedAt) { res.sendStatus(200); return; }
+
       const durationSecs = typeof duration === "number" ? Math.max(0, duration) : 0;
       let coinsUsed = 0;
       if (call.callType === "external" && durationSecs > 0) {
         coinsUsed = Math.ceil((durationSecs / 60) * COINS_PER_MINUTE);
       }
+
       await CallModel.updateOne(
         { _id: callId },
         { status: status ?? "completed", duration: durationSecs, cost: coinsUsed, endedAt: new Date() }
       );
+
       if (coinsUsed > 0) {
-        await UserModel.updateOne(
-          { _id: userId },
-          { $inc: { coins: -coinsUsed, totalCallsUsed: 1, totalCoinsUsed: coinsUsed } }
-        );
+        // Aggregation pipeline update: deduct coins but never go below 0
+        await UserModel.updateOne({ _id: userId }, [
+          {
+            $set: {
+              coins: { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
+              totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
+              totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
+            },
+          },
+        ]);
       } else {
         await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } });
       }
