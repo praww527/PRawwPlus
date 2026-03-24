@@ -18,6 +18,10 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     return;
   }
 
+  // Fetch fresh balance so FreeSWITCH always gets the current coin count
+  const user = await UserModel.findById(userId).select("coins").lean();
+  const coins = user?.coins ?? 0;
+
   const wsUrl = process.env.FREESWITCH_WS_URL ?? "";
   const domain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
 
@@ -27,6 +31,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     extension: ext.extension,
     login: `${ext.extension}@${domain}`,
     password: ext.fsPassword,
+    coins,
     configured: Boolean(wsUrl),
   });
 });

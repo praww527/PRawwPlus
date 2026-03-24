@@ -17,6 +17,8 @@ export interface VertoConfig {
   login: string;
   /** User's FreeSWITCH password */
   password: string;
+  /** Current coin balance sent to FreeSWITCH at login time */
+  coins: number;
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
 }

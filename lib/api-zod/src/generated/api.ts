@@ -59,6 +59,9 @@ export const GetVertoConfigResponse = zod.object({
   extension: zod.number().describe("User's extension number"),
   login: zod.string().describe("SIP login (extension@domain)"),
   password: zod.string().describe("User's FreeSWITCH password"),
+  coins: zod
+    .number()
+    .describe("Current coin balance sent to FreeSWITCH at login time"),
   configured: zod
     .boolean()
     .describe("Whether FreeSWITCH is configured on the server"),
