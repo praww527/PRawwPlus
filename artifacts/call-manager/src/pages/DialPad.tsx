@@ -100,6 +100,7 @@ export default function DialPad() {
     }
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
+    const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
 
     // Show calling UI immediately
     startOutgoing({ number, callType });
@@ -107,11 +108,22 @@ export default function DialPad() {
     try {
       let fsCallId: string | null = null;
 
-      if (vertoConfig?.configured && isVertoConnected) {
+      if (vertoActive) {
+        // Attempt to place the call via FreeSWITCH Verto WebRTC
         fsCallId = await makeVertoCall(number);
+        if (!fsCallId) {
+          // makeVertoCall returned null — WebSocket issue or ICE failure
+          endCall();
+          toast({
+            title: "Call failed",
+            description: "Could not connect to the call server. Check your connection.",
+            variant: "destructive",
+          });
+          return;
+        }
       }
 
-      // Create the DB call record and get its ID
+      // Create the server-side call record (also validates subscription/balance)
       const record = await initiateCall({
         data: {
           recipientNumber: number,
@@ -119,15 +131,15 @@ export default function DialPad() {
         },
       });
 
-      // Store the DB record ID in callInfo so CallingScreen can signal call end
-      // and the backend can properly deduct coins
       if (record?.id) {
         updateCallId(record.id);
       }
 
-      if (!fsCallId) {
+      if (!vertoActive) {
+        // No Verto connection — immediately mark as connected (non-VoIP fallback)
         connectCall();
       }
+      // When Verto IS active: stay in "calling/ringing" state until verto.answer fires
     } catch (err: any) {
       endCall();
       toast({

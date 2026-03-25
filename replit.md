@@ -46,17 +46,33 @@ artifacts-monorepo/
 
 ### Verto WebRTC Flow
 1. Frontend fetches `GET /api/verto/config` — gets WSS URL, extension, login, password
-2. Frontend establishes WebSocket to FreeSWITCH Verto endpoint (`wss://host:8082`)
-3. Login via `verto.login` JSON-RPC message
-4. Outgoing call: `verto.invite` with RTCPeerConnection SDP offer
-5. Incoming call: server sends `verto.invite` to client → client shows IncomingCallScreen
-6. Hangup: `verto.bye` from either side
-7. On call end, frontend calls `POST /api/calls/:id/end` with duration → backend deducts coins (external only)
+2. Frontend establishes WebSocket to FreeSWITCH Verto endpoint (proxied at `/api/verto/ws`)
+3. Login via JSON-RPC `login` + `verto.clientReady` handshake
+4. Outgoing call: `verto.invite` with full ICE-gathered SDP offer
+5. `verto.media` → remote is ringing (early media SDP applied ONCE as remote description)
+6. `verto.answer` → call connected (remote SDP skipped if already set by verto.media)
+7. Incoming call: server sends `verto.invite` → client shows IncomingCallScreen
+8. Hangup: `verto.bye` from either side
+9. On call end, frontend calls `POST /api/calls/:id/end` with duration → backend deducts coins
+
+### Call Phases (frontend)
+`calling` → `ringing` → `connected` → `ended`
+- **calling**: `verto.invite` sent, awaiting first response
+- **ringing**: `verto.media` received (remote side is ringing, early media flowing)
+- **connected**: `verto.answer` received, timer starts
+- **ended**: `verto.bye` or user hang-up
+
+### SDP Safety Rule
+`remoteSdpSet` flag in `VertoClient` ensures `setRemoteDescription` is called exactly once.
+`verto.media` sets the flag; `verto.answer` skips if flag is already set. This prevents the
+`InvalidStateError: Cannot set remote answer in state have-remote-answer` that causes no audio.
 
 ### Coin Deduction
 - Internal calls (extensions): **0 coins** always
 - External calls: `ceil(duration_minutes) * 1 coin` deducted on call end
 - External calls require active subscription + non-zero coin balance
+- **Mid-call enforcement (ESL)**: on `CHANNEL_ANSWER`, ESL schedules a `uuid_kill` API
+  command timed to fire when the user's balance would be exhausted. Cancelled on early hangup.
 
 ## Environment Variables / Secrets
 

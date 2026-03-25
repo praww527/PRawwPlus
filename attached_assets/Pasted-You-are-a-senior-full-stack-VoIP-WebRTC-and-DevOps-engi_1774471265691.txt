@@ -1,0 +1,70 @@
+You are a senior full-stack VoIP, WebRTC, and DevOps engineer with full access to my system. Prepare the entire application for production by removing all demo/test logic and stabilizing all core features.
+
+Primary goal: make the calling system fully functional and reliable.
+
+Fix and verify in this order:
+	1.	Media (CRITICAL)
+
+	•	Ensure two-way audio works reliably (RTP send and receive)
+	•	Fix NAT, SDP, ICE, and RTP configuration
+	•	Verify UDP ports are open and media flows correctly
+
+	2.	Call Flow
+
+	•	Ensure calls ring properly on incoming calls
+	•	Fix call setup, connection, and teardown
+	•	Ensure stable call state and no unexpected disconnects
+
+	3.	Billing Control
+
+	•	Check user balance before call
+	•	Prevent calls if balance is insufficient
+	•	During call, track usage and automatically terminate call when balance reaches zero
+	•	Play “insufficient funds” message when applicable
+
+	4.	Voicemail
+
+	•	If user does not answer, route call to voicemail
+	•	Record voicemail and store it correctly
+	•	Allow retrieval of voicemail
+
+	5.	Server Stability
+
+	•	Fix all backend/server bugs
+	•	Ensure FreeSWITCH is correctly configured and stable
+	•	Fix logs, errors, and misconfigurations
+
+	6.	Frontend
+
+	•	Ensure call UI works correctly
+	•	Fix microphone, audio playback, and connection handling
+	•	Ensure proper ringing, call states, and user feedback
+
+	7.	Security & Production Readiness
+
+	•	Remove all demo/test logic
+	•	Secure endpoints and authentication
+	•	Ensure system is stable and production-ready
+
+	8.	Call Handling Features (MANDATORY)
+
+	•	Handle invalid numbers and play appropriate message (“number does not exist”)
+	•	Implement call waiting or proper busy handling when user is already on a call
+	•	Add ring timeout and route unanswered calls to voicemail
+	•	Validate user balance before call and block if insufficient
+	•	Track call duration and terminate when balance reaches zero
+	•	Handle all call failure scenarios (offline, rejected, timeout)
+	•	Support DTMF input for voicemail and future IVR
+	•	Ensure correct call states (dialing, ringing, connected, ended, failed)
+	•	Prevent unauthorized or free calls (security enforcement)
+
+Test end-to-end:
+	•	Registration
+	•	Call ringing
+	•	Call connection
+	•	Two-way audio
+	•	Insufficient funds handling
+	•	Voicemail flow
+
+Im ready to deploy to GitHub and render 
+Make sure everything it’s working don’t geuss try them too

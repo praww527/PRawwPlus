@@ -11,9 +11,14 @@
  *
  * Call flow (outgoing):
  *   Client sends `verto.invite` (with full gathered SDP)
- *   Server sends `verto.media`  (early media / ringing SDP)
- *   Server sends `verto.answer` (answer SDP)
+ *   Server sends `verto.media`  (early media / ringing SDP) ← remote is ringing
+ *   Server sends `verto.answer` (final answer SDP)          ← call connected
  *   Either side sends `verto.bye` notification to hang up
+ *
+ * SDP rule: remote description is set ONCE (on the first SDP we receive —
+ * either verto.media or verto.answer). Subsequent SDPs are ignored unless
+ * ICE needs to restart. Setting it twice causes a silent DOMException and
+ * is the #1 cause of one-way or no-audio calls.
  */
 
 export interface VertoConfig {
@@ -28,6 +33,7 @@ export interface VertoConfig {
 
 export interface VertoCallbacks {
   onIncoming:     (callId: string, callerNumber: string, sdp: string) => void;
+  onRinging:      (callId: string) => void;
   onAnswer:       (callId: string, sdp: string) => void;
   onHangup:       (callId: string) => void;
   onConnected:    () => void;
@@ -56,6 +62,9 @@ export class VertoClient {
   private currentCallId:  string | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed =     false;
+  // Track whether we have already applied the remote SDP so we never call
+  // setRemoteDescription twice on the same PeerConnection.
+  private remoteSdpSet =  false;
 
   constructor(
     private config:    VertoConfig,
@@ -103,12 +112,12 @@ export class VertoClient {
   async makeCall(to: string): Promise<string> {
     const callId = crypto.randomUUID();
     this.currentCallId = callId;
+    this.remoteSdpSet  = false;
 
     const pc = await this.setupPeerConnection();
 
     const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
     await pc.setLocalDescription(offer);
-    // Wait for all ICE candidates to be gathered before sending the offer
     await this.waitForIce(pc);
 
     await this.request("verto.invite", {
@@ -122,12 +131,14 @@ export class VertoClient {
   }
 
   async answerCall(callId: string, remoteSdp: string): Promise<void> {
+    this.remoteSdpSet  = false;
     const pc = await this.setupPeerConnection();
 
     await pc.setRemoteDescription({ type: "offer", sdp: remoteSdp });
+    this.remoteSdpSet = true;
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    // Wait for all ICE candidates before sending the answer
     await this.waitForIce(pc);
 
     await this.request("verto.answer", {
@@ -141,7 +152,6 @@ export class VertoClient {
   hangup(callId?: string) {
     const id = callId ?? this.currentCallId;
     if (id) {
-      // verto.bye is a notification — fire-and-forget, no response expected
       this.sendNotify("verto.bye", {
         callID:       id,
         sessid:       this.sessId,
@@ -150,6 +160,7 @@ export class VertoClient {
     }
     this.cleanupMedia();
     this.currentCallId = null;
+    this.remoteSdpSet  = false;
   }
 
   setMuted(muted: boolean) {
@@ -165,7 +176,6 @@ export class VertoClient {
     const callId = this.currentCallId;
     if (!callId) return;
 
-    // Send DTMF via RFC 2833 on the RTP track if available
     if (this.pc) {
       const sender = this.pc.getSenders().find((s) => s.track?.kind === "audio");
       if (sender && (sender as any).dtmf) {
@@ -173,7 +183,6 @@ export class VertoClient {
       }
     }
 
-    // Also signal via verto.info (FreeSWITCH DTMF relay)
     this.sendNotify("verto.info", {
       callID: callId,
       sessid: this.sessId,
@@ -190,7 +199,6 @@ export class VertoClient {
       sessid: this.sessId,
     });
     try {
-      // Step 1: login — JSON-RPC request; FreeSWITCH responds with same id
       await this.request("login", {
         login:         this.config.login,
         passwd:        this.config.password,
@@ -199,11 +207,8 @@ export class VertoClient {
         userVariables: { coins: this.config.coins },
       });
       console.log("[Verto] Login OK — sending verto.clientReady");
-
-      // Step 2: notify FreeSWITCH we are ready (fire-and-forget — no response)
       this.sendNotify("verto.clientReady", { sessid: this.sessId });
       console.log("[Verto] verto.clientReady sent — marking connected");
-
       this.callbacks.onConnected();
     } catch (err: unknown) {
       console.error("[Verto] Handshake failed:", err);
@@ -236,13 +241,11 @@ export class VertoClient {
       return;
     }
 
-    // Server-initiated notifications
     const method = (msg.method as string) ?? "";
     const params  = (msg.params as Record<string, unknown>) ?? {};
 
     switch (method) {
       case "verto.clientReady":
-        // Some FreeSWITCH versions push this back — treat as connected
         this.callbacks.onConnected();
         break;
 
@@ -252,39 +255,67 @@ export class VertoClient {
         const dp        = (params.dialogParams as Record<string, string>) ?? {};
         const callerNum = dp.caller_id_number ?? dp.from ?? "Unknown";
         this.currentCallId = callId;
+        this.remoteSdpSet  = false;
         this.callbacks.onIncoming(callId, callerNum, sdp);
         break;
       }
 
-      case "verto.answer": {
-        const callId = params.callID as string;
-        const sdp    = (params.sdp as string) ?? "";
-        if (this.pc && sdp) {
-          this.pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
+      case "verto.media": {
+        // Early media — remote side is ringing, FreeSWITCH sends the first SDP.
+        // Apply it exactly once. This is the critical fix: if we set it here
+        // we must NOT set it again in verto.answer.
+        const sdp = (params.sdp as string) ?? "";
+        if (this.pc && sdp && !this.remoteSdpSet) {
+          console.log("[Verto] verto.media — applying early-media SDP");
+          this.remoteSdpSet = true;
+          this.pc.setRemoteDescription({ type: "answer", sdp })
+            .then(() => console.log("[Verto] verto.media: remote description set OK"))
+            .catch((err: unknown) => {
+              console.error("[Verto] verto.media: setRemoteDescription failed:", (err as Error)?.message);
+            });
         }
+        // Notify context that the remote side is ringing
+        const mediaCallId = (params.callID as string) ?? this.currentCallId ?? "";
+        this.callbacks.onRinging(mediaCallId);
+        break;
+      }
+
+      case "verto.answer": {
+        const callId = (params.callID as string) ?? "";
+        const sdp    = (params.sdp as string) ?? "";
+
+        if (this.pc && sdp) {
+          if (this.remoteSdpSet) {
+            // Remote SDP was already applied (by verto.media early media).
+            // Applying it a second time would throw "InvalidStateError: Cannot
+            // set remote answer in state have-remote-answer" and kill audio.
+            // The existing RTP session is already flowing — nothing to do.
+            console.log("[Verto] verto.answer: remote SDP already set (early media) — skipping setRemoteDescription");
+          } else {
+            console.log("[Verto] verto.answer — applying answer SDP (no early media)");
+            this.remoteSdpSet = true;
+            this.pc.setRemoteDescription({ type: "answer", sdp })
+              .then(() => console.log("[Verto] verto.answer: remote description set OK"))
+              .catch((err: unknown) => {
+                console.error("[Verto] verto.answer: setRemoteDescription failed:", (err as Error)?.message);
+              });
+          }
+        }
+
         this.callbacks.onAnswer(callId, sdp);
         break;
       }
 
-      case "verto.media": {
-        // Early media — apply ringing SDP
-        const sdp = (params.sdp as string) ?? "";
-        if (this.pc && sdp) {
-          this.pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
-        }
-        break;
-      }
-
       case "verto.bye": {
-        const callId = params.callID as string;
+        const callId = (params.callID as string) ?? "";
         this.callbacks.onHangup(callId);
         this.cleanupMedia();
         this.currentCallId = null;
+        this.remoteSdpSet  = false;
         break;
       }
 
       case "verto.info":
-        // Could carry DTMF, hold/resume, etc. — ignore for now
         break;
 
       default:
@@ -294,7 +325,6 @@ export class VertoClient {
 
   // ─── JSON-RPC Helpers ─────────────────────────────────────────────────────
 
-  /** Send a JSON-RPC request and wait for the response (with timeout). */
   private request(method: string, params: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -320,7 +350,6 @@ export class VertoClient {
     });
   }
 
-  /** Send a JSON-RPC notification (no id, fire-and-forget). */
   private sendNotify(method: string, params: Record<string, unknown>) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
@@ -338,10 +367,6 @@ export class VertoClient {
 
   // ─── WebRTC Helpers ───────────────────────────────────────────────────────
 
-  /**
-   * Create a PeerConnection with mic audio.
-   * ICE candidates are collected silently — we use non-trickle ICE (gather-all-first).
-   */
   private async setupPeerConnection(): Promise<RTCPeerConnection> {
     this.cleanupMedia();
 
@@ -363,6 +388,7 @@ export class VertoClient {
     }
 
     pc.ontrack = (e) => {
+      console.log("[Verto] Remote track received:", e.track.kind, "streams:", e.streams.length);
       if (!this.remoteAudio) {
         this.remoteAudio = new Audio();
         this.remoteAudio.autoplay = true;
@@ -371,7 +397,7 @@ export class VertoClient {
       if (this.remoteAudio.srcObject !== stream) {
         this.remoteAudio.srcObject = stream;
         this.remoteAudio.play().catch(() => {
-          // Autoplay blocked by browser policy — attach a one-time click listener to resume
+          // Autoplay blocked — resume on next user gesture
           const resume = () => {
             this.remoteAudio?.play().catch(() => {});
             document.removeEventListener("click", resume);
@@ -383,14 +409,25 @@ export class VertoClient {
       }
     };
 
-    // NOTE: We do NOT trickle-ICE here.
-    // We wait for gathering to complete (waitForIce) and send the full SDP
-    // in one shot. This avoids race conditions with FreeSWITCH mod_verto.
+    // Log ICE and connection state changes to help diagnose RTP issues
+    pc.oniceconnectionstatechange = () => {
+      console.log("[Verto] ICE connection state:", pc.iceConnectionState);
+      if (pc.iceConnectionState === "failed") {
+        console.error("[Verto] ICE failed — RTP will not flow. Check firewall UDP 16384-32768 on FreeSWITCH server.");
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log("[Verto] Peer connection state:", pc.connectionState);
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log("[Verto] ICE gathering state:", pc.iceGatheringState);
+    };
 
     return pc;
   }
 
-  /** Wait until ICE gathering is complete or ICE_TIMEOUT_MS elapses. */
   private waitForIce(pc: RTCPeerConnection): Promise<void> {
     return new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") { resolve(); return; }
@@ -438,5 +475,6 @@ export class VertoClient {
       this.remoteAudio.srcObject = null;
       this.remoteAudio = null;
     }
+    this.remoteSdpSet = false;
   }
 }
