@@ -1,9 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX } from "lucide-react";
+import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
 import { useEndCall, getGetMeQueryKey } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
+
+const DTMF_KEYS = [
+  { key: "1", sub: "" },
+  { key: "2", sub: "ABC" },
+  { key: "3", sub: "DEF" },
+  { key: "4", sub: "GHI" },
+  { key: "5", sub: "JKL" },
+  { key: "6", sub: "MNO" },
+  { key: "7", sub: "PQRS" },
+  { key: "8", sub: "TUV" },
+  { key: "9", sub: "WXYZ" },
+  { key: "*",  sub: "" },
+  { key: "0",  sub: "+" },
+  { key: "#",  sub: "" },
+];
 
 function formatDuration(secs: number) {
   const m = String(Math.floor(secs / 60)).padStart(2, "0");
@@ -21,7 +36,7 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 }
 
 export default function CallingScreen() {
-  const { callInfo, callPhase, endCall, setMuted, setSpeaker } = useCall();
+  const { callInfo, callPhase, endCall, setMuted, setSpeaker, sendDtmf } = useCall();
   const { mutateAsync: signalEndCall } = useEndCall();
   const queryClient = useQueryClient();
 
@@ -29,16 +44,13 @@ export default function CallingScreen() {
   const [muted, setMutedState] = useState(false);
   const [speaker, setSpeakerState] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
+  const [dtmfBuffer, setDtmfBuffer] = useState("");
 
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
-  // Mirror elapsed in a ref so the "ended" effect can read the latest value
-  // without being listed as a dependency (which would re-run every second)
   const elapsedRef   = useRef<number>(0);
-  // Prevent double-deduction: set to true as soon as we fire signalEndCall
   const signalledRef = useRef<boolean>(false);
 
-  // ── Timer: starts when connected, pauses on every other phase ─────────────
   useEffect(() => {
     if (callPhase === "connected") {
       startTimeRef.current = Date.now();
@@ -64,9 +76,6 @@ export default function CallingScreen() {
     };
   }, [callPhase]);
 
-  // ── Signal backend whenever call ends (covers remote hangup) ──────────────
-  // This fires when the remote party hangs up via FreeSWITCH verto.bye.
-  // If the user clicked End Call first, signalledRef is already true so we skip.
   useEffect(() => {
     if (callPhase !== "ended") return;
     if (signalledRef.current) return;
@@ -81,19 +90,16 @@ export default function CallingScreen() {
     })
       .catch(() => {})
       .finally(() => {
-        // Refresh coin balance in the UI
         queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callPhase]);
 
-  // ── User-initiated hang up ─────────────────────────────────────────────────
   const handleEndCall = useCallback(async () => {
     const durationSecs = callPhase === "connected"
       ? Math.floor((Date.now() - startTimeRef.current) / 1000)
       : elapsedRef.current;
 
-    // Guard: only signal once
     if (!signalledRef.current) {
       signalledRef.current = true;
       if (callInfo?.callId) {
@@ -103,7 +109,7 @@ export default function CallingScreen() {
             data: { duration: durationSecs, status: "completed" },
           });
         } catch {
-          // best-effort — even if the request fails, hang up locally
+          // best-effort
         } finally {
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
         }
@@ -123,6 +129,11 @@ export default function CallingScreen() {
     const next = !speaker;
     setSpeakerState(next);
     setSpeaker(next);
+  };
+
+  const handleDtmf = (digit: string) => {
+    sendDtmf(digit);
+    setDtmfBuffer((b) => (b + digit).slice(-12));
   };
 
   const statusLabel =
@@ -201,30 +212,104 @@ export default function CallingScreen() {
         </p>
       </div>
 
-      <div className="flex-1 flex items-center justify-center">
-        <div className="relative flex items-center justify-center">
-          {callPhase === "calling" && (
-            <div
-              className="absolute rounded-full animate-ping opacity-15"
-              style={{ width: 170, height: 170, background: "#34c759" }}
-            />
-          )}
-          <div
-            className="absolute rounded-full opacity-10"
-            style={{ width: 200, height: 200, background: "#34c759", filter: "blur(20px)" }}
-          />
-          <div
-            className="relative w-28 h-28 rounded-full flex items-center justify-center text-[30px] font-bold text-white select-none"
+      {/* DTMF Keypad overlay */}
+      {showKeypad && callPhase === "connected" ? (
+        <div className="flex-1 flex flex-col items-center justify-center w-full px-8">
+          {/* DTMF display */}
+          <div style={{
+            height: 36, marginBottom: 16,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <span style={{
+              fontSize: 24, fontWeight: 700, color: "rgba(255,255,255,0.85)",
+              fontFamily: "monospace", letterSpacing: "0.12em",
+              minWidth: 20,
+            }}>
+              {dtmfBuffer || ""}
+            </span>
+          </div>
+
+          {/* 3×4 grid */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 72px)",
+            gap: 12,
+            justifyContent: "center",
+          }}>
+            {DTMF_KEYS.map(({ key, sub }) => (
+              <button
+                key={key}
+                onClick={() => handleDtmf(key)}
+                style={{
+                  width: 72, height: 72, borderRadius: "50%",
+                  background: "rgba(255,255,255,0.10)",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+                  WebkitTapHighlightColor: "transparent",
+                  gap: 0,
+                  transition: "all 0.1s ease",
+                }}
+                onPointerDown={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.22)";
+                  e.currentTarget.style.transform = "scale(0.93)";
+                }}
+                onPointerUp={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.10)";
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+                onPointerLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.10)";
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                <span style={{ fontSize: 22, fontWeight: 600, color: "white", lineHeight: 1.1 }}>{key}</span>
+                {sub && <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.08em", marginTop: 1 }}>{sub}</span>}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setShowKeypad(false)}
             style={{
-              background: "linear-gradient(135deg,rgba(52,199,89,0.28),rgba(52,199,89,0.08))",
-              border: "2px solid rgba(52,199,89,0.38)",
-              boxShadow: "0 0 40px rgba(52,199,89,0.22)",
+              marginTop: 20, display: "flex", alignItems: "center", gap: 6,
+              background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 20, padding: "8px 20px", cursor: "pointer",
+              color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: 600,
             }}
           >
-            {avatarInitials(callInfo)}
+            <X className="w-3.5 h-3.5" />
+            Hide keypad
+          </button>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="relative flex items-center justify-center">
+            {callPhase === "calling" && (
+              <div
+                className="absolute rounded-full animate-ping opacity-15"
+                style={{ width: 170, height: 170, background: "#34c759" }}
+              />
+            )}
+            <div
+              className="absolute rounded-full opacity-10"
+              style={{ width: 200, height: 200, background: "#34c759", filter: "blur(20px)" }}
+            />
+            <div
+              className="relative w-28 h-28 rounded-full flex items-center justify-center text-[30px] font-bold text-white select-none"
+              style={{
+                background: "linear-gradient(135deg,rgba(52,199,89,0.28),rgba(52,199,89,0.08))",
+                border: "2px solid rgba(52,199,89,0.38)",
+                boxShadow: "0 0 40px rgba(52,199,89,0.22)",
+              }}
+            >
+              {avatarInitials(callInfo)}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="flex gap-10 mb-8">
         {controls.map(({ icon: Icon, label, active, onPress }) => (

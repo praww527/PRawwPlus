@@ -157,6 +157,27 @@ export class VertoClient {
     if (this.remoteAudio) this.remoteAudio.volume = 1;
   }
 
+  sendDtmf(digit: string) {
+    const callId = this.currentCallId;
+    if (!callId) return;
+
+    // Send DTMF via RFC 2833 on the RTP track if available
+    if (this.pc) {
+      const sender = this.pc.getSenders().find((s) => s.track?.kind === "audio");
+      if (sender && (sender as any).dtmf) {
+        try { (sender as any).dtmf.insertDTMF(digit, 100, 70); } catch {}
+      }
+    }
+
+    // Also signal via verto.info (FreeSWITCH DTMF relay)
+    this.sendNotify("verto.info", {
+      callID: callId,
+      sessid: this.sessId,
+      dtmf: digit,
+      params: { message: { type: "dtmf", params: { dtmf: digit, duration: 100 } } },
+    });
+  }
+
   // ─── WebSocket Handlers ───────────────────────────────────────────────────
 
   private async handleOpen() {

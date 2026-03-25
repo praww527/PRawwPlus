@@ -256,7 +256,7 @@ function CallSettingsSheet() {
   );
 }
 
-type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "notifications" | "call-settings";
+type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact";
 
 export default function Profile() {
   const { logout } = useAuth();
@@ -393,9 +393,9 @@ export default function Profile() {
       {/* ── Preferences ───────────────────────────────────── */}
       <Section title="Preferences">
         <Row icon={<Bell size={15} />} iconBg="rgba(255,69,58,0.20)" iconColor="#ff453a"
-          label="Notifications" onClick={() => setSheet("notifications")} />
+          label="Notifications" onClick={() => setLocation("/notifications")} />
         <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.20)" iconColor="#30d158"
-          label="Call Settings" onClick={() => setSheet("call-settings")} />
+          label="Call Settings" onClick={() => setLocation("/call-settings")} />
         <Row icon={<Mic size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
           label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
@@ -615,20 +615,6 @@ export default function Profile() {
               <p>We comply with the Protection of Personal Information Act (POPIA) of South Africa.</p>
             </div>
           </div>
-        </Modal>
-      )}
-
-      {/* ── Sheet: Notifications ───────────────────────────── */}
-      {sheet === "notifications" && (
-        <Modal title="Notifications" onClose={() => setSheet("none")}>
-          <NotificationsSheet />
-        </Modal>
-      )}
-
-      {/* ── Sheet: Call Settings ───────────────────────────── */}
-      {sheet === "call-settings" && (
-        <Modal title="Call Settings" onClose={() => setSheet("none")}>
-          <CallSettingsSheet />
         </Modal>
       )}
 
