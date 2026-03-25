@@ -70,3 +70,4 @@ externalPort = 8081
 [userenv.shared]
 FREESWITCH_DOMAIN = "158.180.29.84"
 FREESWITCH_WS_URL = "wss://158.180.29.84:8082/"
+APP_URL = "https://75579a97-eaea-4479-9fae-910ceb3616a3-00-1zevdpv9a6r93.picard.replit.dev"

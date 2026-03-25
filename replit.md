@@ -142,6 +142,32 @@ artifacts-monorepo/
 - Production: `https://www.payfast.co.za/eng/process`
 - Webhook: `POST /api/payments/webhook` (PayFast ITN)
 
+## Environment Variables / Secrets (complete list)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
+| `FREESWITCH_WS_URL` | Yes | e.g. `wss://158.180.29.84:8082/` |
+| `FREESWITCH_DOMAIN` | Yes | e.g. `158.180.29.84` |
+| `APP_URL` | Yes | Public base URL of this Replit deployment (for email links, PayFast webhooks) |
+| `SESSION_SECRET` | Yes | Random string for session signing |
+| `SMTP_HOST` | Yes | SMTP server host |
+| `SMTP_USER` | Yes | SMTP username |
+| `SMTP_PASS` | Yes | SMTP password |
+| `SMTP_FROM` | Yes | From address for emails |
+| `PAYFAST_MERCHANT_ID` | Optional | PayFast merchant ID (sandbox used if absent) |
+| `PAYFAST_MERCHANT_KEY` | Optional | PayFast merchant key |
+| `PAYFAST_PASSPHRASE` | Optional | PayFast passphrase |
+
+## FreeSWITCH Integration Notes
+
+- FreeSWITCH server: `158.180.29.84`, mod_verto port `8082`
+- FreeSWITCH must call our directory endpoint to authenticate users:
+  `GET https://{APP_URL}/api/freeswitch/directory?user={extension}&domain={domain}`
+- Our server provisions user extensions starting at 1001 on startup
+- Non-trickle ICE used — full SDP gathered before sending `verto.invite` (required for mod_verto)
+- `verto.bye` sent as notification (fire-and-forget), not RPC request
+
 ## Development
 
 ```bash
@@ -155,11 +181,10 @@ PORT=3000 BASE_PATH=/ pnpm --filter @workspace/call-manager run dev
 pnpm run --filter @workspace/api-spec codegen
 ```
 
-## FreeSWITCH Setup (for Testing)
+## FreeSWITCH Testing (extension-to-extension)
 
-To test extension-to-extension calls with two devices:
-1. Set `FREESWITCH_WS_URL=wss://your-fs-host:8082` and `FREESWITCH_DOMAIN=your-fs-host`
-2. User 1000 logs in on Device A — shown extension 1000
-3. User 1001 logs in on Device B — shown extension 1001
-4. Device A dials `1001` → internal call, no coins deducted
-5. Both devices hear audio via WebRTC through FreeSWITCH
+1. Set `FREESWITCH_WS_URL=wss://158.180.29.84:8082/` and `FREESWITCH_DOMAIN=158.180.29.84`
+2. On FreeSWITCH server, configure XML curl to call `{APP_URL}/api/freeswitch/directory`
+3. User 1001 logs in on Device A, User 1002 logs in on Device B
+4. Device A dials `1002` → internal free call, routes via FreeSWITCH mod_verto
+5. Both devices hear audio via WebRTC
