@@ -12,16 +12,9 @@ import {
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
 import { assignExtensionIfNeeded } from "../lib/extension";
+import { getBaseUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
-
-function getBaseUrl(req: Request): string {
-  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
-  const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-  const host = (req.headers["x-forwarded-host"] as string) || (req.headers["host"] as string) || "localhost";
-  return `${proto}://${host}`;
-}
 
 function setSessionCookie(res: Response, sid: string) {
   res.cookie(SESSION_COOKIE, sid, {
