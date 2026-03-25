@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ChevronLeft, Phone, Wifi, Mic, Volume2, Shield,
   Clock, Radio, Headphones, PhoneForwarded, PhoneMissed,
+  Server, BellRing, BellOff, Loader2, Check,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useGetVertoConfig, useUpdateUserSettings } from "@workspace/api-client-react";
 
 interface ToggleRowProps {
   icon: React.ReactNode;
@@ -13,11 +15,12 @@ interface ToggleRowProps {
   description?: string;
   enabled: boolean;
   onToggle: () => void;
+  disabled?: boolean;
 }
 
-function ToggleRow({ icon, iconBg, iconColor, label, description, enabled, onToggle }: ToggleRowProps) {
+function ToggleRow({ icon, iconBg, iconColor, label, description, enabled, onToggle, disabled }: ToggleRowProps) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", opacity: disabled ? 0.5 : 1 }}>
       <div className="icon-badge" style={{ background: iconBg }}>
         <span style={{ color: iconColor }}>{icon}</span>
       </div>
@@ -27,8 +30,8 @@ function ToggleRow({ icon, iconBg, iconColor, label, description, enabled, onTog
       </div>
       <div
         className="toggle-track"
-        style={{ background: enabled ? "#1a8cff" : "rgba(255,255,255,0.15)" }}
-        onClick={onToggle}
+        style={{ background: enabled ? "#1a8cff" : "rgba(255,255,255,0.15)", cursor: disabled ? "not-allowed" : "pointer" }}
+        onClick={disabled ? undefined : onToggle}
       >
         <div className="toggle-thumb" style={{ left: enabled ? 22 : 2 }} />
       </div>
@@ -42,13 +45,14 @@ interface SelectRowProps {
   iconColor: string;
   label: string;
   value: string;
-  options: string[];
+  options: { value: string; label: string }[];
   onChange: (v: string) => void;
+  disabled?: boolean;
 }
 
-function SelectRow({ icon, iconBg, iconColor, label, value, options, onChange }: SelectRowProps) {
+function SelectRow({ icon, iconBg, iconColor, label, value, options, onChange, disabled }: SelectRowProps) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", opacity: disabled ? 0.5 : 1 }}>
       <div className="icon-badge" style={{ background: iconBg }}>
         <span style={{ color: iconColor }}>{icon}</span>
       </div>
@@ -56,6 +60,7 @@ function SelectRow({ icon, iconBg, iconColor, label, value, options, onChange }:
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         style={{
           background: "rgba(255,255,255,0.08)",
           border: "1px solid rgba(255,255,255,0.10)",
@@ -63,18 +68,62 @@ function SelectRow({ icon, iconBg, iconColor, label, value, options, onChange }:
           color: "var(--text-2)",
           fontSize: 13,
           padding: "4px 8px",
-          cursor: "pointer",
+          cursor: disabled ? "not-allowed" : "pointer",
           outline: "none",
         }}
       >
-        {options.map((o) => <option key={o} value={o} style={{ background: "#1c1c2e" }}>{o}</option>)}
+        {options.map((o) => <option key={o.value} value={o.value} style={{ background: "#1c1c2e" }}>{o.label}</option>)}
       </select>
     </div>
   );
 }
 
+interface InputRowProps {
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  label: string;
+  description?: string;
+  value: string;
+  type?: string;
+  placeholder?: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}
+
+function InputRow({ icon, iconBg, iconColor, label, description, value, type = "text", placeholder, onChange, disabled }: InputRowProps) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", opacity: disabled ? 0.5 : 1 }}>
+      <div className="icon-badge" style={{ background: iconBg }}>
+        <span style={{ color: iconColor }}>{icon}</span>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-1)", margin: 0 }}>{label}</p>
+        {description && <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", lineHeight: 1.3 }}>{description}</p>}
+      </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        style={{
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.10)",
+          borderRadius: 8,
+          color: "var(--text-2)",
+          fontSize: 13,
+          padding: "4px 8px",
+          width: 120,
+          outline: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const kids = Array.isArray(children) ? children : [children];
+  const kids = Array.isArray(children) ? children.filter(Boolean) : [children];
   return (
     <div>
       <p className="section-label" style={{ paddingLeft: 4, marginBottom: 6 }}>{title}</p>
@@ -90,9 +139,49 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+const RINGTONE_OPTIONS = [
+  { value: "default", label: "Default" },
+  { value: "classic", label: "Classic" },
+  { value: "digital", label: "Digital" },
+  { value: "soft", label: "Soft" },
+  { value: "urgent", label: "Urgent" },
+  { value: "none", label: "Silent" },
+];
+
+const DURATION_OPTIONS = [
+  { value: "15", label: "15 sec" },
+  { value: "20", label: "20 sec" },
+  { value: "30", label: "30 sec" },
+  { value: "45", label: "45 sec" },
+  { value: "60", label: "60 sec" },
+  { value: "90", label: "90 sec" },
+  { value: "120", label: "2 min" },
+];
+
+type LocalSettings = {
+  wifiCalling: boolean;
+  noiseCancellation: boolean;
+  autoAnswer: boolean;
+  recordCalls: boolean;
+  hd: boolean;
+  earpiece: boolean;
+  forwarding: boolean;
+  waitingTone: boolean;
+  codec: string;
+  forwardTo: string;
+};
+
 export default function CallSettingsPage() {
   const [, setLocation] = useLocation();
-  const [settings, setSettings] = useState({
+
+  const { data: vertoConfig, isLoading } = useGetVertoConfig();
+
+  const [ringtone, setRingtone] = useState("default");
+  const [ringtoneDuration, setRingtoneDuration] = useState("30");
+  const [dnd, setDnd] = useState(false);
+  const [fsHost, setFsHost] = useState("");
+  const [fsPort, setFsPort] = useState("");
+  const [local, setLocal] = useState<LocalSettings>({
     wifiCalling: true,
     noiseCancellation: true,
     autoAnswer: false,
@@ -101,17 +190,57 @@ export default function CallSettingsPage() {
     earpiece: false,
     forwarding: false,
     waitingTone: true,
+    codec: "Opus HD",
+    forwardTo: "Voicemail",
   });
-  const [codec, setCodec] = useState("Opus HD");
-  const [ringtone, setRingtone] = useState("Default");
-  const [forwardTo, setForwardTo] = useState("Voicemail");
 
-  const toggle = (key: keyof typeof settings) =>
-    setSettings((s) => ({ ...s, [key]: !s[key] }));
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { mutate: saveSettings, isPending: isSaving } = useUpdateUserSettings({
+    mutation: {
+      onSuccess: () => {
+        setSaved(true);
+        setSaveError(null);
+        setTimeout(() => setSaved(false), 2500);
+      },
+      onError: (err: any) => {
+        setSaveError(err?.data?.error ?? "Failed to save settings");
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (vertoConfig?.settings) {
+      const s = vertoConfig.settings;
+      setRingtone(s.ringtone ?? "default");
+      setRingtoneDuration(String(s.ringtoneDuration ?? 30));
+      setDnd(s.dnd ?? false);
+      setFsHost(s.freeswitchHost ?? "");
+      setFsPort(s.freeswitchPort ? String(s.freeswitchPort) : "");
+    }
+  }, [vertoConfig]);
+
+  const toggleLocal = (key: keyof LocalSettings) => {
+    if (typeof local[key] === "boolean") {
+      setLocal((s) => ({ ...s, [key]: !s[key] }));
+    }
+  };
+
+  const handleSave = () => {
+    setSaveError(null);
+    const payload: Record<string, unknown> = {
+      ringtone,
+      ringtoneDuration: parseInt(ringtoneDuration, 10),
+      dnd,
+    };
+    if (fsHost.trim()) payload.freeswitchHost = fsHost.trim();
+    if (fsPort.trim()) payload.freeswitchPort = parseInt(fsPort.trim(), 10);
+    saveSettings({ data: payload as any });
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 4, paddingBottom: 8 }}>
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
         <button
           onClick={() => setLocation("/profile")}
@@ -127,51 +256,101 @@ export default function CallSettingsPage() {
         >
           <ChevronLeft style={{ width: 18, height: 18, color: "#1a8cff" }} />
         </button>
-        <h1 style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-display)", margin: 0 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-display)", margin: 0, flex: 1 }}>
           Call Settings
         </h1>
+        <button
+          onClick={handleSave}
+          disabled={isSaving || isLoading}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            background: saved ? "rgba(48,209,88,0.2)" : "rgba(26,140,255,0.18)",
+            border: `1px solid ${saved ? "rgba(48,209,88,0.4)" : "rgba(26,140,255,0.35)"}`,
+            borderRadius: 20, padding: "6px 14px",
+            color: saved ? "#30d158" : "#1a8cff",
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          {isSaving ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : saved ? <Check size={13} /> : null}
+          {isSaving ? "Saving…" : saved ? "Saved" : "Save"}
+        </button>
       </div>
+
+      {saveError && (
+        <div style={{
+          background: "rgba(255,69,58,0.15)", border: "1px solid rgba(255,69,58,0.3)",
+          borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#ff453a",
+        }}>
+          {saveError}
+        </div>
+      )}
+
+      {isLoading && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "20px 0", color: "var(--text-3)" }}>
+          <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} />
+        </div>
+      )}
 
       <Section title="Audio & Quality">
         <ToggleRow
           icon={<Wifi size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
           label="Wi-Fi Calling" description="Use internet for better call quality"
-          enabled={settings.wifiCalling} onToggle={() => toggle("wifiCalling")}
+          enabled={local.wifiCalling} onToggle={() => toggleLocal("wifiCalling")}
         />
         <ToggleRow
           icon={<Mic size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
           label="Noise Cancellation" description="Filter background noise automatically"
-          enabled={settings.noiseCancellation} onToggle={() => toggle("noiseCancellation")}
+          enabled={local.noiseCancellation} onToggle={() => toggleLocal("noiseCancellation")}
         />
         <ToggleRow
           icon={<Radio size={15} />} iconBg="rgba(94,92,230,0.18)" iconColor="#5e5ce6"
           label="HD Voice" description="High-definition audio when supported"
-          enabled={settings.hd} onToggle={() => toggle("hd")}
+          enabled={local.hd} onToggle={() => toggleLocal("hd")}
         />
         <SelectRow
           icon={<Headphones size={15} />} iconBg="rgba(120,65,190,0.18)" iconColor="#bf5af2"
-          label="Audio Codec" value={codec}
-          options={["Opus HD", "G.711", "G.722", "G.729"]}
-          onChange={setCodec}
+          label="Audio Codec" value={local.codec}
+          options={[
+            { value: "Opus HD", label: "Opus HD" },
+            { value: "G.711", label: "G.711" },
+            { value: "G.722", label: "G.722" },
+            { value: "G.729", label: "G.729" },
+          ]}
+          onChange={(v) => setLocal((s) => ({ ...s, codec: v }))}
         />
       </Section>
 
       <Section title="Incoming Calls">
         <ToggleRow
+          icon={dnd ? <BellOff size={15} /> : <BellRing size={15} />}
+          iconBg={dnd ? "rgba(255,69,58,0.18)" : "rgba(48,209,88,0.18)"}
+          iconColor={dnd ? "#ff453a" : "#30d158"}
+          label="Do Not Disturb" description="Reject all incoming calls"
+          enabled={dnd} onToggle={() => setDnd((v) => !v)}
+        />
+        <ToggleRow
           icon={<Phone size={15} />} iconBg="rgba(255,149,0,0.18)" iconColor="#ff9500"
           label="Auto-Answer" description="Answer calls automatically after 5 seconds"
-          enabled={settings.autoAnswer} onToggle={() => toggle("autoAnswer")}
+          enabled={local.autoAnswer} onToggle={() => toggleLocal("autoAnswer")}
         />
         <ToggleRow
           icon={<Volume2 size={15} />} iconBg="rgba(48,209,88,0.15)" iconColor="#30d158"
           label="Call Waiting Tone" description="Hear a tone when another call comes in"
-          enabled={settings.waitingTone} onToggle={() => toggle("waitingTone")}
+          enabled={local.waitingTone} onToggle={() => toggleLocal("waitingTone")}
         />
         <SelectRow
           icon={<Volume2 size={15} />} iconBg="rgba(255,214,10,0.15)" iconColor="#ffd60a"
           label="Ringtone" value={ringtone}
-          options={["Default", "Chime", "Classic", "Marimba", "Silent"]}
+          options={RINGTONE_OPTIONS}
           onChange={setRingtone}
+          disabled={isLoading}
+        />
+        <SelectRow
+          icon={<Clock size={15} />} iconBg="rgba(94,92,230,0.15)" iconColor="#5e5ce6"
+          label="Ring Duration" value={ringtoneDuration}
+          options={DURATION_OPTIONS}
+          onChange={setRingtoneDuration}
+          disabled={isLoading}
         />
       </Section>
 
@@ -179,13 +358,32 @@ export default function CallSettingsPage() {
         <ToggleRow
           icon={<PhoneForwarded size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
           label="Forward Calls" description="Redirect incoming calls when unavailable"
-          enabled={settings.forwarding} onToggle={() => toggle("forwarding")}
+          enabled={local.forwarding} onToggle={() => toggleLocal("forwarding")}
         />
         <SelectRow
           icon={<PhoneMissed size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
-          label="Forward To" value={forwardTo}
-          options={["Voicemail", "Another Number", "Off"]}
-          onChange={setForwardTo}
+          label="Forward To" value={local.forwardTo}
+          options={[
+            { value: "Voicemail", label: "Voicemail" },
+            { value: "Another Number", label: "Another Number" },
+            { value: "Off", label: "Off" },
+          ]}
+          onChange={(v) => setLocal((s) => ({ ...s, forwardTo: v }))}
+        />
+      </Section>
+
+      <Section title="FreeSWITCH Server">
+        <InputRow
+          icon={<Server size={15} />} iconBg="rgba(48,209,88,0.15)" iconColor="#30d158"
+          label="Host Override" description="Leave blank to use the server default"
+          value={fsHost} placeholder={vertoConfig?.domain ?? "freeswitch.local"}
+          onChange={setFsHost} disabled={isLoading}
+        />
+        <InputRow
+          icon={<Server size={15} />} iconBg="rgba(94,92,230,0.15)" iconColor="#5e5ce6"
+          label="Port Override" description="SIP port (default: 5060)"
+          value={fsPort} placeholder="5060" type="number"
+          onChange={setFsPort} disabled={isLoading}
         />
       </Section>
 
@@ -193,17 +391,18 @@ export default function CallSettingsPage() {
         <ToggleRow
           icon={<Shield size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
           label="Record Calls" description="Automatically record all calls locally"
-          enabled={settings.recordCalls} onToggle={() => toggle("recordCalls")}
+          enabled={local.recordCalls} onToggle={() => toggleLocal("recordCalls")}
         />
         <ToggleRow
           icon={<Clock size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
           label="Use Earpiece by Default" description="Route audio to earpiece instead of speaker"
-          enabled={settings.earpiece} onToggle={() => toggle("earpiece")}
+          enabled={local.earpiece} onToggle={() => toggleLocal("earpiece")}
         />
       </Section>
 
       <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)", paddingBottom: 4 }}>
-        Settings apply to all future calls
+        Ringtone, DND, ring duration and server settings sync to your account.
+        Other settings are device-local.
       </p>
     </div>
   );

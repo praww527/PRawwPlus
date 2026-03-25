@@ -23,6 +23,11 @@ export interface IUser extends Document<string> {
   isAdmin: boolean;
   extension?: number;
   fsPassword?: string;
+  ringtone: string;
+  ringtoneDuration: number;
+  dnd: boolean;
+  freeswitchHost?: string;
+  freeswitchPort?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,6 +56,11 @@ const UserSchema = new Schema<IUser>(
     isAdmin: { type: Boolean, default: false },
     extension: { type: Number, index: true, sparse: true },
     fsPassword: { type: String },
+    ringtone: { type: String, default: "default" },
+    ringtoneDuration: { type: Number, default: 30 },
+    dnd: { type: Boolean, default: false },
+    freeswitchHost: { type: String },
+    freeswitchPort: { type: Number },
   },
   { timestamps: true, _id: false }
 );

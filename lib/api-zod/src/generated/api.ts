@@ -51,8 +51,73 @@ export const GetMeResponse = zod.object({
 });
 
 /**
+ * @summary Update user call and FreeSWITCH settings
+ */
+export const updateUserSettingsBodyRingtoneDurationMin = 5;
+export const updateUserSettingsBodyRingtoneDurationMax = 120;
+
+export const updateUserSettingsBodyFreeswitchPortMax = 65535;
+
+export const UpdateUserSettingsBody = zod.object({
+  ringtone: zod
+    .enum(["default", "classic", "digital", "soft", "urgent", "none"])
+    .describe("Ringtone sound for incoming calls"),
+  ringtoneDuration: zod
+    .number()
+    .min(updateUserSettingsBodyRingtoneDurationMin)
+    .max(updateUserSettingsBodyRingtoneDurationMax)
+    .describe("How long the phone rings before timing out (seconds)"),
+  dnd: zod.boolean().describe("Do Not Disturb — reject all incoming calls"),
+  freeswitchHost: zod
+    .string()
+    .optional()
+    .describe("Custom FreeSWITCH host override"),
+  freeswitchPort: zod
+    .number()
+    .min(1)
+    .max(updateUserSettingsBodyFreeswitchPortMax)
+    .optional()
+    .describe("Custom FreeSWITCH SIP port override"),
+});
+
+export const updateUserSettingsResponseSettingsRingtoneDurationMin = 5;
+export const updateUserSettingsResponseSettingsRingtoneDurationMax = 120;
+
+export const updateUserSettingsResponseSettingsFreeswitchPortMax = 65535;
+
+export const UpdateUserSettingsResponse = zod.object({
+  message: zod.string(),
+  settings: zod.object({
+    ringtone: zod
+      .enum(["default", "classic", "digital", "soft", "urgent", "none"])
+      .describe("Ringtone sound for incoming calls"),
+    ringtoneDuration: zod
+      .number()
+      .min(updateUserSettingsResponseSettingsRingtoneDurationMin)
+      .max(updateUserSettingsResponseSettingsRingtoneDurationMax)
+      .describe("How long the phone rings before timing out (seconds)"),
+    dnd: zod.boolean().describe("Do Not Disturb — reject all incoming calls"),
+    freeswitchHost: zod
+      .string()
+      .optional()
+      .describe("Custom FreeSWITCH host override"),
+    freeswitchPort: zod
+      .number()
+      .min(1)
+      .max(updateUserSettingsResponseSettingsFreeswitchPortMax)
+      .optional()
+      .describe("Custom FreeSWITCH SIP port override"),
+  }),
+});
+
+/**
  * @summary Get FreeSWITCH Verto WebRTC configuration for the current user
  */
+export const getVertoConfigResponseSettingsRingtoneDurationMin = 5;
+export const getVertoConfigResponseSettingsRingtoneDurationMax = 120;
+
+export const getVertoConfigResponseSettingsFreeswitchPortMax = 65535;
+
 export const GetVertoConfigResponse = zod.object({
   wsUrl: zod.string().describe("FreeSWITCH Verto WebSocket URL (wss:\/\/...)"),
   domain: zod.string().describe("FreeSWITCH SIP domain"),
@@ -65,6 +130,29 @@ export const GetVertoConfigResponse = zod.object({
   configured: zod
     .boolean()
     .describe("Whether FreeSWITCH is configured on the server"),
+  settings: zod
+    .object({
+      ringtone: zod
+        .enum(["default", "classic", "digital", "soft", "urgent", "none"])
+        .describe("Ringtone sound for incoming calls"),
+      ringtoneDuration: zod
+        .number()
+        .min(getVertoConfigResponseSettingsRingtoneDurationMin)
+        .max(getVertoConfigResponseSettingsRingtoneDurationMax)
+        .describe("How long the phone rings before timing out (seconds)"),
+      dnd: zod.boolean().describe("Do Not Disturb — reject all incoming calls"),
+      freeswitchHost: zod
+        .string()
+        .optional()
+        .describe("Custom FreeSWITCH host override"),
+      freeswitchPort: zod
+        .number()
+        .min(1)
+        .max(getVertoConfigResponseSettingsFreeswitchPortMax)
+        .optional()
+        .describe("Custom FreeSWITCH SIP port override"),
+    })
+    .optional(),
 });
 
 /**

@@ -60,6 +60,42 @@ export interface UserProfile {
   createdAt: string;
 }
 
+/**
+ * Ringtone sound for incoming calls
+ */
+export type UserSettingsRingtone =
+  (typeof UserSettingsRingtone)[keyof typeof UserSettingsRingtone];
+
+export const UserSettingsRingtone = {
+  default: "default",
+  classic: "classic",
+  digital: "digital",
+  soft: "soft",
+  urgent: "urgent",
+  none: "none",
+} as const;
+
+export interface UserSettings {
+  /** Ringtone sound for incoming calls */
+  ringtone: UserSettingsRingtone;
+  /**
+   * How long the phone rings before timing out (seconds)
+   * @minimum 5
+   * @maximum 120
+   */
+  ringtoneDuration: number;
+  /** Do Not Disturb — reject all incoming calls */
+  dnd: boolean;
+  /** Custom FreeSWITCH host override */
+  freeswitchHost?: string;
+  /**
+   * Custom FreeSWITCH SIP port override
+   * @minimum 1
+   * @maximum 65535
+   */
+  freeswitchPort?: number;
+}
+
 export interface VertoConfig {
   /** FreeSWITCH Verto WebSocket URL (wss://...) */
   wsUrl: string;
@@ -75,6 +111,7 @@ export interface VertoConfig {
   coins: number;
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
+  settings?: UserSettings;
 }
 
 export interface OwnedNumber {
@@ -333,6 +370,11 @@ export interface BulkImportResult {
   skipped: number;
   total: number;
 }
+
+export type UpdateUserSettings200 = {
+  message: string;
+  settings: UserSettings;
+};
 
 export type ListCallsParams = {
   page?: number;

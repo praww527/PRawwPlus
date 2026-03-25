@@ -5,6 +5,7 @@
  * PRaww+ Telecom API
  * OpenAPI spec version: 0.4.0
  */
+import type { UserSettings } from "./userSettings";
 
 export interface VertoConfig {
   /** FreeSWITCH Verto WebSocket URL (wss://...) */
@@ -21,4 +22,5 @@ export interface VertoConfig {
   coins: number;
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
+  settings?: UserSettings;
 }

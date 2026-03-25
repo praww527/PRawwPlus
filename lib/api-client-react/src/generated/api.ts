@@ -49,7 +49,9 @@ import type {
   SearchNumbersParams,
   SubscribeRequest,
   TopUpRequest,
+  UpdateUserSettings200,
   UserProfile,
+  UserSettings,
   VertoConfig,
 } from "./api.schemas";
 
@@ -272,6 +274,92 @@ export function useGetMe<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Update user call and FreeSWITCH settings
+ */
+export const getUpdateUserSettingsUrl = () => {
+  return `/api/users/settings`;
+};
+
+export const updateUserSettings = async (
+  userSettings: UserSettings,
+  options?: RequestInit,
+): Promise<UpdateUserSettings200> => {
+  return customFetch<UpdateUserSettings200>(getUpdateUserSettingsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(userSettings),
+  });
+};
+
+export const getUpdateUserSettingsMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateUserSettings>>,
+    TError,
+    { data: BodyType<UserSettings> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateUserSettings>>,
+  TError,
+  { data: BodyType<UserSettings> },
+  TContext
+> => {
+  const mutationKey = ["updateUserSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateUserSettings>>,
+    { data: BodyType<UserSettings> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateUserSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateUserSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateUserSettings>>
+>;
+export type UpdateUserSettingsMutationBody = BodyType<UserSettings>;
+export type UpdateUserSettingsMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update user call and FreeSWITCH settings
+ */
+export const useUpdateUserSettings = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateUserSettings>>,
+    TError,
+    { data: BodyType<UserSettings> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateUserSettings>>,
+  TError,
+  { data: BodyType<UserSettings> },
+  TContext
+> => {
+  return useMutation(getUpdateUserSettingsMutationOptions(options));
+};
 
 /**
  * @summary Get FreeSWITCH Verto WebRTC configuration for the current user
