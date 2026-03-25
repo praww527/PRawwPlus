@@ -59,7 +59,7 @@ export function createVertoProxy(): WebSocketServer {
 
     upstream.on("close", (code, reason) => {
       const safe = safeCloseCode(code);
-      logger.debug({ code, safe }, "Verto proxy: upstream closed");
+      logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: upstream closed");
       if (client.readyState === WebSocket.OPEN) {
         client.close(safe, reason);
       }
@@ -81,7 +81,7 @@ export function createVertoProxy(): WebSocketServer {
 
     client.on("close", (code, reason) => {
       const safe = safeCloseCode(code);
-      logger.debug({ code, safe }, "Verto proxy: client closed");
+      logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.close(safe, reason);
       }

@@ -12,6 +12,7 @@ import crypto from "crypto";
 import { connectDB, UserModel } from "@workspace/db";
 import { logger } from "./logger";
 import { startESL } from "./freeswitchESL";
+import { pushFreeSwitchConfig } from "./freeswitchSSH";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -48,7 +49,25 @@ export async function runStartup(): Promise<void> {
     logger.info("FreeSWITCH ESL listener started");
   }
 
-  // ── 3. Find users without a FreeSWITCH extension ───────────────────────
+  // ── 3. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
+  // This ensures FreeSWITCH always has the current APP_URL / REPLIT_DEV_DOMAIN
+  // so its mod_xml_curl directory lookups reach our live API endpoint.
+  if (process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {
+    logger.info("[FSH] Auto-pushing FreeSWITCH config on startup…");
+    pushFreeSwitchConfig()
+      .then((result) => {
+        if (result.success) {
+          logger.info({ steps: result.steps }, "[FSH] FreeSWITCH config pushed OK");
+        } else {
+          logger.warn({ steps: result.steps, error: result.error }, "[FSH] FreeSWITCH config push failed — calls may not work");
+        }
+      })
+      .catch((err) => {
+        logger.warn({ err: (err as Error)?.message }, "[FSH] FreeSWITCH config push error");
+      });
+  }
+
+  // ── 4. Find users without a FreeSWITCH extension ───────────────────────
   try {
     const usersWithoutExt = await UserModel
       .find({ $or: [{ extension: { $exists: false } }, { extension: null }] })

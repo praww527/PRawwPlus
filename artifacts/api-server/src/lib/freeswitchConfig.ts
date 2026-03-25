@@ -27,10 +27,13 @@ export function vertoConf(fsIp: string): string {
     <param name="ksys-uuid" value="false"/>
   </settings>
   <profiles>
+    <!--
+      Plain WebSocket on port 8081 (no TLS).
+      TLS is terminated by the Replit API server proxy — browsers connect to
+      wss://replit-domain/api/verto/ws and the proxy forwards to ws://fs:8081.
+    -->
     <profile name="default-v4">
-      <param name="bind-local" value="${fsIp}:8081"/>
-      <param name="secure-combined" value="/etc/freeswitch/tls/wss.pem"/>
-      <param name="secure-chain" value="/etc/freeswitch/tls/wss.pem"/>
+      <param name="bind-local" value="0.0.0.0:8081"/>
       <param name="ext-rtp-ip" value="${fsIp}"/>
       <param name="ext-sip-ip" value="${fsIp}"/>
       <param name="local-network" value="localnet.auto"/>
@@ -41,21 +44,6 @@ export function vertoConf(fsIp: string): string {
       <param name="rtp-hold-timeout-sec" value="120"/>
       <param name="mcast-ip" value="239.1.1.1"/>
       <param name="mcast-port" value="1337"/>
-      <param name="timer-name" value="soft"/>
-      <param name="enable-text" value="false"/>
-    </profile>
-    <profile name="default-v4-wss">
-      <param name="bind-local" value="${fsIp}:8082"/>
-      <param name="secure-combined" value="/etc/freeswitch/tls/wss.pem"/>
-      <param name="secure-chain" value="/etc/freeswitch/tls/wss.pem"/>
-      <param name="ext-rtp-ip" value="${fsIp}"/>
-      <param name="ext-sip-ip" value="${fsIp}"/>
-      <param name="local-network" value="localnet.auto"/>
-      <param name="outbound-codec-string" value="opus,PCMU,PCMA,H264,VP8"/>
-      <param name="inbound-codec-string" value="opus,PCMU,PCMA,H264,VP8"/>
-      <param name="apply-candidate-acl" value="any_v4.auto"/>
-      <param name="rtp-timeout-sec" value="30"/>
-      <param name="rtp-hold-timeout-sec" value="120"/>
       <param name="timer-name" value="soft"/>
       <param name="enable-text" value="false"/>
     </profile>
