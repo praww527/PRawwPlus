@@ -162,8 +162,14 @@ artifacts-monorepo/
 ## FreeSWITCH Integration Notes
 
 - FreeSWITCH server: `158.180.29.84`, mod_verto port `8082`
-- FreeSWITCH must call our directory endpoint to authenticate users:
+- FreeSWITCH authenticates users via `mod_xml_curl` calling:
   `GET https://{APP_URL}/api/freeswitch/directory?user={extension}&domain={domain}`
+- FreeSWITCH config lives at `/usr/local/freeswitch/conf/` on the remote server
+- **ESL Listener**: API server connects to FreeSWITCH Event Socket (port 8021) via an SSH tunnel over port 22 (bypasses Oracle Cloud firewall). Listens for `CHANNEL_ANSWER` and `CHANNEL_HANGUP_COMPLETE` to update call records in real time.
+- **Admin routes** (requires isAdmin=true):
+  - `GET /api/freeswitch/status` — ESL connection state + config URLs
+  - `POST /api/freeswitch/configure` — push XML config files to FreeSWITCH via SSH and reload
+  - `POST /api/freeswitch/test-ssh` — verify SSH connectivity
 - Our server provisions user extensions starting at 1001 on startup
 - Non-trickle ICE used — full SDP gathered before sending `verto.invite` (required for mod_verto)
 - `verto.bye` sent as notification (fire-and-forget), not RPC request

@@ -8,6 +8,7 @@ import numbersRouter from "./numbers";
 import adminRouter from "./admin";
 import contactsRouter from "./contacts";
 import vertoRouter from "./verto";
+import freeswitchRouter from "./freeswitch";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(numbersRouter);
 router.use(adminRouter);
 router.use(contactsRouter);
 router.use(vertoRouter);
+router.use(freeswitchRouter);
 
 export default router;
