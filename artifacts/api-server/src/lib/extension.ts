@@ -49,5 +49,7 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
 
 export function isInternalNumber(number: string): boolean {
   const digits = number.replace(/\D/g, "");
-  return digits.length >= 3 && digits.length <= 4;
+  // Extensions are always 4 digits (EXTENSION_START = 1001, range 1000-9999).
+  // Dialplan pattern: ^([1-9][0-9]{3})$ — matches 1000-9999 only.
+  return digits.length === 4;
 }

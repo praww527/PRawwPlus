@@ -70,7 +70,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallInfo({
           number: callerNumber,
           callId,
-          callType: callerNumber.replace(/\D/g, "").length <= 4 ? "internal" : "external",
+          callType: callerNumber.replace(/\D/g, "").length === 4 ? "internal" : "external",
         });
         setCallPhase("calling");
         setCallState("incoming");

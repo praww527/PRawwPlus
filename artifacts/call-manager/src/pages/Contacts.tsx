@@ -179,7 +179,7 @@ function Avatar({ name, number }: { name: string; number: string }) {
 
 function isInternalNumber(num: string): boolean {
   const digits = num.replace(/\D/g, "");
-  return digits.length >= 3 && digits.length <= 4;
+  return digits.length === 4;
 }
 
 export default function Contacts() {

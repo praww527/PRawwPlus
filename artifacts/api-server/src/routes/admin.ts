@@ -1,5 +1,8 @@
 import { Router, type IRouter } from "express";
 import { connectDB, UserModel, CallModel, PaymentModel } from "@workspace/db";
+import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
+import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf } from "../lib/freeswitchConfig";
+import { eslStatus } from "../lib/freeswitchESL";
 
 const router: IRouter = Router();
 
@@ -141,6 +144,45 @@ router.get("/admin/calls", requireAdmin, async (req, res) => {
   }));
 
   res.json({ calls, total, page, limit, totalPages: Math.ceil(total / limit) });
+});
+
+
+router.get("/admin/freeswitch/status", requireAdmin, async (_req, res) => {
+  const esl = eslStatus();
+  const hasSshKey = Boolean(process.env.FREESWITCH_SSH_KEY);
+  const hasHost   = Boolean(process.env.FREESWITCH_DOMAIN);
+  res.json({
+    host:      process.env.FREESWITCH_DOMAIN ?? null,
+    eslPort:   process.env.FREESWITCH_ESL_PORT ?? "8021",
+    eslConnected: esl.connected,
+    sshConfigured: hasSshKey,
+    configured: hasHost && hasSshKey,
+  });
+});
+
+router.post("/admin/freeswitch/push-config", requireAdmin, async (_req, res) => {
+  const result = await pushFreeSwitchConfig();
+  res.json(result);
+});
+
+router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
+  const result = await testSSHConnection();
+  res.json(result);
+});
+
+router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
+  const fsHost = process.env.FREESWITCH_DOMAIN ?? "YOUR_FREESWITCH_HOST";
+  const rawAppUrl = process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : (process.env.APP_URL ?? "https://YOUR_APP_URL");
+  const appUrl = rawAppUrl.replace(/\/$/, "");
+
+  res.json({
+    "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl),
+    "autoload_configs/verto.conf.xml":        vertoConf(fsHost),
+    "autoload_configs/event_socket.conf.xml": eventSocketConf(),
+    "dialplan/default/call_manager.xml":      dialplanXml(fsHost),
+  });
 });
 
 export default router;

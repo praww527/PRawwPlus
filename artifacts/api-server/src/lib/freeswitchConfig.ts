@@ -3,8 +3,12 @@
  *
  * Produces the XML files that need to live on the FreeSWITCH server so it can:
  *  1. Authenticate users via mod_xml_curl → our /api/freeswitch/directory endpoint
- *  2. Route inbound/outbound calls and fire webhooks to our /api/calls/webhook/freeswitch
- *  3. Accept WebRTC connections from browsers via mod_verto
+ *  2. Route internal extension-to-extension calls via mod_verto
+ *  3. Accept WebRTC connections from browsers via mod_verto on port 8081 (plain WS)
+ *
+ * Call tracking is handled entirely by the ESL listener (freeswitchESL.ts) which
+ * receives CHANNEL_ANSWER and CHANNEL_HANGUP_COMPLETE events directly from FreeSWITCH.
+ * There is no dialplan webhook — the ESL Unique-ID matches the Verto callID.
  */
 
 export function xmlCurlConf(appUrl: string): string {
@@ -29,21 +33,30 @@ export function vertoConf(fsIp: string): string {
   <profiles>
     <!--
       Plain WebSocket on port 8081 (no TLS).
-      TLS is terminated by the Replit API server proxy — browsers connect to
-      wss://replit-domain/api/verto/ws and the proxy forwards to ws://fs:8081.
+      TLS is terminated by the API server proxy — browsers connect via
+      wss://app-domain/api/verto/ws and the proxy forwards to ws://fs:8081.
     -->
     <profile name="default-v4">
       <param name="bind-local" value="0.0.0.0:8081"/>
       <param name="ext-rtp-ip" value="${fsIp}"/>
       <param name="ext-sip-ip" value="${fsIp}"/>
+
+      <!--
+        STUN: FreeSWITCH uses this to discover its public IP when building
+        ICE candidates. Without it, WebRTC clients may receive private/local
+        IPs in the SDP and fail to connect (one-way audio or no audio).
+      -->
+      <param name="stun-ip" value="stun.l.google.com"/>
+      <param name="stun-port" value="19302"/>
+      <param name="stun-enabled" value="true"/>
+      <param name="stun-auto-disable" value="false"/>
+
       <param name="local-network" value="localnet.auto"/>
-      <param name="outbound-codec-string" value="opus,PCMU,PCMA,H264,VP8"/>
-      <param name="inbound-codec-string" value="opus,PCMU,PCMA,H264,VP8"/>
+      <param name="outbound-codec-string" value="opus,PCMU,PCMA"/>
+      <param name="inbound-codec-string" value="opus,PCMU,PCMA"/>
       <param name="apply-candidate-acl" value="any_v4.auto"/>
       <param name="rtp-timeout-sec" value="30"/>
       <param name="rtp-hold-timeout-sec" value="120"/>
-      <param name="mcast-ip" value="239.1.1.1"/>
-      <param name="mcast-port" value="1337"/>
       <param name="timer-name" value="soft"/>
       <param name="enable-text" value="false"/>
     </profile>
@@ -51,31 +64,26 @@ export function vertoConf(fsIp: string): string {
 </configuration>`;
 }
 
-export function dialplanXml(appUrl: string, fsDomain: string): string {
-  const webhookUrl = `${appUrl}/api/calls/webhook/freeswitch`;
+export function dialplanXml(fsDomain: string): string {
   return `<include>
   <!-- Call Manager Dialplan -->
   <context name="default">
 
-    <!-- Internal extension-to-extension calls (1000-9999) -->
+    <!--
+      Internal extension-to-extension calls (1000-9999).
+      Call tracking (answer/hangup events) is handled by the ESL listener
+      which matches on the Unique-ID (= Verto callID). No webhook needed here.
+    -->
     <extension name="internal_extensions">
-      <condition field="destination_number" expression="^(1[0-9]{3})$">
+      <condition field="destination_number" expression="^([1-9][0-9]{3})$">
         <action application="set" data="call_timeout=30"/>
         <action application="set" data="hangup_after_bridge=true"/>
         <action application="set" data="continue_on_fail=false"/>
-
-        <!-- Fire CHANNEL_ANSWER webhook -->
-        <action application="set" data="api_on_answer=curl ${webhookUrl} POST event=CHANNEL_ANSWER&amp;callId=\${variable_sip_h_X-CallManager-CallId}&amp;userId=\${variable_sip_h_X-CallManager-UserId}"/>
-
         <action application="bridge" data="verto_contact/\$1@${fsDomain}"/>
-
-        <!-- Fire CHANNEL_HANGUP webhook after bridge ends -->
-        <action application="set" data="hangup_cause=\${bridge_hangup_cause}"/>
-        <action application="curl" data="${webhookUrl} POST event=CHANNEL_HANGUP&amp;callId=\${variable_sip_h_X-CallManager-CallId}&amp;userId=\${variable_sip_h_X-CallManager-UserId}&amp;duration=\${billsec}"/>
       </condition>
     </extension>
 
-    <!-- Catch-all for unmatched destinations -->
+    <!-- Catch-all: reject anything not matched above -->
     <extension name="unmatched">
       <condition field="destination_number" expression="^(.*)$">
         <action application="log" data="WARNING Unmatched destination: \$1"/>
@@ -87,13 +95,14 @@ export function dialplanXml(appUrl: string, fsDomain: string): string {
 </include>`;
 }
 
-export function eventSocketConf(): string {
+export function eventSocketConf(password?: string): string {
+  const eslPassword = password ?? process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
   return `<configuration name="event_socket.conf" description="Socket Client">
   <settings>
     <param name="nat-map" value="false"/>
     <param name="listen-ip" value="0.0.0.0"/>
     <param name="listen-port" value="8021"/>
-    <param name="password" value="ClueCon"/>
+    <param name="password" value="${eslPassword}"/>
     <param name="apply-inbound-acl" value="any_v4.auto"/>
   </settings>
 </configuration>`;
