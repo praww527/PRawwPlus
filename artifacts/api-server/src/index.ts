@@ -1,6 +1,8 @@
+import http from "http";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { runStartup } from "./lib/startup";
+import { createVertoProxy, attachVertoProxy } from "./lib/vertoProxy";
 
 const rawPort = process.env["PORT"];
 
@@ -14,7 +16,13 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, async () => {
+const server = http.createServer(app);
+
+// Attach the Verto WebSocket proxy (browser → /api/verto/ws → FreeSWITCH:8081)
+const vertoWss = createVertoProxy();
+attachVertoProxy(server, vertoWss);
+
+server.listen(port, async () => {
   logger.info({ port }, "Server listening");
 
   // Connect to MongoDB and provision any users missing FreeSWITCH extensions.
