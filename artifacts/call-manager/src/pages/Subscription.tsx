@@ -89,7 +89,7 @@ export default function Subscription() {
             <ul className="space-y-4 flex-1 mb-8">
               {[
                 "R20 Call Credit included every month",
-                "Premium Telnyx SIP Voice Routing",
+                "Premium FreeSWITCH SIP Voice Routing",
                 "Detailed call history and analytics",
                 "Priority email support",
                 "Cancel anytime"

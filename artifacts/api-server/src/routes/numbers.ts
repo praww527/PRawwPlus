@@ -68,14 +68,6 @@ function getPayFastCredentials() {
   return { merchantId, merchantKey, passphrase, paymentUrl };
 }
 
-function telnyxHeaders() {
-  return {
-    Authorization: `Bearer ${process.env.TELNYX_API_KEY}`,
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-}
-
 function isPremiumNumber(num: string): boolean {
   const digits = num.replace(/\D/g, "");
   if (digits.length < 4) return false;
@@ -103,7 +95,6 @@ router.get("/numbers", async (req, res) => {
       id: n._id,
       number: n.number,
       status: "active",
-      telnyxNumberId: n.telnyxNumberId,
     })),
     maxNumbers,
     plan,
@@ -111,7 +102,7 @@ router.get("/numbers", async (req, res) => {
   });
 });
 
-/* ── GET /numbers/search — search Telnyx available numbers ── */
+/* ── GET /numbers/search — search available numbers ── */
 router.get("/numbers/search", async (req, res) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   await connectDB();
@@ -124,55 +115,23 @@ router.get("/numbers/search", async (req, res) => {
     return;
   }
 
-  const apiKey = process.env.TELNYX_API_KEY;
-  if (!apiKey) {
-    res.status(503).json({ error: "Telnyx not configured", message: "TELNYX_API_KEY is not set." });
-    return;
-  }
-
+  // Return unassigned numbers from the local pool
   const country = String(req.query.country_code ?? "ZA");
-  const numberType = String(req.query.number_type ?? "local");
-  const locality = req.query.locality ? String(req.query.locality) : undefined;
+  const available = await PhoneNumberModel.find({ userId: null }).lean();
 
-  const params = new URLSearchParams({
-    "filter[country_code]": country,
-    "filter[features][]": "voice",
-    "filter[number_type]": numberType === "mobile" ? "mobile" : "local",
-    "page[size]": "20",
-  });
-  if (locality) params.set("filter[locality]", locality);
+  const numbers = available.map((n) => ({
+    phone_number: n.number,
+    number_type: n.country ?? "local",
+    region: n.region ?? null,
+    monthly_cost: null,
+    upfront_cost: null,
+    is_premium: isPremiumNumber(n.number),
+  }));
 
-  try {
-    const telRes = await fetch(
-      `https://api.telnyx.com/v2/available_phone_numbers?${params}`,
-      { headers: telnyxHeaders() }
-    );
-    const data: any = await telRes.json();
-
-    if (!telRes.ok) {
-      res.status(502).json({
-        error: "Telnyx error",
-        message: data?.errors?.[0]?.detail ?? "Unable to fetch numbers. Try again.",
-      });
-      return;
-    }
-
-    const numbers = (data?.data ?? []).map((n: any) => ({
-      phone_number: n.phone_number,
-      number_type: n.number_type,
-      region: n.region_information?.[0]?.region_name ?? null,
-      monthly_cost: n.cost_information?.monthly_cost ?? null,
-      upfront_cost: n.cost_information?.upfront_cost ?? null,
-      is_premium: isPremiumNumber(n.phone_number),
-    }));
-
-    res.json({ numbers, total: numbers.length });
-  } catch (_e) {
-    res.status(502).json({ error: "network_error", message: "Unable to fetch numbers. Try again." });
-  }
+  res.json({ numbers, total: numbers.length });
 });
 
-/* ── POST /numbers/buy — purchase via Telnyx & assign to user ── */
+/* ── POST /numbers/buy — assign a number from the pool to the user ── */
 router.post("/numbers/buy", async (req, res) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   await connectDB();
@@ -181,7 +140,7 @@ router.post("/numbers/buy", async (req, res) => {
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   if (user.subscriptionStatus !== "active") {
-    res.status(403).json({ error: "subscription_required", message: "You need an active subscription to buy numbers." });
+    res.status(403).json({ error: "subscription_required", message: "You need an active subscription to get a number." });
     return;
   }
 
@@ -199,64 +158,20 @@ router.post("/numbers/buy", async (req, res) => {
   const { phone_number } = req.body;
   if (!phone_number) { res.status(400).json({ error: "phone_number is required" }); return; }
 
-  const apiKey = process.env.TELNYX_API_KEY;
-  if (!apiKey) {
-    // No Telnyx key — save a mock number for dev/testing
-    const existing = await PhoneNumberModel.findOne({ number: phone_number });
-    if (existing && existing.userId) {
-      res.status(409).json({ error: "Number already owned" });
-      return;
-    }
-    if (existing) {
-      existing.userId = userId;
-      await existing.save();
-    } else {
-      await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId });
-    }
-    res.json({ message: "Number assigned (dev mode)", number: { number: phone_number, status: "active" } });
+  const existing = await PhoneNumberModel.findOne({ number: phone_number });
+  if (existing && existing.userId) {
+    res.status(409).json({ error: "Number already owned by another user" });
     return;
   }
 
-  try {
-    const telRes = await fetch("https://api.telnyx.com/v2/number_orders", {
-      method: "POST",
-      headers: telnyxHeaders(),
-      body: JSON.stringify({
-        phone_numbers: [{ phone_number }],
-        connection_id: process.env.TELNYX_SIP_CONNECTION_ID,
-      }),
-    });
-    const data: any = await telRes.json();
-
-    if (!telRes.ok) {
-      res.status(502).json({
-        error: "purchase_failed",
-        message: data?.errors?.[0]?.detail ?? "Failed to purchase number. Try again.",
-      });
-      return;
-    }
-
-    const orderedNumber = data?.data?.phone_numbers?.[0]?.phone_number ?? phone_number;
-    const telnyxNumberId = data?.data?.id ?? undefined;
-
-    const existing = await PhoneNumberModel.findOne({ number: orderedNumber });
-    if (existing) {
-      existing.userId = userId;
-      existing.telnyxNumberId = telnyxNumberId;
-      await existing.save();
-    } else {
-      await PhoneNumberModel.create({
-        _id: randomUUID(),
-        number: orderedNumber,
-        telnyxNumberId,
-        userId,
-      });
-    }
-
-    res.json({ message: "Number purchased successfully", number: { number: orderedNumber, status: "active" } });
-  } catch (_e) {
-    res.status(502).json({ error: "network_error", message: "Unable to complete purchase. Try again." });
+  if (existing) {
+    existing.userId = userId;
+    await existing.save();
+  } else {
+    await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId });
   }
+
+  res.json({ message: "Number assigned successfully", number: { number: phone_number, status: "active" } });
 });
 
 /* ── DELETE /numbers/:id — release/remove a number ── */
@@ -269,16 +184,6 @@ router.delete("/numbers/:id", async (req, res) => {
 
   const number = await PhoneNumberModel.findOne({ _id: id, userId });
   if (!number) { res.status(404).json({ error: "Number not found or not owned by you" }); return; }
-
-  const apiKey = process.env.TELNYX_API_KEY;
-  if (apiKey && number.telnyxNumberId) {
-    try {
-      await fetch(`https://api.telnyx.com/v2/phone_numbers/${number.telnyxNumberId}`, {
-        method: "DELETE",
-        headers: telnyxHeaders(),
-      });
-    } catch (_e) {}
-  }
 
   await PhoneNumberModel.deleteOne({ _id: id });
   res.json({ message: "Number removed successfully" });
