@@ -9,15 +9,16 @@ import { authMiddleware } from "./middlewares/authMiddleware";
 
 const app: Express = express();
 
-// In production (Render), serve the pre-built frontend from the same process.
+// In production, serve the pre-built frontend from the same process.
 // STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
 const staticDir =
   process.env.STATIC_DIR ??
   path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
 
 // APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
-// REPLIT_DEV_DOMAIN is the fallback for local Replit dev tunnels.
-// APP_URL always wins when explicitly set.
+// When APP_URL is set it is the sole allowed CORS origin — no Replit dev-tunnel
+// domains are added so production CORS is tightly scoped to the real domain.
+// In development (no APP_URL), fall back to REPLIT_DEV_DOMAIN if available.
 const appUrlRaw = process.env.APP_URL
   ? process.env.APP_URL.replace(/\/$/, "")
   : process.env.REPLIT_DEV_DOMAIN
@@ -26,8 +27,13 @@ const appUrlRaw = process.env.APP_URL
 
 const allowedOrigins: string[] = [];
 if (process.env.ALLOWED_ORIGINS) {
+  // Explicit override — use exactly what was provided (comma-separated list).
   allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()));
+} else if (process.env.APP_URL) {
+  // Production: only the configured APP_URL domain is allowed.
+  allowedOrigins.push(appUrlRaw);
 } else {
+  // Development fallback: allow the dev-tunnel origin (if any).
   if (appUrlRaw) allowedOrigins.push(appUrlRaw);
   if (process.env.REPLIT_DOMAINS) {
     allowedOrigins.push(...process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`));

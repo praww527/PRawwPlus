@@ -11,7 +11,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// In production (Render) BASE_PATH isn't set — default to root "/"
+// In production BASE_PATH isn't set — default to root "/"
 const basePath = process.env.BASE_PATH ?? "/";
 
 const isReplit = process.env.NODE_ENV !== "production" && !!process.env.REPL_ID;
