@@ -27,13 +27,15 @@ router.get("/verto/config", async (req: Request, res: Response) => {
 
   // Return the server-side Verto proxy URL so the browser connects via the
   // Replit TLS termination instead of directly to FreeSWITCH (whose WSS/8082
-  // profile may be down). Falls back to the direct FREESWITCH_WS_URL if
-  // APP_URL is not configured.
-  const appUrl = process.env.APP_URL ?? "";
+  // profile may be down). REPLIT_DEV_DOMAIN is always current; APP_URL may
+  // be a stale static value from a previous deployment.
+  const rawAppUrl = process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : (process.env.APP_URL ?? "");
   let wsUrl: string;
-  if (appUrl) {
+  if (rawAppUrl) {
     // Convert https://host → wss://host/api/verto/ws
-    wsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
+    wsUrl = rawAppUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
   } else {
     wsUrl = process.env.FREESWITCH_WS_URL ?? "";
   }
