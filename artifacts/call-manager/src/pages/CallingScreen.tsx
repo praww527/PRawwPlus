@@ -166,7 +166,7 @@ export default function CallingScreen() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center animate-in fade-in duration-300"
+      className="fixed inset-0 z-[9999] flex flex-col items-center animate-in fade-in duration-300"
       style={{
         background: "linear-gradient(160deg,#0d1117 0%,#091628 55%,#050f20 100%)",
         paddingTop:    "env(safe-area-inset-top,44px)",

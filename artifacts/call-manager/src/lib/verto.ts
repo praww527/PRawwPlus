@@ -42,7 +42,7 @@ interface Pending {
 }
 
 const RPC_TIMEOUT_MS = 10_000;
-const ICE_TIMEOUT_MS = 4_000;
+const ICE_TIMEOUT_MS = 8_000;
 const RECONNECT_MS   = 5_000;
 
 export class VertoClient {
@@ -351,6 +351,9 @@ export class VertoClient {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
       ],
     });
     this.pc = pc;
@@ -368,7 +371,14 @@ export class VertoClient {
       if (this.remoteAudio.srcObject !== stream) {
         this.remoteAudio.srcObject = stream;
         this.remoteAudio.play().catch(() => {
-          // Autoplay blocked — will resume on next user gesture
+          // Autoplay blocked by browser policy — attach a one-time click listener to resume
+          const resume = () => {
+            this.remoteAudio?.play().catch(() => {});
+            document.removeEventListener("click", resume);
+            document.removeEventListener("touchstart", resume);
+          };
+          document.addEventListener("click", resume, { once: true });
+          document.addEventListener("touchstart", resume, { once: true });
         });
       }
     };

@@ -1,0 +1,77 @@
+with complete access to the entire application (frontend, backend, and infrastructure). Perform a full audit, debugging, optimization, security hardening, and complete repair of the entire system. Do not assume anything is correct. Discover all components dynamically.
+
+Analyze and fix the entire application stack:
+
+Backend / Server:
+	•	All running services, configurations, and dependencies
+	•	Network setup, NAT, public/private IP handling
+	•	Open ports (TCP/UDP), firewall rules, and security
+	•	VoIP/WebRTC configs, RTP/media flow, SDP correctness
+	•	ICE/STUN/TURN configuration
+	•	WebSocket/WSS setup and stability
+	•	TLS certificates and encryption
+	•	Codecs and media compatibility
+	•	Call routing, dialplan, and signaling logic
+
+Frontend / Client:
+	•	WebRTC implementation and configuration
+	•	WebSocket connection handling and reconnection logic
+	•	Microphone and audio device handling
+	•	ICE candidates and media negotiation
+	•	SDP offer/answer flow
+	•	Audio playback and browser restrictions
+	•	State management, timing issues, and UI bugs affecting calls
+	•	Fix UI/UX issues:
+	•	Ensure modals/popups always appear above all elements
+	•	Fix z-index stacking issues
+	•	Ensure bottom navigation never overlaps modals
+	•	Ensure proper layering across all screens and devices
+
+Infrastructure:
+	•	Hosting environment limitations
+	•	Network restrictions (especially UDP/RTP)
+	•	Performance bottlenecks and reliability issues
+
+Security (MANDATORY):
+	•	Audit and secure all open ports and services
+	•	Restrict unnecessary access (firewall hardening)
+	•	Enforce secure WebSocket (WSS) and HTTPS only
+	•	Validate TLS certificates and renew if needed
+	•	Protect against unauthorized access and brute-force attacks
+	•	Secure VoIP endpoints and signaling
+	•	Ensure no sensitive data exposure in configs or logs
+	•	Apply best practices for production security
+
+Account & Financial Protection (MANDATORY):
+	•	Implement secure user authentication and account verification (email/OTP or equivalent)
+	•	Enforce strong password rules and secure session management
+	•	Protect against unauthorized account access and fraud
+	•	Secure all payment, balance, or billing-related logic
+	•	Prevent manipulation of balances, call credits, or transactions
+	•	Add validation and logging for all financial actions
+	•	Ensure APIs are protected against abuse (rate limiting, authentication)
+
+Test the full system end-to-end:
+	•	Registration
+	•	Call setup
+	•	Call stability over time
+	•	Two-way audio (RTP send/receive)
+	•	Reconnect and session handling
+	•	UI behavior during calls and popups
+
+Run live diagnostics:
+	•	Confirm RTP packets flow both directions
+	•	Confirm browser sends and receives audio
+	•	Check logs across all layers
+
+Automatically fix everything:
+	•	Misconfigurations
+	•	Network and NAT issues
+	•	Blocked ports
+	•	Broken signaling or media paths
+	•	Frontend bugs (including modal/nav layering)
+	•	Security vulnerabilities
+	•	Account and financial vulnerabilities
+	•	Any other system-level problems
+
+If any limitation exists, reconfigure the system into a fully working and secure state using available resources.

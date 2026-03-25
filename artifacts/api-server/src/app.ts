@@ -21,18 +21,22 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`)
     : [];
 
-// Build the WebSocket origin for CSP connect-src so browsers allow the Verto WS.
-// We include both the wss:// URL itself and its https:// origin to satisfy all browsers.
-const fsWsUrl = process.env.FREESWITCH_WS_URL ?? "";
+// Build the WebSocket origin for CSP connect-src.
+// The Verto proxy runs on the same Replit domain as the frontend, so 'self' covers it.
+// We explicitly add the wss:// variant of the dev domain for browsers that distinguish schemes.
+const replitDomain = process.env.REPLIT_DEV_DOMAIN ?? "";
 const fsWsOrigins: string[] = [];
-if (fsWsUrl) {
-  try {
-    const u = new URL(fsWsUrl);
-    // Explicit wss:// entry — required by strict CSP implementations
-    fsWsOrigins.push(`${u.protocol}//${u.host}`);
-    // https:// equivalent — some browsers upgrade wss via this
-    if (u.protocol === "wss:") fsWsOrigins.push(`https://${u.host}`);
-  } catch {}
+if (replitDomain) {
+  fsWsOrigins.push(`wss://${replitDomain}`);
+} else {
+  const fsWsUrl = process.env.FREESWITCH_WS_URL ?? "";
+  if (fsWsUrl) {
+    try {
+      const u = new URL(fsWsUrl);
+      fsWsOrigins.push(`${u.protocol}//${u.host}`);
+      if (u.protocol === "wss:") fsWsOrigins.push(`https://${u.host}`);
+    } catch {}
+  }
 }
 const fsWsOrigin = fsWsOrigins.join(" ");
 
