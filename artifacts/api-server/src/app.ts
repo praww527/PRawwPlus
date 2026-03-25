@@ -15,26 +15,35 @@ const staticDir =
   process.env.STATIC_DIR ??
   path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
 
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
-  : process.env.REPLIT_DOMAINS
-    ? process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`)
-    : [];
+// APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
+// REPLIT_DEV_DOMAIN is the fallback for local Replit dev tunnels.
+// APP_URL always wins when explicitly set.
+const appUrlRaw = process.env.APP_URL
+  ? process.env.APP_URL.replace(/\/$/, "")
+  : process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : "";
 
-// Build the WebSocket origin for CSP connect-src.
-// The Verto proxy runs on the same Replit domain as the frontend, so 'self' covers it.
-// We explicitly add the wss:// variant of the dev domain for browsers that distinguish schemes.
-const replitDomain = process.env.REPLIT_DEV_DOMAIN ?? "";
+const allowedOrigins: string[] = [];
+if (process.env.ALLOWED_ORIGINS) {
+  allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()));
+} else {
+  if (appUrlRaw) allowedOrigins.push(appUrlRaw);
+  if (process.env.REPLIT_DOMAINS) {
+    allowedOrigins.push(...process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`));
+  }
+}
+
+// CSP connect-src: allow wss:// on the same canonical domain for the Verto proxy.
 const fsWsOrigins: string[] = [];
-if (replitDomain) {
-  fsWsOrigins.push(`wss://${replitDomain}`);
+if (appUrlRaw) {
+  fsWsOrigins.push(appUrlRaw.replace(/^https?:\/\//, "wss://"));
 } else {
   const fsWsUrl = process.env.FREESWITCH_WS_URL ?? "";
   if (fsWsUrl) {
     try {
       const u = new URL(fsWsUrl);
       fsWsOrigins.push(`${u.protocol}//${u.host}`);
-      if (u.protocol === "wss:") fsWsOrigins.push(`https://${u.host}`);
     } catch {}
   }
 }

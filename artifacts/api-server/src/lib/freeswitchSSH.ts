@@ -14,6 +14,7 @@
 
 import { Client as SSHClient } from "ssh2";
 import { logger } from "./logger";
+import { getAppUrl } from "./appUrl";
 import {
   xmlCurlConf,
   vertoConf,
@@ -81,13 +82,8 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
   if (!rawKey) return { success: false, steps: [], error: "FREESWITCH_SSH_KEY not set" };
   if (!FS_HOST) return { success: false, steps: [], error: "FREESWITCH_DOMAIN not set" };
 
-  // Prefer REPLIT_DEV_DOMAIN (always current) over the static APP_URL env var.
-  const rawAppUrl =
-    process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : (process.env.APP_URL ?? "");
-  const appUrl = rawAppUrl.replace(/\/$/, "");
-  if (!appUrl) return { success: false, steps: [], error: "APP_URL / REPLIT_DEV_DOMAIN not set" };
+  const appUrl = getAppUrl();
+  if (!appUrl) return { success: false, steps: [], error: "APP_URL not set — configure https://rtc.PRaww.co.za in environment" };
 
   const steps: string[] = [];
   let conn: SSHClient | null = null;

@@ -3,6 +3,7 @@ import { connectDB, UserModel, CallModel, PaymentModel } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf } from "../lib/freeswitchConfig";
 import { eslStatus } from "../lib/freeswitchESL";
+import { getAppUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
 
@@ -172,10 +173,7 @@ router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
 
 router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
   const fsHost = process.env.FREESWITCH_DOMAIN ?? "YOUR_FREESWITCH_HOST";
-  const rawAppUrl = process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : (process.env.APP_URL ?? "https://YOUR_APP_URL");
-  const appUrl = rawAppUrl.replace(/\/$/, "");
+  const appUrl = getAppUrl() || "https://rtc.PRaww.co.za";
 
   res.json({
     "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl),

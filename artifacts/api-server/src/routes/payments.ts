@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { connectDB, PaymentModel, UserModel, PhoneNumberModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
+import { getBaseUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
 
@@ -51,14 +52,6 @@ function buildPayFastData(params: {
 
   fields.signature = crypto.createHash("md5").update(signatureStr).digest("hex");
   return fields;
-}
-
-function getBaseUrl(req: any): string {
-  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
-  const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-  const host = (req.headers.host as string) ?? "localhost";
-  return `${proto}://${host}`;
 }
 
 function getPayFastCredentials() {

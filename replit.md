@@ -149,7 +149,7 @@ artifacts-monorepo/
 | `MONGODB_URI` | Yes | MongoDB Atlas connection string |
 | `FREESWITCH_WS_URL` | Yes | e.g. `wss://158.180.29.84:8082/` |
 | `FREESWITCH_DOMAIN` | Yes | e.g. `158.180.29.84` |
-| `APP_URL` | Optional | Public base URL for production deployments. In dev, `REPLIT_DEV_DOMAIN` is preferred automatically. |
+| `APP_URL` | **Required for production** | `https://rtc.PRaww.co.za` — always takes priority over all other domain sources. All email links, PayFast URLs, FreeSWITCH XML curl, and Verto WSS proxy use this value. |
 | `SESSION_SECRET` | Yes | Random string for session signing |
 | `SMTP_HOST` | Yes | SMTP server host |
 | `SMTP_USER` | Yes | SMTP username |
@@ -176,6 +176,37 @@ artifacts-monorepo/
 - 5 Google STUN servers configured for ICE candidate fallback
 - Remote audio autoplay: if blocked by browser policy, resumes on next user click/touch
 - Call overlays (CallingScreen, IncomingCallScreen) use `z-[9999]` to always appear above navigation and any modals
+- Production domain: `rtc.PRaww.co.za` — set via `APP_URL` env var, governs all WSS, email, PayFast, and XML curl URLs
+
+## Production Deployment (rtc.PRaww.co.za)
+
+### Domain Priority Logic
+`APP_URL` → `REPLIT_DEV_DOMAIN` → request headers. When `APP_URL=https://rtc.PRaww.co.za` is set, it governs every service without exception.
+
+### URL Routing at rtc.PRaww.co.za
+| Path | Service |
+|------|---------|
+| `/` | React frontend (call-manager) |
+| `/api/*` | Express API server |
+| `/api/verto/ws` | FreeSWITCH Verto WebSocket proxy (wss://) |
+| `/api/freeswitch/directory` | FreeSWITCH XML curl directory |
+
+### DNS Setup (at your DNS provider)
+```
+rtc.PRaww.co.za  CNAME  <your-replit-deployment-slug>.replit.app
+```
+Or A record pointing to the Replit deployment IP (shown in deployment dashboard).
+
+### TLS
+Replit manages TLS certificates automatically for custom domains. No manual cert setup needed.
+
+### Checklist before going live
+1. ✅ `APP_URL=https://rtc.PRaww.co.za` — set (already done)
+2. ☐ Deploy app on Replit (Deploy button → "Reserved VM" or "Autoscale")
+3. ☐ In Replit deployment settings → "Custom domain" → add `rtc.PRaww.co.za`
+4. ☐ Create DNS CNAME: `rtc.PRaww.co.za` → `<deployment-slug>.replit.app`
+5. ☐ Wait for TLS cert (auto-provisioned, ~2 min after DNS propagates)
+6. ☐ FreeSWITCH XML curl: push config once live so `mod_xml_curl` uses `https://rtc.PRaww.co.za/api/freeswitch/directory`
 
 ## Development
 

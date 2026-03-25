@@ -6,6 +6,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eslStatus } from "../lib/freeswitchESL";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
+import { getAppUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
 
@@ -22,7 +23,7 @@ router.get("/freeswitch/status", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
 
   const esl = eslStatus();
-  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  const appUrl = getAppUrl();
 
   res.json({
     esl,

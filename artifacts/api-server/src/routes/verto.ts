@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel } from "@workspace/db";
 import { assignExtensionIfNeeded } from "../lib/extension";
+import { getAppUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
 
@@ -25,17 +26,13 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   const coins = user?.coins ?? 0;
   const domain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
 
-  // Return the server-side Verto proxy URL so the browser connects via the
-  // Replit TLS termination instead of directly to FreeSWITCH (whose WSS/8082
-  // profile may be down). REPLIT_DEV_DOMAIN is always current; APP_URL may
-  // be a stale static value from a previous deployment.
-  const rawAppUrl = process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : (process.env.APP_URL ?? "");
+  // Build the Verto WebSocket URL. Browser connects to wss://rtc.PRaww.co.za/api/verto/ws
+  // and the proxy tunnels to FreeSWITCH internally (ws://FS_IP:8081).
+  // APP_URL (production custom domain) takes priority; REPLIT_DEV_DOMAIN is dev fallback.
+  const appUrl = getAppUrl();
   let wsUrl: string;
-  if (rawAppUrl) {
-    // Convert https://host → wss://host/api/verto/ws
-    wsUrl = rawAppUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
+  if (appUrl) {
+    wsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
   } else {
     wsUrl = process.env.FREESWITCH_WS_URL ?? "";
   }
