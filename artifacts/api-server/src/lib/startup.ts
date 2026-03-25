@@ -12,7 +12,15 @@ import crypto from "crypto";
 import { connectDB, UserModel } from "@workspace/db";
 import { logger } from "./logger";
 
-const EXTENSION_START = 1000;
+const EXTENSION_START = 1001;
+const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+function generateSipPassword(): string {
+  const bytes = crypto.randomBytes(12);
+  let pw = "";
+  for (let i = 0; i < 12; i++) pw += ALNUM[bytes[i] % ALNUM.length];
+  return pw;
+}
 
 export async function runStartup(): Promise<void> {
   // ── 1. Connect to MongoDB ────────────────────────────────────────────────
@@ -59,7 +67,7 @@ export async function runStartup(): Promise<void> {
     // ── 3. Bulk-assign extensions ──────────────────────────────────────────
     const bulkOps = usersWithoutExt.map((user) => {
       const ext = nextExt++;
-      const fsPassword = crypto.randomBytes(10).toString("hex");
+      const fsPassword = generateSipPassword();
       return {
         updateOne: {
           filter: { _id: user._id, $or: [{ extension: { $exists: false } }, { extension: null }] },

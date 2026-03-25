@@ -72,6 +72,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /users/settings:
+    patch:
+      operationId: updateUserSettings
+      tags: [users]
+      summary: Update user call and FreeSWITCH settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSettings"
+      responses:
+        "200":
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  settings:
+                    $ref: "#/components/schemas/UserSettings"
+                required: [message, settings]
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /verto/config:
     get:
       operationId: getVertoConfig
@@ -702,7 +739,34 @@ components:
         configured:
           type: boolean
           description: Whether FreeSWITCH is configured on the server
+        settings:
+          $ref: "#/components/schemas/UserSettings"
       required: [wsUrl, domain, extension, login, password, coins, configured]
+
+    UserSettings:
+      type: object
+      properties:
+        ringtone:
+          type: string
+          enum: [default, classic, digital, soft, urgent, none]
+          description: Ringtone sound for incoming calls
+        ringtoneDuration:
+          type: integer
+          minimum: 5
+          maximum: 120
+          description: How long the phone rings before timing out (seconds)
+        dnd:
+          type: boolean
+          description: Do Not Disturb — reject all incoming calls
+        freeswitchHost:
+          type: string
+          description: Custom FreeSWITCH host override
+        freeswitchPort:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Custom FreeSWITCH SIP port override
+      required: [ringtone, ringtoneDuration, dnd]
 
     OwnedNumber:
       type: object

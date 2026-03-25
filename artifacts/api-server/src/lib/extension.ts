@@ -1,7 +1,16 @@
 import crypto from "crypto";
 import { UserModel } from "@workspace/db";
 
-const EXTENSION_START = 1000;
+const EXTENSION_START = 1001;
+
+const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+function generateSipPassword(): string {
+  const bytes = crypto.randomBytes(12);
+  let pw = "";
+  for (let i = 0; i < 12; i++) pw += ALNUM[bytes[i] % ALNUM.length];
+  return pw;
+}
 
 export async function assignExtensionIfNeeded(userId: string): Promise<{ extension: number; fsPassword: string } | null> {
   const user = await UserModel.findById(userId).select("extension fsPassword");
@@ -14,7 +23,7 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
 
   // Has extension but missing fsPassword — just generate the password
   if (user.extension && !user.fsPassword) {
-    const fsPassword = crypto.randomBytes(10).toString("hex");
+    const fsPassword = generateSipPassword();
     await UserModel.updateOne({ _id: userId }, { $set: { fsPassword } });
     return { extension: user.extension, fsPassword };
   }
@@ -25,7 +34,7 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
     .select("extension");
 
   const nextExtension = maxUser?.extension != null ? maxUser.extension + 1 : EXTENSION_START;
-  const fsPassword = crypto.randomBytes(10).toString("hex");
+  const fsPassword = generateSipPassword();
 
   // Use $exists: false to guard against race conditions
   await UserModel.updateOne(
