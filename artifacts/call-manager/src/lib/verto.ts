@@ -364,7 +364,13 @@ export class VertoClient {
         this.remoteAudio = new Audio();
         this.remoteAudio.autoplay = true;
       }
-      this.remoteAudio.srcObject = e.streams[0] ?? null;
+      const stream = e.streams[0] ?? null;
+      if (this.remoteAudio.srcObject !== stream) {
+        this.remoteAudio.srcObject = stream;
+        this.remoteAudio.play().catch(() => {
+          // Autoplay blocked — will resume on next user gesture
+        });
+      }
     };
 
     // NOTE: We do NOT trickle-ICE here.

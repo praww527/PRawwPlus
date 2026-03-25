@@ -289,7 +289,7 @@ export interface PaymentListResponse {
 
 export interface AdjustCreditRequest {
   /** Amount to add (positive) or remove (negative) */
-  delta: number;
+  amount: number;
   reason?: string;
 }
 
@@ -338,13 +338,16 @@ export interface AdminStats {
   totalCalls: number;
   totalRevenue: number;
   activeSubscriptions: number;
+  callsToday: number;
+  newUsersThisMonth: number;
+  totalCallMinutes: number;
 }
 
 export interface ContactRecord {
   id: string;
   userId: string;
   name: string;
-  phoneNumber: string;
+  number: string;
   email?: string | null;
   createdAt: string;
 }
@@ -356,8 +359,9 @@ export interface ContactListResponse {
 
 export interface CreateContactRequest {
   name: string;
-  phoneNumber: string;
+  number: string;
   email?: string;
+  fromPhone?: boolean;
 }
 
 export interface BulkImportContactsRequest {
