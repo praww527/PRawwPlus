@@ -97,7 +97,10 @@ function verifyPayFastSignature(body: Record<string, string>, passphrase?: strin
   }
 
   const expected = crypto.createHash("md5").update(signatureStr).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expBuf = Buffer.from(expected);
+  const sigBuf = Buffer.from(signature);
+  if (expBuf.length !== sigBuf.length) return false;
+  return crypto.timingSafeEqual(expBuf, sigBuf);
 }
 
 const PAYFAST_VALID_IPS = [

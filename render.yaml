@@ -32,3 +32,17 @@ services:
         sync: false
       - key: APP_URL
         sync: false
+      - key: FREESWITCH_DOMAIN
+        sync: false
+      - key: FREESWITCH_WS_URL
+        sync: false
+      - key: FREESWITCH_INTERNAL_WS_URL
+        sync: false
+      - key: FREESWITCH_SSH_KEY
+        sync: false
+      - key: FREESWITCH_ESL_PORT
+        sync: false
+      - key: FREESWITCH_ESL_PASSWORD
+        sync: false
+      - key: FREESWITCH_SSH_USER
+        sync: false
