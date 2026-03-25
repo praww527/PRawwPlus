@@ -133,7 +133,7 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     await writeRemoteFile(
       conn,
       `${confDir}/dialplan/default/call_manager.xml`,
-      dialplanXml(appUrl, FS_HOST),
+      dialplanXml(FS_HOST),
     );
     steps.push("Wrote call_manager dialplan");
 
