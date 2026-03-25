@@ -6,14 +6,14 @@
  * Handshake sequence:
  *   1. Client connects → sends `login`
  *   2. Server responds to `login` with result
- *   3. Client sends `verto.clientReady`       ← REQUIRED — current client missing this!
- *   4. Server responds to `verto.clientReady` → we fire onConnected()
+ *   3. Client sends `verto.clientReady` (fire-and-forget notification, no id)
+ *   4. Server may push `verto.clientReady` back — treat as connected too
  *
  * Call flow (outgoing):
- *   Client sends `verto.invite` (with SDP offer)
+ *   Client sends `verto.invite` (with full gathered SDP)
  *   Server sends `verto.media`  (early media / ringing SDP)
  *   Server sends `verto.answer` (answer SDP)
- *   Either side sends `verto.bye` to hang up
+ *   Either side sends `verto.bye` notification to hang up
  */
 
 export interface VertoConfig {
@@ -41,21 +41,21 @@ interface Pending {
   timeout: ReturnType<typeof setTimeout>;
 }
 
-const RPC_TIMEOUT_MS  = 10_000;
-const ICE_TIMEOUT_MS  = 4_000;
-const RECONNECT_MS    = 5_000;
+const RPC_TIMEOUT_MS = 10_000;
+const ICE_TIMEOUT_MS = 4_000;
+const RECONNECT_MS   = 5_000;
 
 export class VertoClient {
-  private ws:           WebSocket | null = null;
-  private pc:           RTCPeerConnection | null = null;
-  private localStream:  MediaStream | null = null;
-  private remoteAudio:  HTMLAudioElement | null = null;
-  private sessId:       string;
-  private msgId =       1;
-  private pending =     new Map<number, Pending>();
-  private currentCallId: string | null = null;
+  private ws:             WebSocket | null = null;
+  private pc:             RTCPeerConnection | null = null;
+  private localStream:    MediaStream | null = null;
+  private remoteAudio:    HTMLAudioElement | null = null;
+  private sessId:         string;
+  private msgId =         1;
+  private pending =       new Map<number, Pending>();
+  private currentCallId:  string | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private destroyed =   false;
+  private destroyed =     false;
 
   constructor(
     private config:    VertoConfig,
@@ -71,10 +71,9 @@ export class VertoClient {
       this.callbacks.onError("FreeSWITCH WebSocket URL not configured");
       return;
     }
-    if (this.ws && this.ws.readyState < WebSocket.CLOSING) return; // already open
+    if (this.ws && this.ws.readyState < WebSocket.CLOSING) return;
 
     try {
-      // "verto" MUST be the negotiated sub-protocol
       console.log("[Verto] Connecting to", this.config.wsUrl);
       this.ws = new WebSocket(this.config.wsUrl, ["verto"]);
       this.ws.onopen    = ()  => this.handleOpen();
@@ -93,7 +92,9 @@ export class VertoClient {
     this.destroyed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.clearAllPending(new Error("Client disconnected"));
-    if (this.currentCallId) this.sendNotify("verto.bye", { callID: this.currentCallId, sessid: this.sessId });
+    if (this.currentCallId) {
+      this.sendNotify("verto.bye", { callID: this.currentCallId, sessid: this.sessId });
+    }
     this.cleanupMedia();
     this.ws?.close();
     this.ws = null;
@@ -103,10 +104,11 @@ export class VertoClient {
     const callId = crypto.randomUUID();
     this.currentCallId = callId;
 
-    const pc = await this.setupPeerConnection(callId);
+    const pc = await this.setupPeerConnection();
 
     const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
     await pc.setLocalDescription(offer);
+    // Wait for all ICE candidates to be gathered before sending the offer
     await this.waitForIce(pc);
 
     await this.request("verto.invite", {
@@ -120,11 +122,12 @@ export class VertoClient {
   }
 
   async answerCall(callId: string, remoteSdp: string): Promise<void> {
-    const pc = await this.setupPeerConnection(callId);
+    const pc = await this.setupPeerConnection();
 
     await pc.setRemoteDescription({ type: "offer", sdp: remoteSdp });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+    // Wait for all ICE candidates before sending the answer
     await this.waitForIce(pc);
 
     await this.request("verto.answer", {
@@ -138,11 +141,12 @@ export class VertoClient {
   hangup(callId?: string) {
     const id = callId ?? this.currentCallId;
     if (id) {
-      this.request("verto.bye", {
-        callID: id,
-        sessid: this.sessId,
+      // verto.bye is a notification — fire-and-forget, no response expected
+      this.sendNotify("verto.bye", {
+        callID:       id,
+        sessid:       this.sessId,
         dialogParams: { callID: id },
-      }).catch(() => {});
+      });
     }
     this.cleanupMedia();
     this.currentCallId = null;
@@ -173,7 +177,7 @@ export class VertoClient {
     this.sendNotify("verto.info", {
       callID: callId,
       sessid: this.sessId,
-      dtmf: digit,
+      dtmf:   digit,
       params: { message: { type: "dtmf", params: { dtmf: digit, duration: 100 } } },
     });
   }
@@ -182,26 +186,21 @@ export class VertoClient {
 
   private async handleOpen() {
     console.log("[Verto] WebSocket open — sending login", {
-      login: this.config.login,
+      login:  this.config.login,
       sessid: this.sessId,
     });
     try {
       // Step 1: login — JSON-RPC request; FreeSWITCH responds with same id
       await this.request("login", {
-        login:         this.config.login,   // "extension@domain"
+        login:         this.config.login,
         passwd:        this.config.password,
         sessid:        this.sessId,
-        loginParams:   {},                   // required by mod_verto
-        userVariables: {
-          coins: this.config.coins,
-        },
+        loginParams:   {},
+        userVariables: { coins: this.config.coins },
       });
       console.log("[Verto] Login OK — sending verto.clientReady");
 
-      // Step 2: notify FreeSWITCH we are ready.
-      // This MUST be a fire-and-forget notification (no id) — mod_verto does NOT
-      // send a JSON-RPC response to verto.clientReady; if we await it we will
-      // hit the 10-second RPC timeout and drop the connection.
+      // Step 2: notify FreeSWITCH we are ready (fire-and-forget — no response)
       this.sendNotify("verto.clientReady", { sessid: this.sessId });
       console.log("[Verto] verto.clientReady sent — marking connected");
 
@@ -243,15 +242,15 @@ export class VertoClient {
 
     switch (method) {
       case "verto.clientReady":
-        // Some FS versions send this as a push (no id) — treat as connected too
+        // Some FreeSWITCH versions push this back — treat as connected
         this.callbacks.onConnected();
         break;
 
       case "verto.invite": {
-        const callId      = params.callID as string;
-        const sdp         = (params.sdp as string) ?? "";
-        const dp          = (params.dialogParams as Record<string, string>) ?? {};
-        const callerNum   = dp.caller_id_number ?? dp.from ?? "Unknown";
+        const callId    = params.callID as string;
+        const sdp       = (params.sdp as string) ?? "";
+        const dp        = (params.dialogParams as Record<string, string>) ?? {};
+        const callerNum = dp.caller_id_number ?? dp.from ?? "Unknown";
         this.currentCallId = callId;
         this.callbacks.onIncoming(callId, callerNum, sdp);
         break;
@@ -268,7 +267,7 @@ export class VertoClient {
       }
 
       case "verto.media": {
-        // Early media — ringing tone SDP
+        // Early media — apply ringing SDP
         const sdp = (params.sdp as string) ?? "";
         if (this.pc && sdp) {
           this.pc.setRemoteDescription({ type: "answer", sdp }).catch(() => {});
@@ -339,7 +338,11 @@ export class VertoClient {
 
   // ─── WebRTC Helpers ───────────────────────────────────────────────────────
 
-  private async setupPeerConnection(callId: string): Promise<RTCPeerConnection> {
+  /**
+   * Create a PeerConnection with mic audio.
+   * ICE candidates are collected silently — we use non-trickle ICE (gather-all-first).
+   */
+  private async setupPeerConnection(): Promise<RTCPeerConnection> {
     this.cleanupMedia();
 
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -364,16 +367,9 @@ export class VertoClient {
       this.remoteAudio.srcObject = e.streams[0] ?? null;
     };
 
-    // Trickle ICE → send candidates via verto.info
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.sendNotify("verto.info", {
-          callID:  callId,
-          sessid:  this.sessId,
-          params:  { message: { candidate: e.candidate } },
-        });
-      }
-    };
+    // NOTE: We do NOT trickle-ICE here.
+    // We wait for gathering to complete (waitForIce) and send the full SDP
+    // in one shot. This avoids race conditions with FreeSWITCH mod_verto.
 
     return pc;
   }
@@ -392,13 +388,13 @@ export class VertoClient {
   private buildDialogParams(callId: string, to: string): Record<string, unknown> {
     const ext = String(this.config.extension);
     return {
-      callID:              callId,
-      to:                  to.includes("@") ? to : `${to}@${this.config.domain}`,
-      from:                `${ext}@${this.config.domain}`,
-      caller_id_name:      ext,
-      caller_id_number:    ext,
-      outgoingBandwidth:   "default",
-      incomingBandwidth:   "default",
+      callID:           callId,
+      to:               to.includes("@") ? to : `${to}@${this.config.domain}`,
+      from:             `${ext}@${this.config.domain}`,
+      caller_id_name:   ext,
+      caller_id_number: ext,
+      outgoingBandwidth: "default",
+      incomingBandwidth: "default",
       audioParams: {
         googAutoGainControl:  true,
         googNoiseSuppression: true,
