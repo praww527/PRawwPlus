@@ -33,11 +33,21 @@ export function vertoConf(fsIp: string): string {
   <profiles>
     <!--
       Plain WebSocket on port 8081 (no TLS).
-      TLS is terminated by the API server proxy — browsers connect via
-      wss://app-domain/api/verto/ws and the proxy forwards to ws://fs:8081.
+      TLS is terminated by the reverse proxy in front of the API server —
+      browsers connect via wss://rtc.PRaww.co.za/api/verto/ws and the proxy
+      forwards to ws://fs:8081.
     -->
     <profile name="default-v4">
       <param name="bind-local" value="0.0.0.0:8081"/>
+
+      <!--
+        RTP bind address: 0.0.0.0 ensures FreeSWITCH binds its RTP sockets on
+        ALL local interfaces. This is required on cloud VMs that have both a
+        private NIC (10.x.x.x) and a public NIC/alias (${fsIp}). Without this
+        FreeSWITCH may bind only on the default-route interface and silently
+        drop inbound RTP that arrives on another interface.
+      -->
+      <param name="rtp-ip" value="0.0.0.0"/>
 
       <!--
         NAT: This server is behind Oracle Cloud NAT (private 10.0.0.x → public ${fsIp}).
@@ -62,7 +72,8 @@ export function vertoConf(fsIp: string): string {
       <!--
         local-network: Tells FreeSWITCH which subnets are local so it can
         skip NAT for those. any_v4.auto for ICE candidates allows all IPv4
-        candidates from the browser to be considered.
+        candidates from the browser to be considered (required for clients
+        coming in from the public internet).
       -->
       <param name="local-network" value="localnet.auto"/>
       <param name="apply-candidate-acl" value="any_v4.auto"/>
@@ -76,7 +87,7 @@ export function vertoConf(fsIp: string): string {
 
       <!--
         Codecs: Opus first for WebRTC browser compatibility, then PCMU/PCMA
-        as fallback for PSTN/SIP trunks. G722 removed — not needed for VoIP-only.
+        as fallback for PSTN/SIP trunks.
       -->
       <param name="outbound-codec-string" value="opus,PCMU,PCMA"/>
       <param name="inbound-codec-string" value="opus,PCMU,PCMA"/>
@@ -89,7 +100,7 @@ export function vertoConf(fsIp: string): string {
       <param name="rtp-hold-timeout-sec" value="120"/>
 
       <!--
-        DTMF: Enable RFC 2833/4733 telephone-event for keypad tones over RTP.
+        DTMF: RFC 2833/4733 telephone-event for keypad tones over RTP.
       -->
       <param name="enable-text" value="false"/>
 

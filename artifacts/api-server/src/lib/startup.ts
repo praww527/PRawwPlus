@@ -30,7 +30,7 @@ export async function runStartup(): Promise<void> {
   if (!uri) {
     logger.warn(
       "MONGODB_URI / MONGO_URI is not set — skipping DB startup. " +
-      "Add the secret in the Secrets panel and restart the server.",
+      "Set the MONGODB_URI environment variable and restart the server.",
     );
     return;
   }
@@ -50,8 +50,8 @@ export async function runStartup(): Promise<void> {
   }
 
   // ── 3. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
-  // This ensures FreeSWITCH always has the current APP_URL / REPLIT_DEV_DOMAIN
-  // so its mod_xml_curl directory lookups reach our live API endpoint.
+  // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl
+  // directory lookups reach our live API endpoint at rtc.PRaww.co.za.
   if (process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {
     logger.info("[FSH] Auto-pushing FreeSWITCH config on startup…");
     pushFreeSwitchConfig()

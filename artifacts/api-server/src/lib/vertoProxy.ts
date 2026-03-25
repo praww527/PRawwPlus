@@ -3,8 +3,9 @@
  *
  * Problem solved: FreeSWITCH's TLS (WSS) profile on port 8082 may be down
  * due to certificate issues. The plain WS profile on port 8081 is reliable.
- * Browsers require WSS (secure WebSocket). Replit already provides TLS
- * termination, so we proxy: browser → wss://replit/api/verto/ws → ws://fs:8081
+ * Browsers require WSS (secure WebSocket). The reverse proxy (nginx/caddy) in
+ * front of this server handles TLS termination, so we proxy:
+ *   browser → wss://rtc.PRaww.co.za/api/verto/ws → ws://fs:8081
  *
  * Close-code bug fixed: WebSocket code 1006 (Abnormal Closure) is a
  * "receive-only" code — the spec forbids sending it. When a client disconnects
