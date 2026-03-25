@@ -38,27 +38,66 @@ export function vertoConf(fsIp: string): string {
     -->
     <profile name="default-v4">
       <param name="bind-local" value="0.0.0.0:8081"/>
+
+      <!--
+        NAT: This server is behind Oracle Cloud NAT (private 10.0.0.x → public ${fsIp}).
+        Setting ext-rtp-ip and ext-sip-ip explicitly to the public IP ensures FreeSWITCH
+        advertises the correct address in ICE candidates and SDP, preventing one-way
+        or no-audio issues. We do NOT rely solely on STUN so that if STUN is temporarily
+        unreachable the config still works.
+      -->
       <param name="ext-rtp-ip" value="${fsIp}"/>
       <param name="ext-sip-ip" value="${fsIp}"/>
 
       <!--
-        STUN: FreeSWITCH uses this to discover its public IP when building
-        ICE candidates. Without it, WebRTC clients may receive private/local
-        IPs in the SDP and fail to connect (one-way audio or no audio).
+        STUN: Used to validate/refresh the external IP. stun-auto-disable=false
+        prevents FreeSWITCH from silently falling back to the private IP if a
+        single STUN lookup fails on startup.
       -->
       <param name="stun-ip" value="stun.l.google.com"/>
       <param name="stun-port" value="19302"/>
       <param name="stun-enabled" value="true"/>
       <param name="stun-auto-disable" value="false"/>
 
+      <!--
+        local-network: Tells FreeSWITCH which subnets are local so it can
+        skip NAT for those. any_v4.auto for ICE candidates allows all IPv4
+        candidates from the browser to be considered.
+      -->
       <param name="local-network" value="localnet.auto"/>
+      <param name="apply-candidate-acl" value="any_v4.auto"/>
+
+      <!--
+        Dialplan: Verto calls enter the "default" context where our
+        call_manager dialplan handles extension routing.
+      -->
+      <param name="dialplan" value="XML"/>
+      <param name="context" value="default"/>
+
+      <!--
+        Codecs: Opus first for WebRTC browser compatibility, then PCMU/PCMA
+        as fallback for PSTN/SIP trunks. G722 removed — not needed for VoIP-only.
+      -->
       <param name="outbound-codec-string" value="opus,PCMU,PCMA"/>
       <param name="inbound-codec-string" value="opus,PCMU,PCMA"/>
-      <param name="apply-candidate-acl" value="any_v4.auto"/>
+
+      <!--
+        RTP timeouts: disconnect if no RTP arrives within 30s (dead call cleanup).
+        Hold allows 2 minutes of silence before hanging up.
+      -->
       <param name="rtp-timeout-sec" value="30"/>
       <param name="rtp-hold-timeout-sec" value="120"/>
-      <param name="timer-name" value="soft"/>
+
+      <!--
+        DTMF: Enable RFC 2833/4733 telephone-event for keypad tones over RTP.
+      -->
       <param name="enable-text" value="false"/>
+
+      <!--
+        Timer: "soft" avoids dependency on kernel HRT timers which may not be
+        available in virtualised/cloud environments (Oracle VM).
+      -->
+      <param name="timer-name" value="soft"/>
     </profile>
   </profiles>
 </configuration>`;
