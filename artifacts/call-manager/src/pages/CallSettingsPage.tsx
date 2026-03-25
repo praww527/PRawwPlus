@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   ChevronLeft, Phone, Wifi, Mic, Volume2, Shield,
   Clock, Radio, Headphones, PhoneForwarded, PhoneMissed,
-  Server, BellRing, BellOff, Loader2, Check,
+  BellRing, BellOff, Loader2, Check,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useGetVertoConfig, useUpdateUserSettings } from "@workspace/api-client-react";
@@ -179,8 +179,6 @@ export default function CallSettingsPage() {
   const [ringtone, setRingtone] = useState("default");
   const [ringtoneDuration, setRingtoneDuration] = useState("30");
   const [dnd, setDnd] = useState(false);
-  const [fsHost, setFsHost] = useState("");
-  const [fsPort, setFsPort] = useState("");
   const [local, setLocal] = useState<LocalSettings>({
     wifiCalling: true,
     noiseCancellation: true,
@@ -216,8 +214,6 @@ export default function CallSettingsPage() {
       setRingtone(s.ringtone ?? "default");
       setRingtoneDuration(String(s.ringtoneDuration ?? 30));
       setDnd(s.dnd ?? false);
-      setFsHost(s.freeswitchHost ?? "");
-      setFsPort(s.freeswitchPort ? String(s.freeswitchPort) : "");
     }
   }, [vertoConfig]);
 
@@ -229,14 +225,13 @@ export default function CallSettingsPage() {
 
   const handleSave = () => {
     setSaveError(null);
-    const payload: Record<string, unknown> = {
-      ringtone,
-      ringtoneDuration: parseInt(ringtoneDuration, 10),
-      dnd,
-    };
-    if (fsHost.trim()) payload.freeswitchHost = fsHost.trim();
-    if (fsPort.trim()) payload.freeswitchPort = parseInt(fsPort.trim(), 10);
-    saveSettings({ data: payload as any });
+    saveSettings({
+      data: {
+        ringtone,
+        ringtoneDuration: parseInt(ringtoneDuration, 10),
+        dnd,
+      } as any,
+    });
   };
 
   return (
@@ -369,21 +364,6 @@ export default function CallSettingsPage() {
             { value: "Off", label: "Off" },
           ]}
           onChange={(v) => setLocal((s) => ({ ...s, forwardTo: v }))}
-        />
-      </Section>
-
-      <Section title="FreeSWITCH Server">
-        <InputRow
-          icon={<Server size={15} />} iconBg="rgba(48,209,88,0.15)" iconColor="#30d158"
-          label="Host Override" description="Leave blank to use the server default"
-          value={fsHost} placeholder={vertoConfig?.domain ?? "freeswitch.local"}
-          onChange={setFsHost} disabled={isLoading}
-        />
-        <InputRow
-          icon={<Server size={15} />} iconBg="rgba(94,92,230,0.15)" iconColor="#5e5ce6"
-          label="Port Override" description="SIP port (default: 5060)"
-          value={fsPort} placeholder="5060" type="number"
-          onChange={setFsPort} disabled={isLoading}
         />
       </Section>
 

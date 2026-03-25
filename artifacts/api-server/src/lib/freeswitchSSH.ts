@@ -81,8 +81,13 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
   if (!rawKey) return { success: false, steps: [], error: "FREESWITCH_SSH_KEY not set" };
   if (!FS_HOST) return { success: false, steps: [], error: "FREESWITCH_DOMAIN not set" };
 
-  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
-  if (!appUrl) return { success: false, steps: [], error: "APP_URL not set" };
+  // Prefer REPLIT_DEV_DOMAIN (always current) over the static APP_URL env var.
+  const rawAppUrl =
+    process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : (process.env.APP_URL ?? "");
+  const appUrl = rawAppUrl.replace(/\/$/, "");
+  if (!appUrl) return { success: false, steps: [], error: "APP_URL / REPLIT_DEV_DOMAIN not set" };
 
   const steps: string[] = [];
   let conn: SSHClient | null = null;
@@ -132,28 +137,40 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     );
     steps.push("Wrote call_manager dialplan");
 
-    // Reload FreeSWITCH config
-    try {
-      await execCommand(conn, "fs_cli -x 'reloadxml'");
-      steps.push("reloadxml OK");
-    } catch {
-      steps.push("reloadxml skipped (fs_cli not in PATH — may need manual reload)");
-    }
+    // Locate fs_cli — try common install paths
+    const fsCli = await execCommand(
+      conn,
+      "command -v fs_cli 2>/dev/null || " +
+      "ls /usr/local/freeswitch/bin/fs_cli /usr/bin/fs_cli 2>/dev/null | head -1 || " +
+      "echo ''",
+    ).then((p) => p.trim()).catch(() => "");
 
-    // Reload mod_xml_curl
-    try {
-      await execCommand(conn, "fs_cli -x 'reload mod_xml_curl'");
-      steps.push("reload mod_xml_curl OK");
-    } catch {
-      steps.push("reload mod_xml_curl skipped");
-    }
+    if (!fsCli) {
+      steps.push("fs_cli not found — skipping reload (FreeSWITCH will pick up changes on next restart)");
+    } else {
+      // Reload FreeSWITCH XML config
+      try {
+        await execCommand(conn, `${fsCli} -x 'reloadxml'`);
+        steps.push("reloadxml OK");
+      } catch (e) {
+        steps.push(`reloadxml failed: ${(e as Error).message}`);
+      }
 
-    // Reload mod_verto
-    try {
-      await execCommand(conn, "fs_cli -x 'reload mod_verto'");
-      steps.push("reload mod_verto OK");
-    } catch {
-      steps.push("reload mod_verto skipped");
+      // Reload mod_xml_curl so it picks up the new gateway URL
+      try {
+        await execCommand(conn, `${fsCli} -x 'reload mod_xml_curl'`);
+        steps.push("reload mod_xml_curl OK");
+      } catch (e) {
+        steps.push(`reload mod_xml_curl failed: ${(e as Error).message}`);
+      }
+
+      // Reload mod_verto to pick up the new verto.conf (port binding)
+      try {
+        await execCommand(conn, `${fsCli} -x 'reload mod_verto'`);
+        steps.push("reload mod_verto OK");
+      } catch (e) {
+        steps.push(`reload mod_verto failed: ${(e as Error).message}`);
+      }
     }
 
     conn.end();

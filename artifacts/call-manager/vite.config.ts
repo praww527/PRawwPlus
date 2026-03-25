@@ -60,6 +60,7 @@ export default defineConfig({
         target: `http://localhost:${process.env.API_PORT ?? 8080}`,
         changeOrigin: true,
         secure: false,
+        ws: true,
       },
     },
   },
