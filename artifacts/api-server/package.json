@@ -18,7 +18,8 @@
     "nodemailer": "^8.0.3",
     "openid-client": "^6.8.2",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
@@ -27,6 +28,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "catalog:",
     "@types/nodemailer": "^7.0.11",
+    "@types/ssh2": "^1.15.5",
     "esbuild": "^0.27.3",
     "pino-pretty": "^13",
     "tsx": "catalog:"

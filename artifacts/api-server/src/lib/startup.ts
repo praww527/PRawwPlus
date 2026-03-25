@@ -11,6 +11,7 @@
 import crypto from "crypto";
 import { connectDB, UserModel } from "@workspace/db";
 import { logger } from "./logger";
+import { startESL } from "./freeswitchESL";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -41,7 +42,13 @@ export async function runStartup(): Promise<void> {
     return;
   }
 
-  // ── 2. Find users without a FreeSWITCH extension ───────────────────────
+  // ── 2. Start FreeSWITCH ESL listener ────────────────────────────────────
+  if (process.env.FREESWITCH_DOMAIN) {
+    startESL();
+    logger.info("FreeSWITCH ESL listener started");
+  }
+
+  // ── 3. Find users without a FreeSWITCH extension ───────────────────────
   try {
     const usersWithoutExt = await UserModel
       .find({ $or: [{ extension: { $exists: false } }, { extension: null }] })
