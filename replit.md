@@ -149,7 +149,7 @@ artifacts-monorepo/
 | `MONGODB_URI` | Yes | MongoDB Atlas connection string |
 | `FREESWITCH_WS_URL` | Yes | e.g. `wss://158.180.29.84:8082/` |
 | `FREESWITCH_DOMAIN` | Yes | e.g. `158.180.29.84` |
-| `APP_URL` | Yes | Public base URL of this Replit deployment (for email links, PayFast webhooks) |
+| `APP_URL` | Optional | Public base URL for production deployments. In dev, `REPLIT_DEV_DOMAIN` is preferred automatically. |
 | `SESSION_SECRET` | Yes | Random string for session signing |
 | `SMTP_HOST` | Yes | SMTP server host |
 | `SMTP_USER` | Yes | SMTP username |
@@ -171,8 +171,11 @@ artifacts-monorepo/
   - `POST /api/freeswitch/configure` — push XML config files to FreeSWITCH via SSH and reload
   - `POST /api/freeswitch/test-ssh` — verify SSH connectivity
 - Our server provisions user extensions starting at 1001 on startup
-- Non-trickle ICE used — full SDP gathered before sending `verto.invite` (required for mod_verto)
+- Non-trickle ICE used — full SDP gathered before sending `verto.invite` (required for mod_verto). ICE timeout is 8 seconds.
 - `verto.bye` sent as notification (fire-and-forget), not RPC request
+- 5 Google STUN servers configured for ICE candidate fallback
+- Remote audio autoplay: if blocked by browser policy, resumes on next user click/touch
+- Call overlays (CallingScreen, IncomingCallScreen) use `z-[9999]` to always appear above navigation and any modals
 
 ## Development
 

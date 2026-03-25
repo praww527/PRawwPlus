@@ -51,6 +51,7 @@ function buildPayFastData(params: {
 }
 
 function getBaseUrl(req: any): string {
+  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
   const proto = (req.headers["x-forwarded-proto"] as string) || "https";
   const host = (req.headers.host as string) ?? "localhost";

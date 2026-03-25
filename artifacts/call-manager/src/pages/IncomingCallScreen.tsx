@@ -15,7 +15,7 @@ export default function IncomingCallScreen() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center animate-in slide-in-from-bottom duration-400"
+      className="fixed inset-0 z-[9999] flex flex-col items-center animate-in slide-in-from-bottom duration-400"
       style={{
         background: "linear-gradient(160deg,#0d1117 0%,#091628 55%,#050f20 100%)",
         paddingTop:    "env(safe-area-inset-top,44px)",
