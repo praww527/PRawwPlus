@@ -777,9 +777,6 @@ components:
           type: string
         status:
           type: string
-        telnyxNumberId:
-          type: string
-          nullable: true
       required: [id, number]
 
     MyNumbersResponse:

@@ -4,7 +4,6 @@ export interface IPhoneNumber extends Document<string> {
   _id: string;
   number: string;
   userId?: string | null;
-  telnyxNumberId?: string;
   country?: string;
   region?: string;
   createdAt: Date;
@@ -16,7 +15,6 @@ const PhoneNumberSchema = new Schema<IPhoneNumber>(
     _id: { type: String, required: true },
     number: { type: String, required: true, unique: true, index: true },
     userId: { type: String, default: null, index: true },
-    telnyxNumberId: { type: String },
     country: { type: String },
     region: { type: String },
   },

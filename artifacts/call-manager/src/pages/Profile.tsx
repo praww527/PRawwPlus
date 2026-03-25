@@ -603,7 +603,7 @@ export default function Profile() {
               ["1. Information We Collect", "We collect your name, email address, phone numbers you claim, call metadata, and payment records. We do not store call audio."],
               ["2. How We Use Your Information", "Your data is used to provide the service, process payments, send account-related emails, and improve our platform. We do not sell your personal information."],
               ["3. Data Storage & Security", "Your data is stored securely in encrypted databases. Payment processing is handled by PayFast."],
-              ["4. Third-Party Services", "We use Telnyx for VoIP services and PayFast for payments. These providers have their own privacy policies."],
+              ["4. Third-Party Services", "We use FreeSWITCH for VoIP services and PayFast for payments. These providers have their own privacy policies."],
               ["5. Your Rights", "You may request access to, correction of, or deletion of your personal data by contacting us. Account deletion requests are processed within 30 days."],
             ].map(([title, body]) => (
               <div key={title as string}>

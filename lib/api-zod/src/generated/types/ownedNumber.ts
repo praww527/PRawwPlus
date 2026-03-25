@@ -10,5 +10,4 @@ export interface OwnedNumber {
   id: string;
   number: string;
   status?: string;
-  telnyxNumberId?: string | null;
 }

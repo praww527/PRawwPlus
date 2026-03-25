@@ -307,7 +307,6 @@ export const ListMyNumbersResponse = zod.object({
       id: zod.string(),
       number: zod.string(),
       status: zod.string().optional(),
-      telnyxNumberId: zod.string().nullish(),
     }),
   ),
   maxNumbers: zod.number(),
@@ -358,7 +357,6 @@ export const BuyNumberResponse = zod.object({
     id: zod.string(),
     number: zod.string(),
     status: zod.string().optional(),
-    telnyxNumberId: zod.string().nullish(),
   }),
 });
 
