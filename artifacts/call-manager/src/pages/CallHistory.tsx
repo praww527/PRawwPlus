@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListCalls } from "@workspace/api-client-react";
+import { useListCalls, useMakeCall, useGetMe } from "@workspace/api-client-react";
 import { formatCurrency, formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
 import {
@@ -7,6 +7,7 @@ import {
   PhoneMissed, PhoneOff, FileText, Phone,
 } from "lucide-react";
 import { useCall } from "@/context/CallContext";
+import { useToast } from "@/hooks/use-toast";
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "completed") return <PhoneOutgoing className="h-4 w-4" style={{ color: "#30d158" }} />;
@@ -20,7 +21,7 @@ function statusColors(status: string) {
   return                             { bg: "rgba(255,214,10,0.13)", label: "#ffd60a" };
 }
 
-function isInternal(num: string): boolean {
+function isInternalNum(num: string): boolean {
   const d = num.replace(/\D/g, "");
   return d.length >= 3 && d.length <= 4;
 }
@@ -28,19 +29,51 @@ function isInternal(num: string): boolean {
 export default function CallHistory() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useListCalls({ page, limit: 20 });
-  const { startOutgoing, makeVertoCall, connectCall, endCall, isVertoConnected } = useCall();
+  const { data: user } = useGetMe();
+  const { mutateAsync: initiateCall } = useMakeCall();
+  const { toast } = useToast();
+  const { startOutgoing, updateCallId, makeVertoCall, connectCall, endCall, isVertoConnected } = useCall();
 
   const handleCallBack = async (number: string) => {
-    const callType: "internal" | "external" = isInternal(number) ? "internal" : "external";
+    const callType: "internal" | "external" = isInternalNum(number) ? "internal" : "external";
+    const isInternal = callType === "internal";
+    const coins = user?.coins ?? 0;
+    const isActive = user?.subscriptionStatus === "active";
+
+    if (!isInternal && (!isActive || coins <= 0)) {
+      toast({
+        title: "Cannot call back",
+        description: !isActive ? "Subscribe to make external calls" : "Top up your balance",
+        variant: "destructive",
+      });
+      return;
+    }
+
     startOutgoing({ number, callType });
     try {
+      let fsCallId: string | null = null;
       if (isVertoConnected) {
-        await makeVertoCall(number);
-      } else {
+        fsCallId = await makeVertoCall(number);
+      }
+
+      const record = await initiateCall({
+        data: { recipientNumber: number, fsCallId: fsCallId ?? undefined },
+      });
+
+      if (record?.id) {
+        updateCallId(record.id);
+      }
+
+      if (!fsCallId) {
         connectCall();
       }
-    } catch {
+    } catch (err: any) {
       endCall();
+      toast({
+        title: "Call failed",
+        description: err?.message ?? "Could not place the call.",
+        variant: "destructive",
+      });
     }
   };
 

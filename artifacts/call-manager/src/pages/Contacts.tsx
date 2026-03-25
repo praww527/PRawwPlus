@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import {
   useListCalls, useListMyNumbers, useListContacts,
   useCreateContact, useBulkImportContacts, useDeleteContact,
+  useMakeCall, useGetMe,
 } from "@workspace/api-client-react";
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -176,6 +177,11 @@ function Avatar({ name, number }: { name: string; number: string }) {
   );
 }
 
+function isInternalNumber(num: string): boolean {
+  const digits = num.replace(/\D/g, "");
+  return digits.length >= 3 && digits.length <= 4;
+}
+
 export default function Contacts() {
   const [query, setQuery] = useState("");
   const [phoneEntries, setPhoneEntries] = useState<PhoneEntry[]>([]);
@@ -184,7 +190,9 @@ export default function Contacts() {
   const [importing, setImporting] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { startOutgoing } = useCall();
+  const { startOutgoing, updateCallId, connectCall, endCall, isVertoConnected, makeVertoCall } = useCall();
+  const { data: user } = useGetMe();
+  const { mutateAsync: initiateCall } = useMakeCall();
   const { data: numbersData } = useListMyNumbers();
   const { data: callData } = useListCalls({ limit: 500 });
   const prompted = useRef(false);
@@ -259,13 +267,55 @@ export default function Contacts() {
     } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
   };
 
-  const handleCall = (number: string, name?: string) => {
-    if (!primaryNumber) {
-      toast({ title: "No number assigned", description: "Claim a phone number first.", variant: "destructive" });
-      setLocation("/profile");
-      return;
+  const handleCall = async (number: string, name?: string) => {
+    const isInternal = isInternalNumber(number);
+    const coins = user?.coins ?? 0;
+    const isActive = user?.subscriptionStatus === "active";
+
+    if (!isInternal) {
+      if (!primaryNumber) {
+        toast({ title: "No number assigned", description: "Claim a phone number first.", variant: "destructive" });
+        setLocation("/profile");
+        return;
+      }
+      if (!isActive || coins <= 0) {
+        toast({
+          title: "Cannot make external call",
+          description: !isActive ? "Subscribe to make external calls" : "Top up your balance",
+          variant: "destructive",
+        });
+        return;
+      }
     }
-    startOutgoing({ number, name });
+
+    const callType: "internal" | "external" = isInternal ? "internal" : "external";
+    startOutgoing({ number, name, callType });
+
+    try {
+      let fsCallId: string | null = null;
+      if (isVertoConnected) {
+        fsCallId = await makeVertoCall(number);
+      }
+
+      const record = await initiateCall({
+        data: { recipientNumber: number, fsCallId: fsCallId ?? undefined },
+      });
+
+      if (record?.id) {
+        updateCallId(record.id);
+      }
+
+      if (!fsCallId) {
+        connectCall();
+      }
+    } catch (err: any) {
+      endCall();
+      toast({
+        title: "Call failed",
+        description: err?.message ?? (isInternal ? "Could not reach that extension." : "Check your subscription and coin balance."),
+        variant: "destructive",
+      });
+    }
   };
 
   const contacts = contactsData?.contacts ?? [];

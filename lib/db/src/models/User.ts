@@ -1,5 +1,19 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 
+export interface INotificationPrefs {
+  incomingCalls: boolean;
+  missedCalls: boolean;
+  voicemail: boolean;
+  lowBalance: boolean;
+  sms: boolean;
+  promotions: boolean;
+  weeklyReport: boolean;
+  sound: boolean;
+  vibration: boolean;
+  badge: boolean;
+  pushEnabled: boolean;
+}
+
 export interface IUser extends Document<string> {
   _id: string;
   email?: string;
@@ -28,6 +42,7 @@ export interface IUser extends Document<string> {
   dnd: boolean;
   freeswitchHost?: string;
   freeswitchPort?: number;
+  notificationPrefs: INotificationPrefs;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,6 +76,22 @@ const UserSchema = new Schema<IUser>(
     dnd: { type: Boolean, default: false },
     freeswitchHost: { type: String },
     freeswitchPort: { type: Number },
+    notificationPrefs: {
+      type: new Schema({
+        incomingCalls: { type: Boolean, default: true },
+        missedCalls:   { type: Boolean, default: true },
+        voicemail:     { type: Boolean, default: true },
+        lowBalance:    { type: Boolean, default: true },
+        sms:           { type: Boolean, default: false },
+        promotions:    { type: Boolean, default: false },
+        weeklyReport:  { type: Boolean, default: false },
+        sound:         { type: Boolean, default: true },
+        vibration:     { type: Boolean, default: true },
+        badge:         { type: Boolean, default: true },
+        pushEnabled:   { type: Boolean, default: false },
+      }, { _id: false }),
+      default: () => ({}),
+    },
   },
   { timestamps: true, _id: false }
 );

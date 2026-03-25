@@ -105,4 +105,41 @@ router.patch("/users/settings", async (req: Request, res: Response) => {
   });
 });
 
+const NOTIF_BOOL_KEYS = [
+  "incomingCalls", "missedCalls", "voicemail", "lowBalance",
+  "sms", "promotions", "weeklyReport", "sound", "vibration",
+  "badge", "pushEnabled",
+] as const;
+
+router.patch("/users/notification-prefs", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const body = req.body as Record<string, unknown>;
+
+  const update: Record<string, unknown> = {};
+  for (const key of NOTIF_BOOL_KEYS) {
+    if (key in body) {
+      update[`notificationPrefs.${key}`] = Boolean(body[key]);
+    }
+  }
+
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: "No valid notification preference fields provided" });
+    return;
+  }
+
+  await UserModel.updateOne({ _id: userId }, { $set: update });
+
+  const updated = await UserModel.findById(userId)
+    .select("notificationPrefs")
+    .lean();
+
+  const prefs = updated?.notificationPrefs ?? {};
+  res.json({ message: "Notification preferences updated", notificationPrefs: prefs });
+});
+
 export default router;

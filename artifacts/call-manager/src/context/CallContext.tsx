@@ -35,6 +35,7 @@ interface CallContextValue {
   setSpeaker: (enabled: boolean) => void;
   setVertoConfig: (cfg: VertoConfig) => void;
   makeVertoCall: (to: string) => Promise<string | null>;
+  sendDtmf: (digit: string) => void;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
@@ -164,6 +165,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     clientRef.current?.setSpeakerEnabled(enabled);
   }, []);
 
+  const sendDtmf = useCallback((digit: string) => {
+    clientRef.current?.sendDtmf(digit);
+  }, []);
+
   return (
     <CallContext.Provider value={{
       callState, callPhase, callInfo,
@@ -171,7 +176,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       startOutgoing, updateCallId, connectCall,
       acceptCall, declineCall, endCall,
       setMuted, setSpeaker,
-      setVertoConfig, makeVertoCall,
+      setVertoConfig, makeVertoCall, sendDtmf,
     }}>
       {children}
     </CallContext.Provider>
