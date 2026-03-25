@@ -10,7 +10,8 @@ import {
 import { VertoClient, type VertoConfig } from "@/lib/verto";
 
 export type CallState = "idle" | "outgoing" | "incoming" | "active";
-export type CallPhase = "calling" | "connected" | "ended";
+/** calling = dialling (no answer yet), ringing = remote is ringing, connected = answered */
+export type CallPhase = "calling" | "ringing" | "connected" | "ended";
 
 export interface CallInfo {
   number: string;
@@ -35,6 +36,7 @@ interface CallContextValue {
   setSpeaker: (enabled: boolean) => void;
   setVertoConfig: (cfg: VertoConfig) => void;
   makeVertoCall: (to: string) => Promise<string | null>;
+  answerVertoCall: (callId: string, sdp: string) => Promise<void>;
   sendDtmf: (digit: string) => void;
 }
 
@@ -61,9 +63,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!vertoConfig?.configured || !vertoConfig.wsUrl) return;
 
     const client = new VertoClient(vertoConfig, {
-      onConnected: () => setIsVertoConnected(true),
+      onConnected:    () => setIsVertoConnected(true),
       onDisconnected: () => setIsVertoConnected(false),
-      onError: (err) => console.warn("[Verto]", err),
+      onError:        (err) => console.warn("[Verto]", err),
+
+      onRinging: (_callId) => {
+        // Remote side is ringing — update phase from "calling" to "ringing"
+        setCallPhase((prev) => (prev === "calling" ? "ringing" : prev));
+      },
 
       onIncoming: (callId, callerNumber, sdp) => {
         incomingSdpRef.current = sdp;
@@ -77,7 +84,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       },
 
       onAnswer: (_callId, _sdp) => {
-        // Remote SDP is applied inside VertoClient.handleMessage before this fires
+        // Remote SDP was applied inside VertoClient before this fires
         setCallPhase("connected");
         setCallState("active");
       },
@@ -87,7 +94,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setTimeout(() => {
           setCallState("idle");
           setCallInfo(null);
-        }, 1200);
+        }, 1500);
       },
     });
 
@@ -111,6 +118,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallInfo((prev) => prev ? { ...prev, callId } : prev);
   }, []);
 
+  // connectCall: fallback for non-Verto mode only
   const connectCall = useCallback(() => {
     setCallPhase("connected");
     setCallState("active");
@@ -124,6 +132,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       console.warn("[Verto] makeCall error", e);
       return null;
     }
+  }, []);
+
+  const answerVertoCall = useCallback(async (callId: string, sdp: string): Promise<void> => {
+    if (!clientRef.current) return;
+    await clientRef.current.answerCall(callId, sdp);
   }, []);
 
   const acceptCall = useCallback(async () => {
@@ -142,8 +155,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (clientRef.current && callInfo?.callId) {
       clientRef.current.hangup(callInfo.callId);
     }
-    setCallState("idle");
-    setCallInfo(null);
+    setCallPhase("ended");
+    setTimeout(() => {
+      setCallState("idle");
+      setCallInfo(null);
+    }, 800);
   }, [callInfo]);
 
   const endCall = useCallback((_durationSecs?: number) => {
@@ -154,7 +170,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setTimeout(() => {
       setCallState("idle");
       setCallInfo(null);
-    }, 1200);
+    }, 1500);
   }, [callInfo]);
 
   const setMuted = useCallback((muted: boolean) => {
@@ -176,7 +192,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       startOutgoing, updateCallId, connectCall,
       acceptCall, declineCall, endCall,
       setMuted, setSpeaker,
-      setVertoConfig, makeVertoCall, sendDtmf,
+      setVertoConfig, makeVertoCall, answerVertoCall, sendDtmf,
     }}>
       {children}
     </CallContext.Provider>

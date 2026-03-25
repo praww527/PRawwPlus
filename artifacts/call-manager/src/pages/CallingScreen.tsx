@@ -138,6 +138,7 @@ export default function CallingScreen() {
 
   const statusLabel =
     callPhase === "calling" ? "Calling…" :
+    callPhase === "ringing" ? "Ringing…" :
     callPhase === "ended"   ? "Call Ended" :
     null;
 
@@ -287,7 +288,7 @@ export default function CallingScreen() {
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="relative flex items-center justify-center">
-            {callPhase === "calling" && (
+            {(callPhase === "calling" || callPhase === "ringing") && (
               <div
                 className="absolute rounded-full animate-ping opacity-15"
                 style={{ width: 170, height: 170, background: "#34c759" }}

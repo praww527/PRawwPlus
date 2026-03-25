@@ -1,11 +1,15 @@
 /**
  * FreeSWITCH Event Socket Layer (ESL) listener.
  *
- * Connects to FreeSWITCH's ESL port (8021) through an SSH tunnel on port 22
- * so it works even when port 8021 is firewalled externally.
+ * Connects to FreeSWITCH's ESL port (8021) — direct TCP when
+ * FREESWITCH_SSH_KEY is not set, or via an SSH tunnel when it is.
  *
- * If no SSH key is set it falls back to a direct TCP connection (useful when
- * the ESL port is locally reachable).
+ * Responsibilities:
+ *  - Authenticate and subscribe to call events
+ *  - On CHANNEL_ANSWER: mark call in-progress, schedule automatic hangup
+ *    when user's coin balance is exhausted (external calls only)
+ *  - On CHANNEL_HANGUP_COMPLETE: finalise call record and deduct coins
+ *  - Expose sendApiCommand() for one-shot FreeSWITCH API calls
  */
 
 import net from "net";
@@ -14,6 +18,8 @@ import { logger } from "./logger";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 
 const COINS_PER_MINUTE = 1;
+/** Minimum balance before a call is allowed to start (safety margin) */
+const MIN_COINS_SAFETY  = 0.1;
 
 const ESL_HOST     = process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -39,6 +45,8 @@ class FreeSwitchESL {
   private authenticated =  false;
   private destroyed =      false;
   private reconnectTimer:  ReturnType<typeof setTimeout> | null = null;
+  /** Tracks scheduled balance-hangup timers so we can cancel on early hangup */
+  private hangupTimers =   new Map<string, ReturnType<typeof setTimeout>>();
 
   connect() {
     if (!ESL_HOST) {
@@ -125,14 +133,12 @@ class FreeSwitchESL {
       logger.error({ err: err.message }, "[ESL] SSH channel error");
     });
 
-    // Wrap the channel in a write-capable object for sendLine
-    (channel as unknown as { _esl: true });
     this.socket = channel as unknown as net.Socket;
   }
 
   private attachSocket(sock: net.Socket) {
-    this.socket     = sock;
-    this.buffer     = "";
+    this.socket        = sock;
+    this.buffer        = "";
     this.authenticated = false;
 
     sock.on("connect", () => {
@@ -158,28 +164,46 @@ class FreeSwitchESL {
   disconnect() {
     this.destroyed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    for (const t of this.hangupTimers.values()) clearTimeout(t);
+    this.hangupTimers.clear();
     this.socket?.destroy?.();
     this.sshConn?.end();
-    this.socket    = null;
-    this.sshConn   = null;
+    this.socket  = null;
+    this.sshConn = null;
   }
 
   isConnected() {
     return this.authenticated;
   }
 
-  private send(cmd: string) {
+  /** Send a raw ESL command line (appends \n\n) */
+  private sendLine(cmd: string) {
     if (!this.socket) return;
     try {
       (this.socket as unknown as { write: (d: string) => void }).write(`${cmd}\n\n`);
-    } catch {}
+    } catch (err) {
+      logger.warn({ err }, "[ESL] sendLine failed");
+    }
+  }
+
+  /**
+   * Send a FreeSWITCH API command via ESL (fire-and-forget).
+   * Example: sendApiCommand("uuid_kill abc-123-456 ALLOTTED_TIMEOUT")
+   */
+  sendApiCommand(apiCmd: string) {
+    if (!this.authenticated) {
+      logger.warn({ apiCmd }, "[ESL] sendApiCommand called while not authenticated — ignored");
+      return;
+    }
+    logger.debug({ apiCmd }, "[ESL] sending API command");
+    this.sendLine(`bgapi ${apiCmd}`);
   }
 
   private scheduleReconnect() {
     if (this.destroyed) return;
-    this.socket     = null;
+    this.socket  = null;
     this.sshConn?.end();
-    this.sshConn    = null;
+    this.sshConn = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     logger.info("[ESL] Reconnecting in 15s");
     this.reconnectTimer = setTimeout(() => this.connect(), 15_000);
@@ -193,8 +217,8 @@ class FreeSwitchESL {
       const block = this.buffer.slice(0, blockEnd);
       this.buffer = this.buffer.slice(blockEnd + 2);
 
-      const headers     = this.parseHeaders(block);
-      const contentLen  = parseInt(headers["Content-Length"] ?? "0");
+      const headers    = this.parseHeaders(block);
+      const contentLen = parseInt(headers["Content-Length"] ?? "0");
 
       if (contentLen > 0) {
         if (this.buffer.length < contentLen) { this.buffer = block + "\n\n" + this.buffer; break; }
@@ -222,18 +246,18 @@ class FreeSwitchESL {
 
     if (ct === "auth/request") {
       logger.info("[ESL] Auth requested — sending password");
-      this.send(`auth ${ESL_PASSWORD}`);
+      this.sendLine(`auth ${ESL_PASSWORD}`);
       return;
     }
 
     if (ct === "command/reply") {
       const reply = event.headers["Reply-Text"] ?? "";
       if (reply.startsWith("+OK accepted")) {
-        logger.info("[ESL] Authenticated — subscribing to CHANNEL events");
+        logger.info("[ESL] Authenticated — subscribing to call events");
         this.authenticated = true;
-        this.send("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE");
+        this.sendLine("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE");
       } else if (reply.startsWith("+OK")) {
-        // Subscription ACK
+        // Subscription/command ACK — ignore
       } else if (reply.startsWith("-ERR")) {
         logger.error({ reply }, "[ESL] Auth/command error");
       }
@@ -254,17 +278,55 @@ class FreeSwitchESL {
   private async handleAnswer(h: Record<string, string>) {
     const fsCallId = h["Unique-ID"];
     if (!fsCallId) return;
+
     await connectDB();
     const call = await CallModel.findOne({ fsCallId });
     if (!call || call.endedAt) return;
+
     await CallModel.updateOne({ fsCallId }, { status: "in-progress", startedAt: new Date() });
     logger.info({ fsCallId }, "[ESL] CHANNEL_ANSWER → in-progress");
+
+    // Mid-call balance enforcement for external calls
+    if (call.callType === "external") {
+      const user = await UserModel.findById(call.userId).select("coins").lean();
+      const coins = user?.coins ?? 0;
+
+      if (coins < MIN_COINS_SAFETY) {
+        // No balance at all — hang up immediately
+        logger.warn({ fsCallId, coins }, "[ESL] Insufficient coins on answer — hanging up immediately");
+        this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
+        return;
+      }
+
+      // Schedule hangup when balance would be exhausted
+      // 1 coin = 1 minute, add 5-second buffer so billing rounds up cleanly
+      const allowedSecs = Math.floor((coins / COINS_PER_MINUTE) * 60);
+      const schedHangup = Math.max(5, allowedSecs - 5);
+
+      logger.info({ fsCallId, coins, allowedSecs, schedHangup }, "[ESL] Scheduling balance-based hangup");
+
+      const timer = setTimeout(() => {
+        this.hangupTimers.delete(fsCallId);
+        logger.warn({ fsCallId }, "[ESL] Balance exhausted — sending uuid_kill");
+        this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
+      }, schedHangup * 1000);
+
+      this.hangupTimers.set(fsCallId, timer);
+    }
   }
 
   private async handleHangup(h: Record<string, string>) {
     const fsCallId = h["Unique-ID"];
     const billsec  = parseInt(h["billsec"] ?? "0");
     if (!fsCallId) return;
+
+    // Cancel any pending balance hangup timer
+    const timer = this.hangupTimers.get(fsCallId);
+    if (timer) {
+      clearTimeout(timer);
+      this.hangupTimers.delete(fsCallId);
+    }
+
     await connectDB();
     const call = await CallModel.findOne({ fsCallId });
     if (!call || call.endedAt) return;
@@ -292,6 +354,7 @@ class FreeSwitchESL {
     } else {
       await UserModel.updateOne({ _id: call.userId }, { $inc: { totalCallsUsed: 1 } });
     }
+
     logger.info({ fsCallId, billsec, coinsUsed }, "[ESL] CHANNEL_HANGUP_COMPLETE → completed");
   }
 }
@@ -316,4 +379,11 @@ export function eslStatus(): { enabled: boolean; connected: boolean; host: strin
     host:      ESL_HOST,
     port:      ESL_PORT,
   };
+}
+
+/** Send a one-shot FreeSWITCH API command via the active ESL connection */
+export function sendEslApiCommand(cmd: string): boolean {
+  if (!eslClient?.isConnected()) return false;
+  eslClient.sendApiCommand(cmd);
+  return true;
 }
