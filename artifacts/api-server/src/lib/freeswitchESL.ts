@@ -6,9 +6,12 @@
  *
  * Responsibilities:
  *  - Authenticate and subscribe to call events
+ *  - On CHANNEL_ORIGINATE: send push notification to callee (incoming call alert)
  *  - On CHANNEL_ANSWER: mark call in-progress, schedule automatic hangup
- *    when user's coin balance is exhausted (external calls only)
- *  - On CHANNEL_HANGUP_COMPLETE: finalise call record and deduct coins
+ *    when user's coin balance is exhausted (external calls only), with voice
+ *    announcement before disconnecting
+ *  - On CHANNEL_HANGUP_COMPLETE: finalise call record, deduct coins,
+ *    send push notification for missed calls
  *  - Expose sendApiCommand() for one-shot FreeSWITCH API calls
  */
 
@@ -20,6 +23,8 @@ import { connectDB, CallModel, UserModel } from "@workspace/db";
 const COINS_PER_MINUTE = 1;
 /** Minimum balance before a call is allowed to start (safety margin) */
 const MIN_COINS_SAFETY  = 0.1;
+/** Seconds to wait after speaking the insufficient-balance message before killing the call */
+const INSUFFICIENT_BALANCE_VOICE_DELAY = 9_000;
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -38,6 +43,33 @@ function cleanKey(raw: string): string {
     .trim();
 }
 
+/** Send an Expo push notification via the Expo push gateway (no FCM/APNS credentials needed) */
+async function sendExpoPush(
+  pushToken: string,
+  title: string,
+  body: string,
+  data: Record<string, string> = {},
+): Promise<void> {
+  try {
+    const resp = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ to: pushToken, title, body, data, sound: "default", priority: "high" }),
+    });
+    const result = await resp.json() as { data?: { status: string; message?: string } };
+    if (result?.data?.status === "error") {
+      logger.warn({ result }, "[Push] Expo gateway returned error");
+    } else {
+      logger.info({ tokenPrefix: pushToken.slice(0, 30) }, "[Push] Notification sent OK");
+    }
+  } catch (err) {
+    logger.error({ err }, "[Push] Failed to send Expo push notification");
+  }
+}
+
 class FreeSwitchESL {
   private socket:          net.Socket | null = null;
   private sshConn:         SSHClient | null  = null;
@@ -47,6 +79,8 @@ class FreeSwitchESL {
   private reconnectTimer:  ReturnType<typeof setTimeout> | null = null;
   /** Tracks scheduled balance-hangup timers so we can cancel on early hangup */
   private hangupTimers =   new Map<string, ReturnType<typeof setTimeout>>();
+  /** Maps B-leg UUID → destination extension for push notifications */
+  private originateDestMap = new Map<string, string>();
 
   connect() {
     if (!ESL_HOST) {
@@ -166,6 +200,7 @@ class FreeSwitchESL {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     for (const t of this.hangupTimers.values()) clearTimeout(t);
     this.hangupTimers.clear();
+    this.originateDestMap.clear();
     this.socket?.destroy?.();
     this.sshConn?.end();
     this.socket  = null;
@@ -267,12 +302,53 @@ class FreeSwitchESL {
     if (ct === "text/event-plain") {
       const body    = this.parseHeaders(event.body);
       const evtName = body["Event-Name"] ?? "";
-      if (evtName === "CHANNEL_ANSWER") {
+      if (evtName === "CHANNEL_ORIGINATE") {
+        this.handleOriginate(body).catch((e) => logger.error({ err: e }, "[ESL] handleOriginate error"));
+      } else if (evtName === "CHANNEL_ANSWER") {
         this.handleAnswer(body).catch((e) => logger.error({ err: e }, "[ESL] handleAnswer error"));
       } else if (evtName === "CHANNEL_HANGUP_COMPLETE") {
         this.handleHangup(body).catch((e) => logger.error({ err: e }, "[ESL] handleHangup error"));
       }
     }
+  }
+
+  /**
+   * CHANNEL_ORIGINATE fires when FreeSWITCH attempts to ring the B-leg.
+   * Use this to send push notifications to the callee on their mobile device.
+   */
+  private async handleOriginate(h: Record<string, string>) {
+    const uuid = h["Unique-ID"];
+    const destExt = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
+    const callerExt = h["Caller-Caller-ID-Number"] ?? h["Channel-Caller-ID-Number"] ?? "Unknown";
+
+    if (!uuid || !destExt) return;
+
+    // Only care about internal extension calls (4-digit extensions)
+    if (!/^[1-9]\d{3}$/.test(destExt)) return;
+
+    // Track this originate so we know the destination on hangup (for missed call push)
+    this.originateDestMap.set(uuid, destExt);
+
+    logger.info({ uuid, destExt, callerExt }, "[ESL] CHANNEL_ORIGINATE — checking push token");
+
+    await connectDB();
+    const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
+      .select("expoPushToken notificationPrefs dnd")
+      .lean();
+
+    if (!destUser?.expoPushToken) return;
+    if (destUser.dnd) {
+      logger.info({ destExt }, "[ESL] Push skipped — callee has DND enabled");
+      return;
+    }
+    if (destUser.notificationPrefs?.incomingCalls === false) return;
+
+    await sendExpoPush(
+      destUser.expoPushToken,
+      "📞 Incoming Call",
+      `Extension ${callerExt} is calling you`,
+      { type: "incoming_call", fromExtension: callerExt, toExtension: destExt },
+    );
   }
 
   private async handleAnswer(h: Record<string, string>) {
@@ -292,9 +368,14 @@ class FreeSwitchESL {
       const coins = user?.coins ?? 0;
 
       if (coins < MIN_COINS_SAFETY) {
-        // No balance at all — hang up immediately
-        logger.warn({ fsCallId, coins }, "[ESL] Insufficient coins on answer — hanging up immediately");
-        this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
+        // No balance at all — play voice announcement then hang up
+        logger.warn({ fsCallId, coins }, "[ESL] Insufficient coins on answer — announcing and hanging up");
+        this.sendApiCommand(
+          `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance is insufficient to make this call. Please top up your account. The call will be disconnected.`,
+        );
+        setTimeout(() => {
+          this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
+        }, INSUFFICIENT_BALANCE_VOICE_DELAY);
         return;
       }
 
@@ -307,8 +388,14 @@ class FreeSwitchESL {
 
       const timer = setTimeout(() => {
         this.hangupTimers.delete(fsCallId);
-        logger.warn({ fsCallId }, "[ESL] Balance exhausted — sending uuid_kill");
-        this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
+        logger.warn({ fsCallId }, "[ESL] Balance exhausted — announcing and sending uuid_kill");
+        // Warn the caller 10 seconds before cut (if balance drops near zero during the call)
+        this.sendApiCommand(
+          `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance has been exhausted. The call will be disconnected now.`,
+        );
+        setTimeout(() => {
+          this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
+        }, INSUFFICIENT_BALANCE_VOICE_DELAY);
       }, schedHangup * 1000);
 
       this.hangupTimers.set(fsCallId, timer);
@@ -316,8 +403,9 @@ class FreeSwitchESL {
   }
 
   private async handleHangup(h: Record<string, string>) {
-    const fsCallId = h["Unique-ID"];
-    const billsec  = parseInt(h["billsec"] ?? "0");
+    const fsCallId    = h["Unique-ID"];
+    const billsec     = parseInt(h["billsec"] ?? "0");
+    const hangupCause = h["Hangup-Cause"] ?? "";
     if (!fsCallId) return;
 
     // Cancel any pending balance hangup timer
@@ -325,6 +413,16 @@ class FreeSwitchESL {
     if (timer) {
       clearTimeout(timer);
       this.hangupTimers.delete(fsCallId);
+    }
+
+    // Send missed call push notification to callee if they didn't answer
+    const destExt = this.originateDestMap.get(fsCallId);
+    this.originateDestMap.delete(fsCallId);
+
+    if (destExt && (hangupCause === "NO_ANSWER" || hangupCause === "ORIGINATOR_CANCEL")) {
+      this.sendMissedCallPush(fsCallId, destExt, h["Caller-Caller-ID-Number"] ?? "Unknown").catch(
+        (e) => logger.error({ err: e }, "[Push] Missed call push error"),
+      );
     }
 
     await connectDB();
@@ -355,7 +453,25 @@ class FreeSwitchESL {
       await UserModel.updateOne({ _id: call.userId }, { $inc: { totalCallsUsed: 1 } });
     }
 
-    logger.info({ fsCallId, billsec, coinsUsed }, "[ESL] CHANNEL_HANGUP_COMPLETE → completed");
+    logger.info({ fsCallId, billsec, coinsUsed, hangupCause }, "[ESL] CHANNEL_HANGUP_COMPLETE → completed");
+  }
+
+  private async sendMissedCallPush(fsCallId: string, destExt: string, callerExt: string) {
+    await connectDB();
+    const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
+      .select("expoPushToken notificationPrefs")
+      .lean();
+
+    if (!destUser?.expoPushToken) return;
+    if (destUser.notificationPrefs?.missedCalls === false) return;
+
+    logger.info({ fsCallId, destExt, callerExt }, "[Push] Sending missed call notification");
+    await sendExpoPush(
+      destUser.expoPushToken,
+      "📵 Missed Call",
+      `You missed a call from extension ${callerExt}`,
+      { type: "missed_call", fromExtension: callerExt, toExtension: destExt },
+    );
   }
 }
 

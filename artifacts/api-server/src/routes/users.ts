@@ -142,4 +142,33 @@ router.patch("/users/notification-prefs", async (req: Request, res: Response) =>
   res.json({ message: "Notification preferences updated", notificationPrefs: prefs });
 });
 
+router.post("/users/push-token", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const { token } = req.body as { token?: string };
+
+  if (!token || typeof token !== "string" || !token.startsWith("ExponentPushToken[")) {
+    res.status(400).json({ error: "Invalid Expo push token" });
+    return;
+  }
+
+  await UserModel.updateOne({ _id: userId }, { $set: { expoPushToken: token } });
+  res.json({ message: "Push token registered" });
+});
+
+router.delete("/users/push-token", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  await UserModel.updateOne({ _id: userId }, { $unset: { expoPushToken: 1 } });
+  res.json({ message: "Push token removed" });
+});
+
 export default router;

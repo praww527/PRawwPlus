@@ -152,7 +152,8 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 
     const sid = await createSession(sessionData);
     setSessionCookie(res, sid);
-    res.json({ user: sessionData.user });
+    // Include `token` so mobile apps can use Authorization: Bearer <token>
+    res.json({ user: sessionData.user, token: sid });
   } catch (err) {
     res.status(500).json({ error: "Login failed" });
   }
