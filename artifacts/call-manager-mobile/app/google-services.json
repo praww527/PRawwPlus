@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "645929839085",
+    "project_id": "prawwplus",
+    "storage_bucket": "prawwplus.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:645929839085:android:c5dd8dbec4b7e4fe765fe4",
+        "android_client_info": {
+          "package_name": "com.praww.prawwplus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBzkJ_7nktuU8SGLk6QAUaykFJ9ZHa8Hnc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
