@@ -20,7 +20,7 @@ function createTransport() {
   });
 }
 
-const FROM = process.env.SMTP_FROM ?? "no-reply@callmanager.co.za";
+const FROM = process.env.SMTP_FROM ?? "no-reply@prawwplus.co.za";
 
 async function sendMail(to: string, subject: string, html: string) {
   const transport = createTransport();

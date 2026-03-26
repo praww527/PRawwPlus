@@ -425,6 +425,9 @@ importers:
       expo-secure-store:
         specifier: ^55.0.9
         version: 55.0.9(expo@54.0.33)
+      jssip:
+        specifier: ^3.10.1
+        version: 3.13.6
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -434,6 +437,9 @@ importers:
       react-native-callkeep:
         specifier: ^4.3.16
         version: 4.3.16(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
+      react-native-incall-manager:
+        specifier: ^4.2.0
+        version: 4.2.1(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
       react-native-webrtc:
         specifier: ^124.0.7
         version: 124.0.7(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
@@ -3533,6 +3539,10 @@ packages:
   eventemitter3@4.0.7:
     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
 
+  events@3.3.0:
+    resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
+    engines: {node: '>=0.8.x'}
+
   execa@9.6.1:
     resolution: {integrity: sha512-9Be3ZoN4LmYR90tUoVu2te2BsbzHfhJyfEiAVfz7N5/zv+jduIfLrV2xdQXOHbaD6KgpGdO9PRPM1Y4Q9QkPkA==}
     engines: {node: ^18.19.0 || >=20.5.0}
@@ -4225,6 +4235,9 @@ packages:
   jsonpointer@5.0.1:
     resolution: {integrity: sha512-p/nXbhSEcu3pZRdkW1OfJhpsVtW1gd4Wa1fnQc9YLiTfAjn0312eMKimbdIQzuZl9aa9xUGaRlP9T/CJE/ditQ==}
     engines: {node: '>=0.10.0'}
+
+  jssip@3.13.6:
+    resolution: {integrity: sha512-Bf1ndrSuqpO87/AG56WACR7kKcCvKOzaIQROu7JUMh0qFaGOV4NuR+wsnaXa7f3/d6xhwVczczFyt1ywJmTjPg==}
 
   kareem@3.2.0:
     resolution: {integrity: sha512-VS8MWZz/cT+SqBCpVfNN4zoVz5VskR3N4+sTmUXme55e9avQHntpwpNq0yjnosISXqwJ3AQVjlbI4Dyzv//JtA==}
@@ -5034,6 +5047,11 @@ packages:
       react: '*'
       react-native: '*'
 
+  react-native-incall-manager@4.2.1:
+    resolution: {integrity: sha512-HTdtzQ/AswUbuNhcL0gmyZLAXo8VqBO7SIh+BwbeeM1YMXXlR+Q2MvKxhD4yanjJPeyqMfuRhryCQCJhPlsdAw==}
+    peerDependencies:
+      react-native: '>=0.40.0'
+
   react-native-is-edge-to-edge@1.3.1:
     resolution: {integrity: sha512-NIXU/iT5+ORyCc7p0z2nnlkouYKX425vuU1OEm6bMMtWWR9yvb+Xg5AZmImTKoF9abxCPqrKC3rOZsKzUYgYZA==}
     peerDependencies:
@@ -5288,6 +5306,10 @@ packages:
 
   scheduler@0.26.0:
     resolution: {integrity: sha512-NlHwttCI/l5gCPR3D1nNXtWABUmBwvZpEQiD4IXSbIDq8BzLIK/7Ir5gTFSGZDUu37K5cMNp0hFtzO38sC7gWA==}
+
+  sdp-transform@2.15.0:
+    resolution: {integrity: sha512-KrOH82c/W+GYQ0LHqtr3caRpM3ITglq3ljGUIb8LTki7ByacJZ9z+piSGiwZDsRyhQbYBOBJgr2k6X4BZXi3Kw==}
+    hasBin: true
 
   secure-json-parse@4.1.0:
     resolution: {integrity: sha512-l4KnYfEyqYJxDwlNVyRfO2E4NTHfMKAWdUuA8J0yve2Dz/E/PdBepY03RvyJpssIpRFwJoCD55wA+mEDs6ByWA==}
@@ -9789,6 +9811,8 @@ snapshots:
 
   eventemitter3@4.0.7: {}
 
+  events@3.3.0: {}
+
   execa@9.6.1:
     dependencies:
       '@sindresorhus/merge-streams': 4.0.0
@@ -10600,6 +10624,14 @@ snapshots:
       graceful-fs: 4.2.11
 
   jsonpointer@5.0.1: {}
+
+  jssip@3.13.6:
+    dependencies:
+      debug: 4.4.3
+      events: 3.3.0
+      sdp-transform: 2.15.0
+    transitivePeerDependencies:
+      - supports-color
 
   kareem@3.2.0: {}
 
@@ -11607,6 +11639,10 @@ snapshots:
       react: 19.1.0
       react-native: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
 
+  react-native-incall-manager@4.2.1(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)):
+    dependencies:
+      react-native: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
+
   react-native-is-edge-to-edge@1.3.1(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0):
     dependencies:
       react: 19.1.0
@@ -11943,6 +11979,8 @@ snapshots:
   sax@1.6.0: {}
 
   scheduler@0.26.0: {}
+
+  sdp-transform@2.15.0: {}
 
   secure-json-parse@4.1.0: {}
 
