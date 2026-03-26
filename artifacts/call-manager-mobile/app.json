@@ -71,19 +71,6 @@
         {
           "backgroundMessageHandlerEnabled": true
         }
-      ],
-      [
-        "react-native-callkeep",
-        {
-          "appName": "Call Manager"
-        }
-      ],
-      [
-        "react-native-webrtc",
-        {
-          "cameraPermission": "Camera access is needed for video calls",
-          "microphonePermission": "Microphone access is needed for phone calls"
-        }
       ]
     ],
     "experiments": {
