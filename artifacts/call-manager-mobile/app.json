@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.prawwplus.mobile",
+      "bundleIdentifier": "com.praww.prawwplus",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "PRawwPlus needs microphone access for phone calls.",
         "NSCameraUsageDescription": "PRawwPlus needs camera access for video calls.",
@@ -32,7 +32,7 @@
       }
     },
     "android": {
-      "package": "com.prawwplus.mobile",
+      "package": "com.praww.prawwplus",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.RECORD_AUDIO",
