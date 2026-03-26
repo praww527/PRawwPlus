@@ -42,6 +42,7 @@ export interface IUser extends Document<string> {
   dnd: boolean;
   freeswitchHost?: string;
   freeswitchPort?: number;
+  expoPushToken?: string;
   notificationPrefs: INotificationPrefs;
   createdAt: Date;
   updatedAt: Date;
@@ -76,6 +77,7 @@ const UserSchema = new Schema<IUser>(
     dnd: { type: Boolean, default: false },
     freeswitchHost: { type: String },
     freeswitchPort: { type: Number },
+    expoPushToken: { type: String },
     notificationPrefs: {
       type: new Schema({
         incomingCalls: { type: Boolean, default: true },

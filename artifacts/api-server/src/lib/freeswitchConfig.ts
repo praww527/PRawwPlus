@@ -123,13 +123,15 @@ export function dialplanXml(fsDomain: string): string {
       </condition>
 
       <!--
-        Callee is busy on another call — play US busy signal (fast busy).
+        Callee is busy on another call.
+        Voice: "The number you are calling is currently busy. Please try again later."
         Cause code 17 (USER_BUSY).
       -->
       <condition field="\${bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
         <action application="answer"/>
         <action application="sleep" data="500"/>
-        <action application="playback" data="tone_stream://%(500,500,480,620);loops=4"/>
+        <action application="speak" data="flite|kal|The number you are calling is currently busy. Please try again later."/>
+        <action application="sleep" data="1000"/>
         <action application="hangup" data="USER_BUSY"/>
       </condition>
 
@@ -143,37 +145,40 @@ export function dialplanXml(fsDomain: string): string {
         <action application="answer"/>
         <action application="sleep" data="500"/>
         <action application="voicemail" data="default ${fsDomain} \$1"/>
+        <anti-action application="speak" data="flite|kal|The person you are calling is not available. Please try again later."/>
+        <anti-action application="sleep" data="1000"/>
         <anti-action application="hangup" data="NO_ANSWER"/>
       </condition>
 
       <!--
         Callee is not registered (not logged in / offline).
-        Play SIT / reorder tone. Cause code 20 (SUBSCRIBER_ABSENT /
-        maps to UNREGISTERED on the A-leg).
+        Voice: "The number you have dialed is currently unavailable."
+        Cause code 20 (SUBSCRIBER_ABSENT / maps to UNREGISTERED on A-leg).
       -->
       <condition field="\${bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|NO_ROUTE_DESTINATION|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
         <action application="sleep" data="500"/>
-        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
+        <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
+        <action application="sleep" data="1000"/>
         <action application="hangup" data="UNREGISTERED"/>
       </condition>
 
       <!--
         Call was cancelled by caller before it was answered (ORIGINATOR_CANCEL).
-        No tone needed — the caller already hung up.
+        No announcement needed — the caller already hung up.
       -->
       <condition field="\${bridge_hangup_cause}" expression="^ORIGINATOR_CANCEL$" break="on-true">
         <action application="hangup" data="ORIGINATOR_CANCEL"/>
       </condition>
 
       <!--
-        Fallback for any other bridge failure — preserve the original cause so
-        the browser receives an accurate verto.bye cause code.
+        Fallback for any other bridge failure — voice announcement then preserve cause.
       -->
       <condition field="\${bridge_hangup_cause}" expression="^(.+)$" break="on-true">
         <action application="answer"/>
         <action application="sleep" data="500"/>
-        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
+        <action application="speak" data="flite|kal|The call could not be completed. Please try again later."/>
+        <action application="sleep" data="1000"/>
         <action application="hangup" data="\${bridge_hangup_cause}"/>
       </condition>
     </extension>
@@ -199,12 +204,16 @@ export function dialplanXml(fsDomain: string): string {
 
     <!--
       Invalid / unallocated numbers: any destination not matching 1000–9999 or
-      the voicemail codes above gets a 404 Not Found response.
+      the voicemail codes above — answer, play voice announcement, hang up.
     -->
     <extension name="invalid_number">
       <condition field="destination_number" expression="^(.*)$">
         <action application="log" data="WARNING Rejected unmatched destination: \$1"/>
-        <action application="respond" data="404 Number does not exist"/>
+        <action application="answer"/>
+        <action application="sleep" data="500"/>
+        <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
+        <action application="sleep" data="1000"/>
+        <action application="hangup" data="NO_ROUTE_DESTINATION"/>
       </condition>
     </extension>
 
