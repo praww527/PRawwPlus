@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X } from "lucide-react";
+import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X, PhoneMissed, PhoneCall, WifiOff, Voicemail } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
 import { useEndCall, getGetMeQueryKey } from "@workspace/api-client-react";
@@ -36,7 +36,7 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 }
 
 export default function CallingScreen() {
-  const { callInfo, callPhase, endCall, setMuted, setSpeaker, sendDtmf } = useCall();
+  const { callInfo, callPhase, hangupInfo, endCall, setMuted, setSpeaker, sendDtmf } = useCall();
   const { mutateAsync: signalEndCall } = useEndCall();
   const queryClient = useQueryClient();
 
@@ -136,11 +136,27 @@ export default function CallingScreen() {
     setDtmfBuffer((b) => (b + digit).slice(-12));
   };
 
+  const endedMessage = hangupInfo?.message ?? "Call Ended";
+
   const statusLabel =
     callPhase === "calling" ? "Calling…" :
     callPhase === "ringing" ? "Ringing…" :
-    callPhase === "ended"   ? "Call Ended" :
+    callPhase === "ended"   ? endedMessage :
     null;
+
+  const HangupIcon =
+    hangupInfo?.icon === "busy"        ? PhoneCall :
+    hangupInfo?.icon === "no-answer"   ? PhoneMissed :
+    hangupInfo?.icon === "unavailable" ? WifiOff :
+    hangupInfo?.icon === "voicemail"   ? Voicemail :
+    PhoneOff;
+
+  const hangupColor =
+    hangupInfo?.icon === "busy"        ? "#ff9f0a" :
+    hangupInfo?.icon === "no-answer"   ? "#ff9f0a" :
+    hangupInfo?.icon === "unavailable" ? "#ff453a" :
+    hangupInfo?.icon === "voicemail"   ? "#636366" :
+    "#ff3b30";
 
   const isInternal = callInfo?.callType === "internal";
 
@@ -294,20 +310,42 @@ export default function CallingScreen() {
                 style={{ width: 170, height: 170, background: "#34c759" }}
               />
             )}
-            <div
-              className="absolute rounded-full opacity-10"
-              style={{ width: 200, height: 200, background: "#34c759", filter: "blur(20px)" }}
-            />
-            <div
-              className="relative w-28 h-28 rounded-full flex items-center justify-center text-[30px] font-bold text-white select-none"
-              style={{
-                background: "linear-gradient(135deg,rgba(52,199,89,0.28),rgba(52,199,89,0.08))",
-                border: "2px solid rgba(52,199,89,0.38)",
-                boxShadow: "0 0 40px rgba(52,199,89,0.22)",
-              }}
-            >
-              {avatarInitials(callInfo)}
-            </div>
+            {callPhase === "ended" && hangupInfo && (
+              <div
+                className="absolute rounded-full opacity-10"
+                style={{ width: 200, height: 200, background: hangupColor, filter: "blur(20px)" }}
+              />
+            )}
+            {callPhase !== "ended" && (
+              <div
+                className="absolute rounded-full opacity-10"
+                style={{ width: 200, height: 200, background: "#34c759", filter: "blur(20px)" }}
+              />
+            )}
+
+            {callPhase === "ended" ? (
+              <div
+                className="relative w-28 h-28 rounded-full flex items-center justify-center select-none"
+                style={{
+                  background: `linear-gradient(135deg,${hangupColor}38,${hangupColor}12)`,
+                  border: `2px solid ${hangupColor}60`,
+                  boxShadow: `0 0 40px ${hangupColor}30`,
+                }}
+              >
+                <HangupIcon style={{ width: 36, height: 36, color: hangupColor }} />
+              </div>
+            ) : (
+              <div
+                className="relative w-28 h-28 rounded-full flex items-center justify-center text-[30px] font-bold text-white select-none"
+                style={{
+                  background: "linear-gradient(135deg,rgba(52,199,89,0.28),rgba(52,199,89,0.08))",
+                  border: "2px solid rgba(52,199,89,0.38)",
+                  boxShadow: "0 0 40px rgba(52,199,89,0.22)",
+                }}
+              >
+                {avatarInitials(callInfo)}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -345,14 +383,14 @@ export default function CallingScreen() {
           style={{
             width: 82,
             height: 82,
-            background: callPhase === "ended" ? "rgba(255,59,48,0.3)" : "#ff3b30",
+            background: callPhase === "ended" ? `${hangupColor}48` : "#ff3b30",
             boxShadow: callPhase === "ended" ? "none" : "0 6px 28px rgba(255,59,48,0.45)",
           }}
         >
           <PhoneOff className="text-white" style={{ width: 30, height: 30 }} />
         </button>
         <span className="text-white/35 text-xs font-medium">
-          {callPhase === "ended" ? "Call Ended" : "End Call"}
+          {callPhase === "ended" ? endedMessage : "End Call"}
         </span>
       </div>
     </div>

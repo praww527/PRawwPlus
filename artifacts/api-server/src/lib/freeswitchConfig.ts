@@ -101,49 +101,87 @@ export function dialplanXml(fsDomain: string): string {
 
     <!--
       Internal extension-to-extension calls (1000–9999).
-      Ring timeout: 30 seconds. If not answered, route to voicemail.
-      mod_voicemail must be loaded on the FreeSWITCH server.
+
+      Flow after a failed bridge:
+        USER_BUSY                            → busy signal  → hang up USER_BUSY
+        NO_ANSWER / NORMAL_CLEARING          → voicemail    → hang up NO_ANSWER
+        UNREGISTERED / USER_NOT_REGISTERED   → unavailable  → hang up UNREGISTERED
+        anything else                        → unavailable  → preserve bridge cause
+
+      The final hangup cause is forwarded to the browser in the verto.bye
+      message so the UI can show the correct reason to the caller.
     -->
-    <extension name="internal_extensions">
-      <condition field="destination_number" expression="^([1-9][0-9]{3})$">
-        <!-- Caller/callee IDs -->
+    <extension name="internal_extensions" continue="true">
+      <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="on-false">
         <action application="set" data="effective_caller_id_name=\${caller_id_name}"/>
         <action application="set" data="effective_caller_id_number=\${caller_id_number}"/>
-
-        <!-- Ring for 30 seconds before voicemail -->
         <action application="set" data="call_timeout=30"/>
-        <action application="set" data="hangup_after_bridge=true"/>
-
-        <!-- Send early media (ringback) so the caller hears ringing -->
+        <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="ringback=\${us-ring}"/>
-
-        <!--
-          continue_on_fail=true: if bridge fails for ANY reason (not registered,
-          busy, no answer, etc.) fall through to the actions below instead of
-          silently hanging up. This is critical so callers hear a proper message.
-        -->
         <action application="set" data="continue_on_fail=true"/>
-
-        <!-- Bridge to the destination extension -->
         <action application="bridge" data="verto_contact/\$1@${fsDomain}"/>
+      </condition>
 
-        <!--
-          Bridge failed / timed out. Play a "not available" tone and hang up.
-          We use the built-in congestion tone rather than voicemail so there is
-          no dependency on mod_voicemail being loaded.
-          NORMAL_CLEARING = callee hung up before answering → busy
-          USER_BUSY       = callee is on another call → busy
-          NO_ANSWER / UNREGISTERED → not-available message
-        -->
+      <!--
+        Callee is busy on another call — play US busy signal (fast busy).
+        Cause code 17 (USER_BUSY).
+      -->
+      <condition field="\${bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
         <action application="answer"/>
         <action application="sleep" data="500"/>
-        <action application="playback" data="tone_stream://%(300,200,440,480);loops=3"/>
-        <action application="hangup" data="NO_ANSWER"/>
+        <action application="playback" data="tone_stream://%(500,500,480,620);loops=4"/>
+        <action application="hangup" data="USER_BUSY"/>
+      </condition>
+
+      <!--
+        Callee did not answer within ring timeout → send to voicemail.
+        If mod_voicemail is not loaded or the extension has no mailbox,
+        FreeSWITCH will hang up with NO_ANSWER automatically.
+        Cause code 19 (NO_ANSWER).
+      -->
+      <condition field="\${bridge_hangup_cause}" expression="^(NO_ANSWER|NORMAL_CLEARING)$" break="on-true">
+        <action application="answer"/>
+        <action application="sleep" data="500"/>
+        <action application="voicemail" data="default ${fsDomain} \$1"/>
+        <anti-action application="hangup" data="NO_ANSWER"/>
+      </condition>
+
+      <!--
+        Callee is not registered (not logged in / offline).
+        Play SIT / reorder tone. Cause code 20 (SUBSCRIBER_ABSENT /
+        maps to UNREGISTERED on the A-leg).
+      -->
+      <condition field="\${bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|NO_ROUTE_DESTINATION|DESTINATION_OUT_OF_ORDER)$" break="on-true">
+        <action application="answer"/>
+        <action application="sleep" data="500"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
+        <action application="hangup" data="UNREGISTERED"/>
+      </condition>
+
+      <!--
+        Call was cancelled by caller before it was answered (ORIGINATOR_CANCEL).
+        No tone needed — the caller already hung up.
+      -->
+      <condition field="\${bridge_hangup_cause}" expression="^ORIGINATOR_CANCEL$" break="on-true">
+        <action application="hangup" data="ORIGINATOR_CANCEL"/>
+      </condition>
+
+      <!--
+        Fallback for any other bridge failure — preserve the original cause so
+        the browser receives an accurate verto.bye cause code.
+      -->
+      <condition field="\${bridge_hangup_cause}" expression="^(.+)$" break="on-true">
+        <action application="answer"/>
+        <action application="sleep" data="500"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
+        <action application="hangup" data="\${bridge_hangup_cause}"/>
       </condition>
     </extension>
 
     <!--
-      Voicemail direct access: dial *97 or *98<ext> to check messages.
+      Voicemail direct access.
+        *97        — check your own voicemail
+        *98<ext>   — check another extension's voicemail
     -->
     <extension name="voicemail_self">
       <condition field="destination_number" expression="^\*97$">
@@ -158,13 +196,6 @@ export function dialplanXml(fsDomain: string): string {
         <action application="voicemail" data="check default ${fsDomain} \$1"/>
       </condition>
     </extension>
-
-    <!--
-      Busy extensions: if the callee is on a call and call waiting is not enabled,
-      FreeSWITCH returns USER_BUSY from the bridge action above and falls through
-      to voicemail. No extra extension needed — handled by continue_on_fail=false
-      on the bridge and fall-through voicemail action.
-    -->
 
     <!--
       Invalid / unallocated numbers: any destination not matching 1000–9999 or

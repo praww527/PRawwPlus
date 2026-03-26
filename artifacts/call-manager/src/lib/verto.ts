@@ -31,11 +31,16 @@ export interface VertoConfig {
   configured: boolean;
 }
 
+export interface HangupCause {
+  cause:     string;
+  causeCode: number;
+}
+
 export interface VertoCallbacks {
   onIncoming:     (callId: string, callerNumber: string, sdp: string) => void;
   onRinging:      (callId: string) => void;
   onAnswer:       (callId: string, sdp: string) => void;
-  onHangup:       (callId: string) => void;
+  onHangup:       (callId: string, hangupCause: HangupCause) => void;
   onConnected:    () => void;
   onDisconnected: () => void;
   onError:        (err: string) => void;
@@ -149,12 +154,14 @@ export class VertoClient {
     });
   }
 
-  hangup(callId?: string) {
+  hangup(callId?: string, cause = "NORMAL_CLEARING", causeCode = 16) {
     const id = callId ?? this.currentCallId;
     if (id) {
       this.sendNotify("verto.bye", {
         callID:       id,
         sessid:       this.sessId,
+        cause,
+        causeCode,
         dialogParams: { callID: id },
       });
     }
@@ -307,8 +314,12 @@ export class VertoClient {
       }
 
       case "verto.bye": {
-        const callId = (params.callID as string) ?? "";
-        this.callbacks.onHangup(callId);
+        const callId   = (params.callID as string) ?? "";
+        const cause    = (params.cause as string) ?? "NORMAL_CLEARING";
+        const causeCode = typeof params.causeCode === "number"
+          ? params.causeCode
+          : (typeof params.cause_code === "number" ? params.cause_code : 16);
+        this.callbacks.onHangup(callId, { cause, causeCode });
         this.cleanupMedia();
         this.currentCallId = null;
         this.remoteSdpSet  = false;
