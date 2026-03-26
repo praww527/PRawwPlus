@@ -119,7 +119,8 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="ringback=\${us-ring}"/>
         <action application="set" data="continue_on_fail=true"/>
-        <action application="bridge" data="verto_contact/\$1@${fsDomain}"/>
+        <!-- Try Verto first (web/desktop clients), then SIP (mobile JsSIP clients) -->
+        <action application="bridge" data="verto_contact/\$1@${fsDomain}|sofia/call_manager_ws/\$1@${fsDomain}"/>
       </condition>
 
       <!--
@@ -219,6 +220,58 @@ export function dialplanXml(fsDomain: string): string {
 
   </context>
 </include>`;
+}
+
+/**
+ * Sofia SIP profile with WebSocket transport (mod_sofia).
+ * Mobile clients connect via wss://APP_URL/api/sip/ws → ws://fs:5066
+ * This profile is written to sip_profiles/call_manager_ws.xml
+ */
+export function sipProfileXml(fsIp: string, appUrl: string): string {
+  return `<profile name="call_manager_ws">
+  <settings>
+    <param name="context" value="default"/>
+    <param name="dialplan" value="XML"/>
+    <param name="sip-ip" value="${fsIp}"/>
+    <param name="ext-sip-ip" value="${fsIp}"/>
+    <param name="rtp-ip" value="0.0.0.0"/>
+    <param name="ext-rtp-ip" value="${fsIp}"/>
+
+    <!-- WebSocket transport on port 5066 (plain WS; TLS terminated by reverse proxy) -->
+    <param name="ws-binding" value="0.0.0.0:5066"/>
+
+    <!-- RTP port range -->
+    <param name="rtp-port-range" value="16384-32768"/>
+
+    <!-- Codecs — Opus first for WebRTC -->
+    <param name="inbound-codec-prefs" value="opus,PCMU,PCMA,G722"/>
+    <param name="outbound-codec-prefs" value="opus,PCMU,PCMA,G722"/>
+
+    <!-- STUN -->
+    <param name="stun-enabled" value="true"/>
+    <param name="stun-auto-disable" value="false"/>
+
+    <!-- Authentication via mod_xml_curl directory -->
+    <param name="auth-calls" value="true"/>
+    <param name="inbound-reg-force-matching-username" value="true"/>
+
+    <!-- Session timers -->
+    <param name="session-timeout" value="1800"/>
+
+    <!-- NAT traversal -->
+    <param name="aggressive-nat-detection" value="true"/>
+    <param name="apply-nat-acl" value="nat.auto"/>
+
+    <!-- DTMF -->
+    <param name="dtmf-duration" value="2000"/>
+    <param name="rfc2833-pt" value="101"/>
+
+    <!-- Logging -->
+    <param name="sip-trace" value="no"/>
+    <param name="debug" value="0"/>
+  </settings>
+  <gateways/>
+</profile>`;
 }
 
 export function eventSocketConf(password?: string): string {

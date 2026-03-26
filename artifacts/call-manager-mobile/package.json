@@ -2,12 +2,14 @@
   "name": "@workspace/call-manager-mobile",
   "version": "0.0.0",
   "private": true,
-  "main": "expo-router/entry",
+  "main": "index.js",
   "scripts": {
     "dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -56,7 +58,15 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@react-native-firebase/app": "^23.8.8",
+    "@react-native-firebase/messaging": "^23.8.8",
+    "expo": "~54.0.33",
     "expo-notifications": "^55.0.13",
-    "expo-secure-store": "^55.0.9"
+    "expo-secure-store": "^55.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-callkeep": "^4.3.16",
+    "react-native-webrtc": "^124.0.7",
+    "uuid": "^13.0.0"
   }
 }
