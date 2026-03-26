@@ -18,17 +18,19 @@ const staticDir =
 // APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
 // ALLOWED_ORIGINS overrides everything — comma-separated list for multi-domain setups.
 const appUrlRaw = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, "") : "";
+const isProduction = process.env.NODE_ENV === "production";
 
 const allowedOrigins: string[] = [];
 if (process.env.ALLOWED_ORIGINS) {
   // Explicit override — use exactly what was provided (comma-separated list).
   allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()));
-} else if (appUrlRaw) {
-  // Production: only the configured APP_URL domain is allowed.
+} else if (isProduction && appUrlRaw) {
+  // Production only: restrict CORS to the configured APP_URL domain.
   allowedOrigins.push(appUrlRaw);
 }
-// If neither is set (local dev without APP_URL), allowedOrigins stays empty —
+// In development (NODE_ENV !== "production"), allowedOrigins stays empty —
 // the CORS handler below treats an empty list as "allow all origins".
+// This lets the Vite dev server preview work from any hostname.
 
 // CSP connect-src: allow wss:// on the same canonical domain for the Verto proxy.
 const fsWsOrigins: string[] = [];
