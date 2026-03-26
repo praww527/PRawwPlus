@@ -14,26 +14,11 @@ if (Number.isNaN(port) || port <= 0) {
 // In production BASE_PATH isn't set — default to root "/"
 const basePath = process.env.BASE_PATH ?? "/";
 
-const isReplit = process.env.NODE_ENV !== "production" && !!process.env.REPL_ID;
-
 export default defineConfig({
   base: basePath,
   plugins: [
     react(),
     tailwindcss(),
-    ...(isReplit
-      ? [
-          (await import("@replit/vite-plugin-runtime-error-modal")).default(),
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
   ],
   resolve: {
     alias: {

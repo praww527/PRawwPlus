@@ -99,6 +99,21 @@ router.get("/admin/users/:userId", requireAdmin, async (req, res) => {
   });
 });
 
+router.post("/admin/users/:userId/verify-email", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+  const user = await UserModel.findById(userId);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  user.emailVerified = true;
+  user.verificationToken = undefined;
+  user.verificationTokenExpiry = undefined;
+  await user.save();
+  res.json({ message: "Email verified successfully", user: { ...user.toObject(), id: user._id } });
+});
+
 router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res) => {
   await connectDB();
   const { userId } = req.params;

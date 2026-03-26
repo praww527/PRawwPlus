@@ -3,15 +3,12 @@
  *
  * Priority:
  *  1. APP_URL env var — explicit production domain (e.g. https://rtc.PRaww.co.za)
- *  2. REPLIT_DEV_DOMAIN — Replit-managed dev-tunnel domain (fallback in dev only)
- *  3. Empty string — caller must handle the missing-URL case
+ *  2. Empty string — caller must handle the missing-URL case
  *
- * APP_URL is always preferred so that a custom domain set for production is
- * never silently overridden by a temporary Replit dev-tunnel URL.
+ * Set APP_URL in your environment to the public-facing domain of the application.
  */
 export function getAppUrl(): string {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
-  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   return "";
 }
 
