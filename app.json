@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "fea8431a-dee4-4427-a44f-ff4a2c822498"
+      }
+    },
+    "android": {
+      "package": "com.prawwplus.mobile"
+    }
+  }
+}
