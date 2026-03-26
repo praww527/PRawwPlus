@@ -4,6 +4,7 @@ import {
   ArrowRight, CheckCircle, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import logoImg from "/logo.png";
 
 const features = [
   {
@@ -70,9 +71,7 @@ export default function Home() {
       {/* Nav */}
       <header className="relative z-20 flex items-center justify-between px-6 md:px-12 py-5 max-w-7xl mx-auto">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shadow-lg shadow-primary/30">
-            <Phone className="h-5 w-5 text-white" />
-          </div>
+          <img src={logoImg} alt="PRaww+ logo" className="w-9 h-9 rounded-xl object-contain" />
           <span className="text-lg font-display font-bold text-white">PRaww+</span>
         </div>
         <div className="flex items-center gap-3">
