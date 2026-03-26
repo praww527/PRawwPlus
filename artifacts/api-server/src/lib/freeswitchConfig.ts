@@ -117,21 +117,28 @@ export function dialplanXml(fsDomain: string): string {
         <!-- Send early media (ringback) so the caller hears ringing -->
         <action application="set" data="ringback=\${us-ring}"/>
 
-        <!-- Check if the extension is registered; reject with 'does not exist' if not -->
-        <action application="set" data="continue_on_fail=false"/>
+        <!--
+          continue_on_fail=true: if bridge fails for ANY reason (not registered,
+          busy, no answer, etc.) fall through to the actions below instead of
+          silently hanging up. This is critical so callers hear a proper message.
+        -->
+        <action application="set" data="continue_on_fail=true"/>
 
         <!-- Bridge to the destination extension -->
         <action application="bridge" data="verto_contact/\$1@${fsDomain}"/>
 
         <!--
-          If bridge fails/times out, fall through to voicemail.
-          NORMAL_CLEARING = callee hung up before answering → voicemail
-          USER_BUSY       = callee is on another call → busy tone
-          NO_ANSWER       = ring timeout → voicemail
+          Bridge failed / timed out. Play a "not available" tone and hang up.
+          We use the built-in congestion tone rather than voicemail so there is
+          no dependency on mod_voicemail being loaded.
+          NORMAL_CLEARING = callee hung up before answering → busy
+          USER_BUSY       = callee is on another call → busy
+          NO_ANSWER / UNREGISTERED → not-available message
         -->
         <action application="answer"/>
-        <action application="sleep" data="1000"/>
-        <action application="voicemail" data="default ${fsDomain} \$1"/>
+        <action application="sleep" data="500"/>
+        <action application="playback" data="tone_stream://%(300,200,440,480);loops=3"/>
+        <action application="hangup" data="NO_ANSWER"/>
       </condition>
     </extension>
 
