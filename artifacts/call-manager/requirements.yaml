@@ -16,6 +16,6 @@ images:
     aspect_ratio: "1:1"
 
 notes:
-  - "Authentication uses standard Replit Auth (@workspace/replit-auth-web)."
+  - "Authentication uses the custom @workspace/auth-web hook (fetches /api/auth/user)."
   - "React Query hooks are imported from @workspace/api-client-react."
   - "PayFast forms automatically submit via a generated hidden form when the endpoint returns PayFastPaymentData."

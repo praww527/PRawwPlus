@@ -29,7 +29,7 @@ artifacts-monorepo/
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
 │   ├── db/                 # Mongoose models + MongoDB connection
-│   └── replit-auth-web/    # Auth web client hook (useAuth)
+│   └── auth-web/           # Auth web client hook (useAuth)
 ```
 
 ## Call Architecture (FreeSWITCH Verto)
@@ -136,6 +136,7 @@ artifacts-monorepo/
 - `GET /api/admin/users` — list all users
 - `GET /api/admin/users/:id` — user detail
 - `POST /api/admin/users/:id/adjust-credit` — adjust user coins
+- `POST /api/admin/users/:id/verify-email` — manually verify a user's email (bypass email flow)
 - `GET /api/admin/calls` — all calls across platform
 
 ## Business Logic
@@ -199,7 +200,7 @@ artifacts-monorepo/
 The system is self-hosted. `rtc.PRaww.co.za` points directly to the production server via a DNS A record. Replit is used only for development.
 
 ### Domain Priority Logic
-`APP_URL` → `REPLIT_DEV_DOMAIN` → request headers. When `APP_URL=https://rtc.PRaww.co.za` is set, it governs every service without exception. CORS is tightly scoped to `APP_URL` only when it is set.
+`APP_URL` → request headers (x-forwarded-host/host). When `APP_URL=https://rtc.PRaww.co.za` is set, it governs every service without exception. CORS is tightly scoped to `APP_URL` only when it is set. `ALLOWED_ORIGINS` can be set to a comma-separated list for multi-domain setups.
 
 ### URL Routing at rtc.PRaww.co.za
 | Path | Service |

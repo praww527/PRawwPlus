@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useAuth } from "@workspace/auth-web";
 import {
   useGetMe, useListPayments, useInitiateSubscription,
   useTopUpCredits, useListMyNumbers, useRemoveNumber,

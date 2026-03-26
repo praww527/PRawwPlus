@@ -16,29 +16,19 @@ const staticDir =
   path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
 
 // APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
-// When APP_URL is set it is the sole allowed CORS origin — no Replit dev-tunnel
-// domains are added so production CORS is tightly scoped to the real domain.
-// In development (no APP_URL), fall back to REPLIT_DEV_DOMAIN if available.
-const appUrlRaw = process.env.APP_URL
-  ? process.env.APP_URL.replace(/\/$/, "")
-  : process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : "";
+// ALLOWED_ORIGINS overrides everything — comma-separated list for multi-domain setups.
+const appUrlRaw = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, "") : "";
 
 const allowedOrigins: string[] = [];
 if (process.env.ALLOWED_ORIGINS) {
   // Explicit override — use exactly what was provided (comma-separated list).
   allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()));
-} else if (process.env.APP_URL) {
+} else if (appUrlRaw) {
   // Production: only the configured APP_URL domain is allowed.
   allowedOrigins.push(appUrlRaw);
-} else {
-  // Development fallback: allow the dev-tunnel origin (if any).
-  if (appUrlRaw) allowedOrigins.push(appUrlRaw);
-  if (process.env.REPLIT_DOMAINS) {
-    allowedOrigins.push(...process.env.REPLIT_DOMAINS.split(",").map((d) => `https://${d.trim()}`));
-  }
 }
+// If neither is set (local dev without APP_URL), allowedOrigins stays empty —
+// the CORS handler below treats an empty list as "allow all origins".
 
 // CSP connect-src: allow wss:// on the same canonical domain for the Verto proxy.
 const fsWsOrigins: string[] = [];

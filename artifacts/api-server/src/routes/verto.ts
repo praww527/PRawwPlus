@@ -28,7 +28,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
 
   // Build the Verto WebSocket URL. Browser connects to wss://rtc.PRaww.co.za/api/verto/ws
   // and the proxy tunnels to FreeSWITCH internally (ws://FS_IP:8081).
-  // APP_URL (production custom domain) takes priority; REPLIT_DEV_DOMAIN is dev fallback.
+  // APP_URL (production custom domain) takes priority; falls back to request headers.
   const appUrl = getAppUrl();
   let wsUrl: string;
   if (appUrl) {
