@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Phone, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
+import logoImg from "/logo.png";
 import { useAuth } from "@workspace/auth-web";
 
 export default function LoginPage() {
@@ -45,13 +46,8 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 16,
-            background: "hsl(var(--primary))",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 12px",
-          }}>
-            <Phone style={{ width: 26, height: 26, color: "#fff" }} />
+          <div style={{ margin: "0 auto 12px", width: 72, height: 72 }}>
+            <img src={logoImg} alt="PRaww+ logo" style={{ width: 72, height: 72, objectFit: "contain" }} />
           </div>
           <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>PRaww+</h1>
           <p style={{ fontSize: 15, color: "var(--text-2)", marginTop: 4 }}>Sign in to your account</p>

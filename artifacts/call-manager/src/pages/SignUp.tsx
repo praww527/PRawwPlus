@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Phone, Eye, EyeOff, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
+import logoImg from "/logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,9 +109,7 @@ export default function SignUp() {
 
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shadow-lg shadow-primary/25">
-                <Phone className="h-5 w-5 text-white" />
-              </div>
+              <img src={logoImg} alt="PRaww+ logo" className="w-10 h-10 rounded-xl object-contain" />
               <span className="text-lg font-display font-bold text-white">PRaww+</span>
             </div>
 

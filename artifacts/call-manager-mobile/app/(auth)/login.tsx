@@ -9,9 +9,12 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
+
+const logoSource = require("@/assets/images/icon.png");
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -41,9 +44,7 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.header}>
-          <View style={styles.logoCircle}>
-            <Text style={styles.logoText}>📞</Text>
-          </View>
+          <Image source={logoSource} style={styles.logoImage} resizeMode="contain" />
           <Text style={styles.title}>PRawwPlus</Text>
           <Text style={styles.subtitle}>Sign in to your account</Text>
         </View>
@@ -110,17 +111,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 48,
   },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#0A84FF",
-    alignItems: "center",
-    justifyContent: "center",
+  logoImage: {
+    width: 90,
+    height: 90,
     marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 36,
   },
   title: {
     fontSize: 28,
