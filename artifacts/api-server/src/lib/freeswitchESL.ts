@@ -21,7 +21,7 @@ const COINS_PER_MINUTE = 1;
 /** Minimum balance before a call is allowed to start (safety margin) */
 const MIN_COINS_SAFETY  = 0.1;
 
-const ESL_HOST     = process.env.FREESWITCH_DOMAIN ?? "";
+const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
 const ESL_PASSWORD = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
 const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "root";
