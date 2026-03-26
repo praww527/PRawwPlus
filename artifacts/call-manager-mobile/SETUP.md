@@ -1,4 +1,4 @@
-# Call Manager Mobile — Build & Setup Guide
+# PRawwPlus Mobile — Build & Setup Guide
 
 ## Overview
 
@@ -25,7 +25,7 @@ This is a React Native bare-workflow VoIP app using JsSIP + WebRTC + CallKeep + 
 
 ### Android
 
-1. Click **Add app → Android**; set the package name to `com.callmanager.mobile`
+1. Click **Add app → Android**; set the package name to `com.prawwplus.mobile`
 2. Download **`google-services.json`** and replace the placeholder at:
    ```
    artifacts/call-manager-mobile/google-services.json
@@ -33,15 +33,15 @@ This is a React Native bare-workflow VoIP app using JsSIP + WebRTC + CallKeep + 
 
 ### iOS
 
-1. Click **Add app → iOS**; set the bundle ID to `com.callmanager.mobile`
+1. Click **Add app → iOS**; set the bundle ID to `com.prawwplus.mobile`
 2. Download **`GoogleService-Info.plist`** and replace the placeholder at:
    ```
-   artifacts/call-manager-mobile/ios/CallManagerMobile/GoogleService-Info.plist
+   artifacts/call-manager-mobile/ios/PRawwPlus/GoogleService-Info.plist
    ```
 
 ### Backend environment variables
 
-Set these on the API server (add to `.env` or Replit Secrets):
+Set these on the API server (already added to Replit Secrets):
 
 ```
 FIREBASE_PROJECT_ID=your-firebase-project-id
@@ -57,7 +57,7 @@ Generate a service account key: Firebase Console → Project Settings → Servic
 
 For `react-native-callkeep` to trigger CallKit via VoIP push:
 
-1. In Apple Developer Portal, create a **VoIP Services Certificate** for bundle ID `com.callmanager.mobile`
+1. In Apple Developer Portal, create a **VoIP Services Certificate** for bundle ID `com.prawwplus.mobile`
 2. Export as `.p12` and upload to Firebase Console → Project Settings → Cloud Messaging → iOS app → VoIP Certificate
 
 ---
@@ -89,7 +89,7 @@ npx expo run:android
 ```bash
 cd ios && pod install && cd ..
 npx expo run:ios
-# or open ios/CallManagerMobile.xcworkspace in Xcode
+# or open ios/PRawwPlus.xcworkspace in Xcode
 ```
 
 ---
@@ -101,6 +101,7 @@ npx expo run:ios
 | SIP signaling | JsSIP | Registers with FreeSWITCH via WebSocket |
 | Audio media | react-native-webrtc | Captures mic / plays remote audio |
 | Native call UI | react-native-callkeep | Shows system incoming call screen (CallKit / Telecom) |
+| Speaker switching | react-native-incall-manager | Controls earpiece/speaker audio routing |
 | Background wake | Firebase FCM (data-only) | High-priority push wakes app when terminated |
 | Backend | FreeSWITCH ESL | Sends FCM on incoming call, bridges SIP + Verto |
 
@@ -123,7 +124,27 @@ The API server (`artifacts/api-server`) exposes a SIP/WS proxy at `/api/sip/ws` 
 
 ---
 
-## 6. Troubleshooting
+## 6. EAS Build (APK / IPA without local toolchain)
+
+```bash
+# Install EAS CLI
+npm install -g eas-cli
+
+# Log in to Expo
+eas login
+
+# Build Android APK for internal distribution
+eas build --platform android --profile preview
+
+# Build iOS IPA for internal distribution
+eas build --platform ios --profile preview
+```
+
+The `preview` profile produces a distributable APK (Android) or IPA (iOS) that can be installed directly on devices. Use the `production` profile for App Store / Play Store submissions.
+
+---
+
+## 7. Troubleshooting
 
 | Issue | Fix |
 |---|---|
@@ -131,3 +152,4 @@ The API server (`artifacts/api-server`) exposes a SIP/WS proxy at `/api/sip/ws` 
 | CallKit doesn't show | iOS VoIP entitlement must be provisioned in Apple Dev Portal; check `aps-environment` in entitlements |
 | Audio not working | Check `RECORD_AUDIO` permission is granted at runtime (Android) and microphone usage description is set (iOS) |
 | SIP registration fails | Confirm FreeSWITCH WS port 5066 is reachable from API server and SIP profile XML was applied |
+| Speaker toggle not working | Ensure `react-native-incall-manager` is installed and linked via `npx expo prebuild` |
