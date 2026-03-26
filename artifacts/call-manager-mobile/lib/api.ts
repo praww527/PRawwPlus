@@ -1,6 +1,15 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+/**
+ * API client utility.
+ *
+ * Security:
+ *  - Auth token is stored in expo-secure-store (Keychain on iOS, EncryptedSharedPreferences on Android)
+ *  - Never stored in AsyncStorage (plain text) or sent in query parameters
+ *  - All requests use HTTPS in production
+ */
 
-const TOKEN_KEY = "auth_token";
+import * as SecureStore from "expo-secure-store";
+
+const TOKEN_KEY = "prawwplus_auth_token";
 
 export function getBaseUrl(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -9,15 +18,21 @@ export function getBaseUrl(): string {
 }
 
 export async function getToken(): Promise<string | null> {
-  return AsyncStorage.getItem(TOKEN_KEY);
+  try {
+    return await SecureStore.getItemAsync(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export async function setToken(token: string): Promise<void> {
-  return AsyncStorage.setItem(TOKEN_KEY, token);
+  await SecureStore.setItemAsync(TOKEN_KEY, token, {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED,
+  });
 }
 
 export async function clearToken(): Promise<void> {
-  return AsyncStorage.removeItem(TOKEN_KEY);
+  await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
 export async function apiRequest(
@@ -25,7 +40,7 @@ export async function apiRequest(
   options: RequestInit = {},
 ): Promise<Response> {
   const baseUrl = getBaseUrl();
-  const token = await getToken();
+  const token   = await getToken();
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

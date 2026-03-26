@@ -1,10 +1,16 @@
 /**
- * Call context — manages VoIP call state and exposes it to the UI.
+ * Call context — bridges the VoIP engine, tone service, and React UI.
  *
- * Wires together:
- *  - voipEngine (JsSIP + WebRTC)
- *  - callKeepService (native call UI)
- *  - React navigation (navigate to/from call screens)
+ * Features:
+ *  - Full call lifecycle (idle → registering → registered → calling/ringing → in-call → on-hold)
+ *  - Incoming call routing (foreground and via CallKeep)
+ *  - Hold / Unhold
+ *  - DTMF
+ *  - Call waiting (second incoming call while in-call)
+ *  - No-answer timeout handling
+ *  - SIP cause → user-friendly error messages
+ *  - Network state monitoring
+ *  - Call record creation & close via API
  */
 
 import React, {
@@ -17,68 +23,140 @@ import React, {
   type PropsWithChildren,
 } from "react";
 import { router } from "expo-router";
+import { Alert } from "react-native";
 import { type RTCSession } from "jssip";
-import { voipEngine, type CallState, type CallInfo, type VoipCredentials } from "@/lib/voipEngine";
+import {
+  voipEngine,
+  type CallState,
+  type CallInfo,
+  type VoipCredentials,
+  type WaitingCall,
+} from "@/lib/voipEngine";
 import { callKeepService } from "@/lib/callKeepService";
+import { networkMonitor } from "@/lib/networkMonitor";
 import { apiRequest } from "@/lib/api";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface CallContextValue {
-  callState:       CallState;
-  activeCall:      CallInfo | null;
-  incomingSession: RTCSession | null;
-  incomingFrom:    string | null;
-  incomingUuid:    string | null;
-  isMuted:         boolean;
-  isSpeakerOn:     boolean;
-  register:        () => Promise<void>;
-  unregister:      () => Promise<void>;
-  makeCall:        (destination: string) => Promise<void>;
-  answerCall:      () => Promise<void>;
-  declineCall:     () => void;
-  hangup:          () => void;
-  toggleMute:      () => void;
-  toggleSpeaker:   () => void;
+  callState:            CallState;
+  activeCall:           CallInfo | null;
+  incomingSession:      RTCSession | null;
+  incomingFrom:         string | null;
+  incomingUuid:         string | null;
+  waitingCall:          WaitingCall | null;
+  isMuted:              boolean;
+  isSpeakerOn:          boolean;
+  isOnHold:             boolean;
+  lastFailureReason:    string | null;
+  networkState:         "online" | "offline" | "unknown";
+  register:             () => Promise<void>;
+  unregister:           () => Promise<void>;
+  makeCall:             (destination: string) => Promise<void>;
+  answerCall:           () => Promise<void>;
+  declineCall:          () => void;
+  hangup:               () => void;
+  holdCall:             () => void;
+  unholdCall:           () => void;
+  sendDTMF:             (digit: string) => void;
+  answerWaitingCall:    () => Promise<void>;
+  dismissWaitingCall:   () => void;
+  toggleMute:           () => void;
+  toggleSpeaker:        () => void;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
 
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
 export function CallProvider({ children }: PropsWithChildren) {
-  const [callState,       setCallState]       = useState<CallState>("idle");
-  const [activeCall,      setActiveCall]      = useState<CallInfo | null>(null);
-  const [incomingSession, setIncomingSession] = useState<RTCSession | null>(null);
-  const [incomingFrom,    setIncomingFrom]    = useState<string | null>(null);
-  const [incomingUuid,    setIncomingUuid]    = useState<string | null>(null);
-  const [isMuted,         setIsMuted]         = useState(false);
-  const [isSpeakerOn,     setIsSpeakerOn]     = useState(false);
-  const credentialsRef = useRef<VoipCredentials | null>(null);
+  const [callState,         setCallState]         = useState<CallState>("idle");
+  const [activeCall,        setActiveCall]        = useState<CallInfo | null>(null);
+  const [incomingSession,   setIncomingSession]   = useState<RTCSession | null>(null);
+  const [incomingFrom,      setIncomingFrom]      = useState<string | null>(null);
+  const [incomingUuid,      setIncomingUuid]      = useState<string | null>(null);
+  const [waitingCall,       setWaitingCall]       = useState<WaitingCall | null>(null);
+  const [isMuted,           setIsMuted]           = useState(false);
+  const [isSpeakerOn,       setIsSpeakerOn]       = useState(false);
+  const [isOnHold,          setIsOnHold]          = useState(false);
+  const [lastFailureReason, setLastFailureReason] = useState<string | null>(null);
+  const [networkState,      setNetworkState]      = useState<"online" | "offline" | "unknown">("unknown");
+
+  const credentialsRef    = useRef<VoipCredentials | null>(null);
+  const activeCallIdRef   = useRef<string | null>(null);
+
+  // ── Network monitor ──
 
   useEffect(() => {
-    // Wire voipEngine events
-    const onState = (state: CallState) => setCallState(state);
+    networkMonitor.start();
+    const remove = networkMonitor.addListener((state) => setNetworkState(state));
+    setNetworkState(networkMonitor.getState());
+    return () => {
+      remove();
+      networkMonitor.stop();
+    };
+  }, []);
+
+  // ── VoIP engine wiring ──
+
+  useEffect(() => {
+    const onState = (state: CallState) => {
+      setCallState(state);
+      if (state === "on-hold") {
+        setIsOnHold(true);
+      } else if (state === "in-call") {
+        setIsOnHold(false);
+      }
+    };
 
     const onIncoming = (session: RTCSession, from: string, uuid: string) => {
       setIncomingSession(session);
       setIncomingFrom(from);
       setIncomingUuid(uuid);
-      // Navigate to the incoming call screen
+      setLastFailureReason(null);
+      callKeepService.displayIncomingCall(uuid, from, from);
       router.push("/incoming-call");
+    };
+
+    const onWaiting = (info: WaitingCall) => {
+      setWaitingCall(info);
     };
 
     const onConnected = (info: CallInfo) => {
       setActiveCall(info);
       setIncomingSession(null);
+      setIncomingFrom(null);
+      setIncomingUuid(null);
+      setWaitingCall(null);
+      setIsMuted(false);
+      setIsSpeakerOn(false);
+      setIsOnHold(false);
+      setLastFailureReason(null);
+      activeCallIdRef.current = info.uuid;
+      callKeepService.reportCallConnected(info.uuid);
       router.push("/active-call");
     };
 
-    const onEnded = (_reason: string) => {
+    const onEnded = (_rawReason: string, friendlyMessage: string) => {
+      const prevCall = activeCallIdRef.current;
       setActiveCall(null);
       setIncomingSession(null);
       setIncomingFrom(null);
       setIncomingUuid(null);
+      setWaitingCall(null);
       setIsMuted(false);
       setIsSpeakerOn(false);
-      callKeepService.endAllCalls();
-      // Navigate back to main tabs
+      setIsOnHold(false);
+      activeCallIdRef.current = null;
+
+      if (prevCall) callKeepService.endAllCalls();
+
+      // Show reason only for non-trivial endings
+      const silent = ["ended", "Canceled", "ORIGINATOR_CANCEL", "NORMAL_CLEARING"];
+      if (friendlyMessage && !silent.some((s) => _rawReason?.includes(s))) {
+        setLastFailureReason(friendlyMessage);
+      }
+
       if (router.canGoBack()) {
         router.dismissAll();
       } else {
@@ -92,11 +170,12 @@ export function CallProvider({ children }: PropsWithChildren) {
 
     voipEngine.on("stateChange",   onState);
     voipEngine.on("incomingCall",  onIncoming);
+    voipEngine.on("waitingCall",   onWaiting);
     voipEngine.on("callConnected", onConnected);
     voipEngine.on("callEnded",     onEnded);
     voipEngine.on("error",         onError);
 
-    // Wire CallKeep events to VoIP engine
+    // CallKeep events → VoIP engine
     const removeCallKeepListener = callKeepService.addListener((event) => {
       if (event.type === "answerCall") {
         voipEngine.answerIncomingCall().catch(console.error);
@@ -109,6 +188,7 @@ export function CallProvider({ children }: PropsWithChildren) {
     return () => {
       voipEngine.off("stateChange",   onState);
       voipEngine.off("incomingCall",  onIncoming);
+      voipEngine.off("waitingCall",   onWaiting);
       voipEngine.off("callConnected", onConnected);
       voipEngine.off("callEnded",     onEnded);
       voipEngine.off("error",         onError);
@@ -116,11 +196,16 @@ export function CallProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
+  // ── Register ──
+
   const register = useCallback(async () => {
     try {
-      const res = await apiRequest("/verto/config");
+      if (!networkMonitor.isOnline()) {
+        throw new Error("No internet connection. Please check your network settings.");
+      }
+      const res    = await apiRequest("/verto/config");
       const config = await res.json();
-      if (!res.ok) throw new Error(config.error ?? "Failed to fetch VoIP config");
+      if (!res.ok) throw new Error(config.error ?? "Failed to fetch VoIP configuration");
 
       const domain = process.env.EXPO_PUBLIC_FREESWITCH_DOMAIN ?? config.domain ?? "";
       const creds: VoipCredentials = {
@@ -131,7 +216,7 @@ export function CallProvider({ children }: PropsWithChildren) {
 
       credentialsRef.current = creds;
       await voipEngine.register(creds);
-    } catch (err) {
+    } catch (err: any) {
       console.error("[VoIP] Register error:", err);
       throw err;
     }
@@ -142,9 +227,30 @@ export function CallProvider({ children }: PropsWithChildren) {
     credentialsRef.current = null;
   }, []);
 
+  // ── Make call ──
+
   const makeCall = useCallback(async (destination: string) => {
-    await voipEngine.makeCall(destination);
+    if (!networkMonitor.isOnline()) {
+      Alert.alert("No Connection", "You are not connected to the internet. Please check your network and try again.");
+      return;
+    }
+    setLastFailureReason(null);
+    try {
+      // Record call in the API before placing it
+      await apiRequest("/calls", {
+        method: "POST",
+        body: JSON.stringify({ recipientNumber: destination }),
+      }).catch(() => {}); // Non-fatal if this fails
+
+      await voipEngine.makeCall(destination);
+    } catch (err: any) {
+      const msg = err?.message ?? "Could not place the call";
+      setLastFailureReason(msg);
+      throw err;
+    }
   }, []);
+
+  // ── Answer / Decline ──
 
   const answerCall = useCallback(async () => {
     await voipEngine.answerIncomingCall();
@@ -164,6 +270,36 @@ export function CallProvider({ children }: PropsWithChildren) {
     if (activeCall?.uuid) callKeepService.endCall(activeCall.uuid);
   }, [activeCall]);
 
+  // ── Hold / Unhold ──
+
+  const holdCall = useCallback(() => {
+    voipEngine.hold();
+  }, []);
+
+  const unholdCall = useCallback(() => {
+    voipEngine.unhold();
+  }, []);
+
+  // ── DTMF ──
+
+  const sendDTMF = useCallback((digit: string) => {
+    voipEngine.sendDTMF(digit);
+  }, []);
+
+  // ── Call waiting ──
+
+  const answerWaitingCall = useCallback(async () => {
+    await voipEngine.answerWaitingCall();
+    setWaitingCall(null);
+  }, []);
+
+  const dismissWaitingCall = useCallback(() => {
+    voipEngine.dismissWaitingCall();
+    setWaitingCall(null);
+  }, []);
+
+  // ── Mute / Speaker ──
+
   const toggleMute = useCallback(() => {
     const next = !isMuted;
     voipEngine.muteMicrophone(next);
@@ -177,23 +313,34 @@ export function CallProvider({ children }: PropsWithChildren) {
   }, [isSpeakerOn]);
 
   return (
-    <CallContext.Provider value={{
-      callState,
-      activeCall,
-      incomingSession,
-      incomingFrom,
-      incomingUuid,
-      isMuted,
-      isSpeakerOn,
-      register,
-      unregister,
-      makeCall,
-      answerCall,
-      declineCall,
-      hangup,
-      toggleMute,
-      toggleSpeaker,
-    }}>
+    <CallContext.Provider
+      value={{
+        callState,
+        activeCall,
+        incomingSession,
+        incomingFrom,
+        incomingUuid,
+        waitingCall,
+        isMuted,
+        isSpeakerOn,
+        isOnHold,
+        lastFailureReason,
+        networkState,
+        register,
+        unregister,
+        makeCall,
+        answerCall,
+        declineCall,
+        hangup,
+        holdCall,
+        unholdCall,
+        sendDTMF,
+        answerWaitingCall,
+        dismissWaitingCall,
+        toggleMute,
+        toggleSpeaker,
+      }}
+    >
       {children}
     </CallContext.Provider>
   );
