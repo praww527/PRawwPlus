@@ -44,7 +44,7 @@ export default function LoginScreen() {
           <View style={styles.logoCircle}>
             <Text style={styles.logoText}>📞</Text>
           </View>
-          <Text style={styles.title}>Call Manager</Text>
+          <Text style={styles.title}>PRawwPlus</Text>
           <Text style={styles.subtitle}>Sign in to your account</Text>
         </View>
 

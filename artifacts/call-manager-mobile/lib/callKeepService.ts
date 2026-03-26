@@ -25,7 +25,7 @@ export const callKeepService = {
   setup(): void {
     const options = {
       ios: {
-        appName: "Call Manager",
+        appName: "PRawwPlus",
         supportsVideo: false,
         maximumCallGroups: "1",
         maximumCallsPerCallGroup: "1",
@@ -33,7 +33,7 @@ export const callKeepService = {
       },
       android: {
         alertTitle:       "Permissions required",
-        alertDescription: "Call Manager needs access to manage phone calls",
+        alertDescription: "PRawwPlus needs access to manage phone calls",
         cancelButton:     "Cancel",
         okButton:         "OK",
         imageName:        "ic_launcher",

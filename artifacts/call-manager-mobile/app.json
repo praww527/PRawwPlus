@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Call Manager",
-    "slug": "call-manager-mobile",
+    "name": "PRawwPlus",
+    "slug": "prawwplus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "callmanager",
+    "scheme": "prawwplus",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.callmanager.mobile",
+      "bundleIdentifier": "com.prawwplus.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Call Manager needs microphone access for phone calls.",
-        "NSCameraUsageDescription": "Call Manager needs camera access for video calls.",
+        "NSMicrophoneUsageDescription": "PRawwPlus needs microphone access for phone calls.",
+        "NSCameraUsageDescription": "PRawwPlus needs camera access for video calls.",
         "UIBackgroundModes": [
           "voip",
           "fetch",
@@ -32,7 +32,7 @@
       }
     },
     "android": {
-      "package": "com.callmanager.mobile",
+      "package": "com.prawwplus.mobile",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -57,7 +57,7 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://rtc.PRaww.co.za/"
         }
       ],
       "expo-font",
@@ -79,7 +79,7 @@
     },
     "extra": {
       "router": {
-        "origin": "https://replit.com/"
+        "origin": "https://rtc.PRaww.co.za/"
       },
       "eas": {
         "projectId": "d70cf263-144d-4218-862c-98cfbaa8cfb2"

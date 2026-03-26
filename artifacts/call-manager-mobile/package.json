@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/call-manager-mobile",
+  "name": "@workspace/prawwplus-mobile",
   "version": "0.0.0",
   "private": true,
   "main": "index.js",
@@ -63,9 +63,11 @@
     "expo": "~54.0.33",
     "expo-notifications": "^55.0.13",
     "expo-secure-store": "^55.0.9",
+    "jssip": "^3.10.1",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-callkeep": "^4.3.16",
+    "react-native-incall-manager": "^4.2.0",
     "react-native-webrtc": "^124.0.7",
     "uuid": "^13.0.0"
   }

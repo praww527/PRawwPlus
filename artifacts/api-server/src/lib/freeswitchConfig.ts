@@ -96,7 +96,7 @@ export function vertoConf(fsIp: string): string {
 
 export function dialplanXml(fsDomain: string): string {
   return `<include>
-  <!-- Call Manager Dialplan — domain: ${fsDomain} -->
+  <!-- PRawwPlus Dialplan — domain: ${fsDomain} -->
   <context name="default">
 
     <!--
