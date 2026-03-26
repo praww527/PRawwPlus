@@ -36,11 +36,11 @@ prawwplus/
 
 ## Mobile App (PRawwPlus — React Native VoIP)
 
-Located in `artifacts/call-manager-mobile/`. A production-ready bare-workflow Expo app.
+Located in `artifacts/call-manager-mobile/`. A production-ready managed-workflow Expo app.
 
 ### Package identifiers
-- **Android**: `com.prawwplus.mobile`
-- **iOS**: `com.prawwplus.mobile`
+- **Android**: `com.praww.prawwplus`
+- **iOS**: `com.praww.prawwplus`
 - **App slug**: `prawwplus`
 - **URL scheme**: `prawwplus`
 
@@ -48,9 +48,29 @@ Located in `artifacts/call-manager-mobile/`. A production-ready bare-workflow Ex
 - **JsSIP** — SIP signaling over WebSocket (proxied by API server at `/api/sip/ws`)
 - **react-native-webrtc** — audio capture and playback for calls
 - **react-native-callkeep** — system-level call UI (CallKit on iOS, Telecom on Android)
-- **react-native-incall-manager** — speaker/earpiece audio routing
+- **react-native-incall-manager** — ITU-T call progress tones, speaker/earpiece routing
+- **@react-native-community/netinfo** — network state monitoring
 - **@react-native-firebase/messaging** — FCM high-priority data-only push to wake app when terminated
-- **expo-router** — file-based navigation (bare workflow)
+- **expo-secure-store** — secure auth token storage (Keychain/EncryptedSharedPreferences)
+- **expo-router** — file-based navigation
+
+### Call Features Implemented
+- **ITU-T call progress tones**: ringback (local + FreeSWITCH early media), ringtone, busy/congestion via FreeSWITCH
+- **Call hold/unhold**: JsSIP session.hold()/unhold() with on-hold state UI
+- **DTMF**: in-call keypad modal, RFC2833 via JsSIP session.sendDTMF()
+- **Call waiting**: detects second incoming call while in-call, shows accept/dismiss banner
+- **Call forwarding**: stored in AsyncStorage, applied before dialing
+- **Do Not Disturb**: toggle blocks outgoing calls, stored in AsyncStorage
+- **No-answer timeout**: 30s auto-terminate for unanswered outgoing calls
+- **SIP cause mapping**: 28 SIP/FreeSWITCH cause codes mapped to user-friendly messages
+- **Network monitoring**: real-time online/offline detection blocks calls when no connectivity
+- **Real call history**: Recents screen wired to `/api/calls` with pull-to-refresh + call-back
+
+### Security
+- Auth token in `expo-secure-store` (hardware-backed on Android, Keychain on iOS)
+- Android ProGuard/R8 enabled for release builds (`enableProguardInReleaseBuilds: true`)
+- Android resource shrinking enabled (`enableShrinkResourcesInReleaseBuilds: true`)
+- No secrets in code; all config via environment variables
 
 ### Setup required before build
 1. Replace `google-services.json` (Android) and `ios/PRawwPlus/GoogleService-Info.plist` (iOS) with real Firebase files

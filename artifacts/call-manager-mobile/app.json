@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.praww.prawwplus",
+      "buildNumber": "1",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "PRawwPlus needs microphone access for phone calls.",
         "NSCameraUsageDescription": "PRawwPlus needs camera access for video calls.",
@@ -33,6 +34,7 @@
     },
     "android": {
       "package": "com.praww.prawwplus",
+      "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -48,7 +50,9 @@
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS"
-      ]
+      ],
+      "enableProguardInReleaseBuilds": true,
+      "enableShrinkResourcesInReleaseBuilds": true
     },
     "web": {
       "favicon": "./assets/images/icon.png"

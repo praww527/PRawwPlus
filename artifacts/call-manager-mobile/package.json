@@ -58,6 +58,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@react-native-community/netinfo": "^12.0.1",
     "@react-native-firebase/app": "^23.8.8",
     "@react-native-firebase/messaging": "^23.8.8",
     "expo": "~54.0.33",
