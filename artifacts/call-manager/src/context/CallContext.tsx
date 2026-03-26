@@ -7,10 +7,9 @@ import {
   useRef,
   ReactNode,
 } from "react";
-import { VertoClient, type VertoConfig } from "@/lib/verto";
+import { VertoClient, type VertoConfig, type HangupCause } from "@/lib/verto";
 
 export type CallState = "idle" | "outgoing" | "incoming" | "active";
-/** calling = dialling (no answer yet), ringing = remote is ringing, connected = answered */
 export type CallPhase = "calling" | "ringing" | "connected" | "ended";
 
 export interface CallInfo {
@@ -20,36 +19,91 @@ export interface CallInfo {
   callType?: "internal" | "external";
 }
 
+export interface HangupInfo {
+  cause:     string;
+  causeCode: number;
+  message:   string;
+  icon:      "busy" | "no-answer" | "unavailable" | "voicemail" | "ended" | "error";
+}
+
+function resolveHangupInfo(hc: HangupCause): HangupInfo {
+  const { cause, causeCode } = hc;
+
+  switch (cause) {
+    case "USER_BUSY":
+      return { cause, causeCode, message: "Line busy", icon: "busy" };
+
+    case "NO_ANSWER":
+      return { cause, causeCode, message: "No answer", icon: "no-answer" };
+
+    case "NORMAL_CLEARING":
+      return { cause, causeCode, message: "Call ended", icon: "ended" };
+
+    case "ORIGINATOR_CANCEL":
+      return { cause, causeCode, message: "Call cancelled", icon: "ended" };
+
+    case "UNREGISTERED":
+    case "USER_NOT_REGISTERED":
+    case "SUBSCRIBER_ABSENT":
+    case "DESTINATION_OUT_OF_ORDER":
+      return { cause, causeCode, message: "Not available", icon: "unavailable" };
+
+    case "NO_ROUTE_DESTINATION":
+    case "UNALLOCATED_NUMBER":
+      return { cause, causeCode, message: "Number does not exist", icon: "unavailable" };
+
+    case "ALLOTTED_TIMEOUT":
+      return { cause, causeCode, message: "Call time limit reached", icon: "ended" };
+
+    case "CALL_REJECTED":
+      return { cause, causeCode, message: "Call rejected", icon: "unavailable" };
+
+    case "RECOVERY_ON_TIMER_EXPIRE":
+    case "RECOVERY_ON_TIMER_EXPIRY":
+      return { cause, causeCode, message: "No answer", icon: "no-answer" };
+
+    default:
+      if (causeCode === 17) return { cause, causeCode, message: "Line busy",             icon: "busy" };
+      if (causeCode === 19) return { cause, causeCode, message: "No answer",             icon: "no-answer" };
+      if (causeCode === 20) return { cause, causeCode, message: "Not available",         icon: "unavailable" };
+      if (causeCode === 21) return { cause, causeCode, message: "Call rejected",         icon: "unavailable" };
+      if (causeCode === 3)  return { cause, causeCode, message: "Number does not exist", icon: "unavailable" };
+      return { cause, causeCode, message: "Call ended", icon: "ended" };
+  }
+}
+
 interface CallContextValue {
-  callState: CallState;
-  callPhase: CallPhase;
-  callInfo: CallInfo | null;
-  vertoConfig: VertoConfig | null;
+  callState:        CallState;
+  callPhase:        CallPhase;
+  callInfo:         CallInfo | null;
+  hangupInfo:       HangupInfo | null;
+  vertoConfig:      VertoConfig | null;
   isVertoConnected: boolean;
-  startOutgoing: (info: CallInfo) => void;
-  updateCallId: (callId: string) => void;
-  connectCall: () => void;
-  acceptCall: () => void;
-  declineCall: () => void;
-  endCall: (durationSecs?: number) => void;
-  setMuted: (muted: boolean) => void;
-  setSpeaker: (enabled: boolean) => void;
-  setVertoConfig: (cfg: VertoConfig) => void;
-  makeVertoCall: (to: string) => Promise<string | null>;
-  answerVertoCall: (callId: string, sdp: string) => Promise<void>;
-  sendDtmf: (digit: string) => void;
+  startOutgoing:    (info: CallInfo) => void;
+  updateCallId:     (callId: string) => void;
+  connectCall:      () => void;
+  acceptCall:       () => void;
+  declineCall:      () => void;
+  endCall:          (durationSecs?: number) => void;
+  setMuted:         (muted: boolean) => void;
+  setSpeaker:       (enabled: boolean) => void;
+  setVertoConfig:   (cfg: VertoConfig) => void;
+  makeVertoCall:    (to: string) => Promise<string | null>;
+  answerVertoCall:  (callId: string, sdp: string) => Promise<void>;
+  sendDtmf:         (digit: string) => void;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
 
 export function CallProvider({ children }: { children: ReactNode }) {
-  const [callState, setCallState] = useState<CallState>("idle");
-  const [callPhase, setCallPhase] = useState<CallPhase>("calling");
-  const [callInfo, setCallInfo] = useState<CallInfo | null>(null);
-  const [vertoConfig, setVertoConfigState] = useState<VertoConfig | null>(null);
+  const [callState,        setCallState]        = useState<CallState>("idle");
+  const [callPhase,        setCallPhase]        = useState<CallPhase>("calling");
+  const [callInfo,         setCallInfo]         = useState<CallInfo | null>(null);
+  const [hangupInfo,       setHangupInfo]       = useState<HangupInfo | null>(null);
+  const [vertoConfig,      setVertoConfigState] = useState<VertoConfig | null>(null);
   const [isVertoConnected, setIsVertoConnected] = useState(false);
 
-  const clientRef = useRef<VertoClient | null>(null);
+  const clientRef      = useRef<VertoClient | null>(null);
   const incomingSdpRef = useRef<string>("");
 
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
@@ -68,12 +122,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       onError:        (err) => console.warn("[Verto]", err),
 
       onRinging: (_callId) => {
-        // Remote side is ringing — update phase from "calling" to "ringing"
         setCallPhase((prev) => (prev === "calling" ? "ringing" : prev));
       },
 
       onIncoming: (callId, callerNumber, sdp) => {
         incomingSdpRef.current = sdp;
+        setHangupInfo(null);
         setCallInfo({
           number: callerNumber,
           callId,
@@ -84,17 +138,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
       },
 
       onAnswer: (_callId, _sdp) => {
-        // Remote SDP was applied inside VertoClient before this fires
+        setHangupInfo(null);
         setCallPhase("connected");
         setCallState("active");
       },
 
-      onHangup: (_callId) => {
+      onHangup: (_callId, hc) => {
+        const info = resolveHangupInfo(hc);
+        setHangupInfo(info);
         setCallPhase("ended");
         setTimeout(() => {
           setCallState("idle");
           setCallInfo(null);
-        }, 1500);
+        }, 3000);
       },
     });
 
@@ -109,6 +165,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [vertoConfig]);
 
   const startOutgoing = useCallback((info: CallInfo) => {
+    setHangupInfo(null);
     setCallInfo(info);
     setCallPhase("calling");
     setCallState("outgoing");
@@ -118,7 +175,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallInfo((prev) => prev ? { ...prev, callId } : prev);
   }, []);
 
-  // connectCall: fallback for non-Verto mode only
   const connectCall = useCallback(() => {
     setCallPhase("connected");
     setCallState("active");
@@ -147,14 +203,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
         console.warn("[Verto] answerCall error", e);
       }
     }
+    setHangupInfo(null);
     setCallPhase("connected");
     setCallState("active");
   }, [callInfo]);
 
   const declineCall = useCallback(() => {
     if (clientRef.current && callInfo?.callId) {
-      clientRef.current.hangup(callInfo.callId);
+      clientRef.current.hangup(callInfo.callId, "CALL_REJECTED", 21);
     }
+    setHangupInfo({ cause: "CALL_REJECTED", causeCode: 21, message: "Declined", icon: "ended" });
     setCallPhase("ended");
     setTimeout(() => {
       setCallState("idle");
@@ -164,8 +222,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const endCall = useCallback((_durationSecs?: number) => {
     if (clientRef.current && callInfo?.callId) {
-      clientRef.current.hangup(callInfo.callId);
+      clientRef.current.hangup(callInfo.callId, "NORMAL_CLEARING", 16);
     }
+    setHangupInfo((prev) => prev ?? { cause: "NORMAL_CLEARING", causeCode: 16, message: "Call ended", icon: "ended" });
     setCallPhase("ended");
     setTimeout(() => {
       setCallState("idle");
@@ -173,21 +232,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }, 1500);
   }, [callInfo]);
 
-  const setMuted = useCallback((muted: boolean) => {
-    clientRef.current?.setMuted(muted);
-  }, []);
-
-  const setSpeaker = useCallback((enabled: boolean) => {
-    clientRef.current?.setSpeakerEnabled(enabled);
-  }, []);
-
-  const sendDtmf = useCallback((digit: string) => {
-    clientRef.current?.sendDtmf(digit);
-  }, []);
+  const setMuted   = useCallback((muted: boolean)    => { clientRef.current?.setMuted(muted); }, []);
+  const setSpeaker = useCallback((enabled: boolean)  => { clientRef.current?.setSpeakerEnabled(enabled); }, []);
+  const sendDtmf   = useCallback((digit: string)     => { clientRef.current?.sendDtmf(digit); }, []);
 
   return (
     <CallContext.Provider value={{
-      callState, callPhase, callInfo,
+      callState, callPhase, callInfo, hangupInfo,
       vertoConfig, isVertoConnected,
       startOutgoing, updateCallId, connectCall,
       acceptCall, declineCall, endCall,

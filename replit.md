@@ -60,7 +60,19 @@ artifacts-monorepo/
 - **calling**: `verto.invite` sent, awaiting first response
 - **ringing**: `verto.media` received (remote side is ringing, early media flowing)
 - **connected**: `verto.answer` received, timer starts
-- **ended**: `verto.bye` or user hang-up
+- **ended**: `verto.bye` or user hang-up — the `cause` field from `verto.bye` maps to a human-readable message and icon
+
+### Hangup Cause Handling (production-grade, like a real phone)
+The dialplan (`freeswitchConfig.ts → dialplanXml`) routes failed bridges by cause:
+- `USER_BUSY` → US busy signal tone → `verto.bye` cause=USER_BUSY → UI: "Line busy" (orange, PhoneCall icon)
+- `NO_ANSWER` → voicemail (if mod_voicemail loaded) → UI: "No answer" (orange, PhoneMissed icon)
+- `UNREGISTERED` / `USER_NOT_REGISTERED` → SIT reorder tone → UI: "Not available" (red, WifiOff icon)
+- `ORIGINATOR_CANCEL` → silent hangup → UI: "Call cancelled"
+- `NORMAL_CLEARING` → "Call ended" (normal)
+- `ALLOTTED_TIMEOUT` → "Call time limit reached"
+- `NO_ROUTE_DESTINATION` → "Number does not exist"
+
+`verto.bye` from FreeSWITCH carries `cause` (string) and `causeCode` (number). `VertoClient.onHangup` callback passes a `HangupCause` to `CallContext`, which resolves it to a `HangupInfo` with a human-readable `message` and visual `icon`. `CallingScreen` renders the icon + message in the ended state.
 
 ### SDP Safety Rule
 `remoteSdpSet` flag in `VertoClient` ensures `setRemoteDescription` is called exactly once.
