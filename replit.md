@@ -32,6 +32,37 @@ artifacts-monorepo/
 │   └── auth-web/           # Auth web client hook (useAuth)
 ```
 
+## Mobile App (React Native VoIP)
+
+Located in `artifacts/call-manager-mobile/`. A production-ready bare-workflow Expo app.
+
+### Stack
+- **JsSIP** — SIP signaling over WebSocket (proxied by API server at `/api/sip/ws`)
+- **react-native-webrtc** — audio capture and playback for calls
+- **react-native-callkeep** — system-level call UI (CallKit on iOS, Telecom on Android)
+- **@react-native-firebase/messaging** — FCM high-priority data-only push to wake app when terminated
+- **expo-router** — file-based navigation (bare workflow)
+
+### Setup required before build
+1. Replace `google-services.json` (Android) and `ios/CallManagerMobile/GoogleService-Info.plist` (iOS) with real Firebase files
+2. Set `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` env vars on API server
+3. Run `npx expo prebuild --no-install` then build with Android Studio or Xcode
+4. See `artifacts/call-manager-mobile/SETUP.md` for full instructions
+
+### Architecture
+- `index.js` — entry point; registers FCM background handler before app renders
+- `lib/voipEngine.ts` — JsSIP UA + WebRTC session management
+- `lib/callKeepService.ts` — react-native-callkeep wrapper
+- `lib/fcmService.ts` — FCM token registration + foreground/background listeners
+- `context/CallContext.tsx` — global call state provider
+- `context/AuthContext.tsx` — auth + push notification state
+
+### Native configuration
+- `AndroidManifest.xml` — VoIP permissions, Telecom ConnectionService, FCM receiver
+- `android/build.gradle` — Firebase google-services classpath
+- `ios/Info.plist` — UIBackgroundModes (voip, fetch, remote-notification, audio)
+- `ios/CallManagerMobile.entitlements` — PushKit VoIP + aps-environment
+
 ## Call Architecture (FreeSWITCH Verto)
 
 ### Extension System

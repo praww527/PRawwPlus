@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest, setToken, clearToken, getToken } from "@/lib/api";
+import { registerFcmToken, removeFcmToken } from "@/lib/fcmService";
 import { uploadPushToken, removePushToken, registerForPushNotificationsAsync } from "@/lib/pushNotifications";
 
 export interface AuthUser {
@@ -67,18 +68,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
     await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
     setUser(data.user);
 
-    // Attempt to register push token in background
-    registerForPushNotificationsAsync().then(async (token) => {
-      if (token) {
-        await uploadPushToken(token);
-        await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
-        setPushEnabled(true);
-      }
+    // Register FCM + Expo push tokens in background
+    Promise.all([
+      registerFcmToken(),
+      registerForPushNotificationsAsync().then((t) => { if (t) return uploadPushToken(t); }),
+    ]).then(async () => {
+      await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
+      setPushEnabled(true);
     }).catch(() => {});
   }, []);
 
   const logout = useCallback(async () => {
-    await removePushToken().catch(() => {});
+    await Promise.allSettled([removeFcmToken(), removePushToken()]);
     await apiRequest("/auth/logout", { method: "POST" }).catch(() => {});
     await Promise.all([
       clearToken(),
@@ -90,16 +91,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const enablePush = useCallback(async (): Promise<boolean> => {
-    const token = await registerForPushNotificationsAsync();
-    if (!token) return false;
-    await uploadPushToken(token);
+    const [fcmToken, expoToken] = await Promise.all([
+      registerFcmToken(),
+      registerForPushNotificationsAsync(),
+    ]);
+    if (!fcmToken && !expoToken) return false;
+    if (expoToken) await uploadPushToken(expoToken);
     await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
     setPushEnabled(true);
     return true;
   }, []);
 
   const disablePush = useCallback(async () => {
-    await removePushToken();
+    await Promise.allSettled([removeFcmToken(), removePushToken()]);
     await AsyncStorage.setItem(PUSH_ENABLED_KEY, "false");
     setPushEnabled(false);
   }, []);

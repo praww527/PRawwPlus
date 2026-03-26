@@ -171,4 +171,33 @@ router.delete("/users/push-token", async (req: Request, res: Response) => {
   res.json({ message: "Push token removed" });
 });
 
+router.post("/users/fcm-token", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const { token } = req.body as { token?: string };
+
+  if (!token || typeof token !== "string" || token.length < 10) {
+    res.status(400).json({ error: "Invalid FCM token" });
+    return;
+  }
+
+  await UserModel.updateOne({ _id: userId }, { $set: { fcmToken: token } });
+  res.json({ message: "FCM token registered" });
+});
+
+router.delete("/users/fcm-token", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  await UserModel.updateOne({ _id: userId }, { $unset: { fcmToken: 1 } });
+  res.json({ message: "FCM token removed" });
+});
+
 export default router;

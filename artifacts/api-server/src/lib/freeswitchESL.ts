@@ -43,7 +43,7 @@ function cleanKey(raw: string): string {
     .trim();
 }
 
-/** Send an Expo push notification via the Expo push gateway (no FCM/APNS credentials needed) */
+/** Send an Expo push notification via the Expo push gateway */
 async function sendExpoPush(
   pushToken: string,
   title: string,
@@ -63,10 +63,101 @@ async function sendExpoPush(
     if (result?.data?.status === "error") {
       logger.warn({ result }, "[Push] Expo gateway returned error");
     } else {
-      logger.info({ tokenPrefix: pushToken.slice(0, 30) }, "[Push] Notification sent OK");
+      logger.info({ tokenPrefix: pushToken.slice(0, 30) }, "[Push] Expo notification sent OK");
     }
   } catch (err) {
     logger.error({ err }, "[Push] Failed to send Expo push notification");
+  }
+}
+
+/**
+ * Send a high-priority FCM data-only message to an Android device.
+ * Data-only messages bypass the notification tray and wake the app in the
+ * background/terminated state so react-native-callkeep can show the system call UI.
+ *
+ * Requires env vars: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
+ * Falls back to Expo push if Firebase credentials are not configured.
+ */
+async function sendFcmDataMessage(
+  fcmToken: string,
+  data: Record<string, string>,
+): Promise<void> {
+  const projectId   = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey  = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  if (!projectId || !clientEmail || !privateKey) {
+    logger.debug("[FCM] Firebase credentials not set — skipping FCM data message");
+    return;
+  }
+
+  try {
+    // Build a JWT assertion for Firebase service account
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: clientEmail,
+      sub: clientEmail,
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+      scope: "https://www.googleapis.com/auth/firebase.messaging",
+    };
+
+    // Build unsigned JWT
+    const header  = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+    const claims  = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const signing = `${header}.${claims}`;
+
+    // Sign with RSA-SHA256 using Node.js crypto
+    const { createSign } = await import("node:crypto");
+    const signer = createSign("RSA-SHA256");
+    signer.update(signing);
+    const sig = signer.sign(privateKey, "base64url");
+    const jwt = `${signing}.${sig}`;
+
+    // Exchange JWT for an access token
+    const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+    });
+    const tokenData = await tokenResp.json() as { access_token?: string };
+    const accessToken = tokenData.access_token;
+    if (!accessToken) throw new Error("Failed to obtain FCM access token");
+
+    // Send FCM message
+    const fcmResp = await fetch(
+      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: {
+            token: fcmToken,
+            data,
+            android: {
+              priority: "HIGH",
+              ttl: "30s",
+            },
+          },
+        }),
+      },
+    );
+
+    if (!fcmResp.ok) {
+      const err = await fcmResp.text();
+      logger.warn({ err }, "[FCM] FCM HTTP v1 API returned error");
+    } else {
+      logger.info({ tokenPrefix: fcmToken.slice(0, 20) }, "[FCM] Data message sent OK");
+    }
+  } catch (err) {
+    logger.error({ err }, "[FCM] Failed to send FCM data message");
   }
 }
 
@@ -333,22 +424,32 @@ class FreeSwitchESL {
 
     await connectDB();
     const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
-      .select("expoPushToken notificationPrefs dnd")
+      .select("expoPushToken fcmToken notificationPrefs dnd")
       .lean();
 
-    if (!destUser?.expoPushToken) return;
+    if (!destUser?.expoPushToken && !destUser?.fcmToken) return;
     if (destUser.dnd) {
       logger.info({ destExt }, "[ESL] Push skipped — callee has DND enabled");
       return;
     }
     if (destUser.notificationPrefs?.incomingCalls === false) return;
 
-    await sendExpoPush(
-      destUser.expoPushToken,
-      "📞 Incoming Call",
-      `Extension ${callerExt} is calling you`,
-      { type: "incoming_call", fromExtension: callerExt, toExtension: destExt },
-    );
+    const pushData = { type: "incoming_call", fromExtension: callerExt, toExtension: destExt, callUuid: uuid };
+
+    // Send FCM data-only message (wakes app in background/terminated for callkeep)
+    if (destUser.fcmToken) {
+      await sendFcmDataMessage(destUser.fcmToken, pushData);
+    }
+
+    // Also send Expo push as fallback (shows notification if FCM not configured or for iOS)
+    if (destUser.expoPushToken) {
+      await sendExpoPush(
+        destUser.expoPushToken,
+        "📞 Incoming Call",
+        `Extension ${callerExt} is calling you`,
+        pushData,
+      );
+    }
   }
 
   private async handleAnswer(h: Record<string, string>) {

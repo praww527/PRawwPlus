@@ -3,6 +3,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runStartup } from "./lib/startup";
 import { createVertoProxy, attachVertoProxy } from "./lib/vertoProxy";
+import { createSipProxy, attachSipProxy } from "./lib/sipProxy";
 
 const rawPort = process.env["PORT"];
 
@@ -21,6 +22,10 @@ const server = http.createServer(app);
 // Attach the Verto WebSocket proxy (browser → /api/verto/ws → FreeSWITCH:8081)
 const vertoWss = createVertoProxy();
 attachVertoProxy(server, vertoWss);
+
+// Attach the SIP WebSocket proxy (mobile JsSIP → /api/sip/ws → FreeSWITCH:5066)
+const sipWss = createSipProxy();
+attachSipProxy(server, sipWss);
 
 server.listen(port, async () => {
   logger.info({ port }, "Server listening");

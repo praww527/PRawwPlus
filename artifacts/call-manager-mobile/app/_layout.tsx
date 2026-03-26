@@ -8,12 +8,14 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import * as Notifications from "expo-notifications";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { CallProvider } from "@/context/CallContext";
+import { callKeepService } from "@/lib/callKeepService";
+import { setupFcmListeners } from "@/lib/fcmService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -21,8 +23,6 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   const { user, isLoading } = useAuth();
-  const notificationListener = useRef<Notifications.EventSubscription>();
-  const responseListener = useRef<Notifications.EventSubscription>();
 
   useEffect(() => {
     if (isLoading) return;
@@ -33,30 +33,38 @@ function RootLayoutNav() {
     }
   }, [user, isLoading]);
 
-  // Listen for incoming notifications while the app is foregrounded
+  // Set up CallKeep once on mount
   useEffect(() => {
-    notificationListener.current = Notifications.addNotificationReceivedListener(() => {
-      // Notification received — the handler in pushNotifications.ts handles display
-    });
+    callKeepService.setup();
+    return () => { callKeepService.destroy(); };
+  }, []);
 
-    // Handle notification tap (background/killed state)
-    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as Record<string, string>;
-      if (data?.type === "missed_call" || data?.type === "incoming_call") {
-        router.replace("/(tabs)");
-      }
-    });
-
-    return () => {
-      notificationListener.current?.remove();
-      responseListener.current?.remove();
-    };
+  // Set up FCM foreground message listener
+  useEffect(() => {
+    const cleanup = setupFcmListeners();
+    return cleanup;
   }, []);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen
+        name="incoming-call"
+        options={{
+          presentation: "fullScreenModal",
+          animation: "slide_from_bottom",
+          gestureEnabled: false,
+        }}
+      />
+      <Stack.Screen
+        name="active-call"
+        options={{
+          presentation: "fullScreenModal",
+          animation: "slide_from_bottom",
+          gestureEnabled: false,
+        }}
+      />
     </Stack>
   );
 }
@@ -83,7 +91,9 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <AuthProvider>
-              <RootLayoutNav />
+              <CallProvider>
+                <RootLayoutNav />
+              </CallProvider>
             </AuthProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

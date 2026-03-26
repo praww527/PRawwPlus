@@ -20,6 +20,7 @@ import {
   vertoConf,
   dialplanXml,
   eventSocketConf,
+  sipProfileXml,
 } from "./freeswitchConfig";
 
 const FS_HOST     = process.env.FREESWITCH_DOMAIN ?? "";
@@ -125,6 +126,14 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     );
     steps.push("Wrote event_socket.conf.xml");
 
+    // Write SIP/WS profile for mobile JsSIP clients
+    await writeRemoteFile(
+      conn,
+      `${confDir}/sip_profiles/call_manager_ws.xml`,
+      sipProfileXml(FS_HOST, appUrl),
+    );
+    steps.push("Wrote call_manager_ws SIP profile");
+
     // Write dialplan
     await writeRemoteFile(
       conn,
@@ -166,6 +175,14 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
         steps.push("reload mod_verto OK");
       } catch (e) {
         steps.push(`reload mod_verto failed: ${(e as Error).message}`);
+      }
+
+      // Reload/start the SIP/WS profile for mobile clients
+      try {
+        await execCommand(conn, `${fsCli} -x 'reload mod_sofia'`);
+        steps.push("reload mod_sofia OK");
+      } catch (e) {
+        steps.push(`reload mod_sofia failed (may not be critical): ${(e as Error).message}`);
       }
     }
 
