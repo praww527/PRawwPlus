@@ -49,12 +49,34 @@ export function createVertoProxy(): WebSocketServer {
 
     // ── upstream → client ────────────────────────────────────────────────────
     upstream.on("open", () => {
-      logger.debug("Verto proxy: upstream connected");
+      logger.info("Verto proxy: upstream connected to FreeSWITCH");
     });
 
     upstream.on("message", (data, isBinary) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(data, { binary: isBinary });
+      }
+      // Log Verto method names and hangup causes (not SDPs) for diagnostics
+      if (!isBinary) {
+        try {
+          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+          const method = msg.method as string | undefined;
+          if (method) {
+            const params = (msg.params ?? {}) as Record<string, unknown>;
+            const callID = params.callID as string | undefined;
+            if (method === "verto.bye") {
+              logger.info({ method, callID, cause: params.cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
+            } else if (method !== "verto.info") {
+              logger.info({ method, callID }, "Verto ← FS");
+            }
+          } else if (msg.id !== undefined) {
+            // JSON-RPC response (ack to client request)
+            const isError = Boolean(msg.error);
+            if (isError) {
+              logger.warn({ id: msg.id, error: msg.error }, "Verto ← FS [RPC error]");
+            }
+          }
+        } catch { /* not JSON — ignore */ }
       }
     });
 
@@ -77,6 +99,19 @@ export function createVertoProxy(): WebSocketServer {
     client.on("message", (data, isBinary) => {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
+      }
+      // Log what the browser is sending (method names, not SDPs)
+      if (!isBinary) {
+        try {
+          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+          const method = msg.method as string | undefined;
+          if (method && method !== "verto.clientReady" && method !== "verto.info") {
+            const params = (msg.params ?? {}) as Record<string, unknown>;
+            const callID = params.callID as string | undefined;
+            const to = (params.dialogParams as Record<string, unknown> | undefined)?.to;
+            logger.info({ method, callID, to }, "Verto → FS");
+          }
+        } catch { /* not JSON — ignore */ }
       }
     });
 
