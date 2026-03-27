@@ -87,7 +87,7 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
   if (!appUrl) return { success: false, steps: [], error: "APP_URL not set — configure https://rtc.PRaww.co.za in environment" };
 
   // In development, APP_URL points to the production domain which may not route
-  // to this dev server. Use the Replit dev domain so FreeSWITCH can reach the
+  // to this dev server. Use the PRaww dev domain so FreeSWITCH can reach the
   // directory endpoint on the currently running instance.
   const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
   const directoryBaseUrl =

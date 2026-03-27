@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: callmanager
+    name: praww
     runtime: node
     region: oregon
     plan: free

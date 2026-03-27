@@ -69,6 +69,8 @@ export default function CallingScreen() {
       if (callPhase === "calling") {
         setElapsed(0);
         elapsedRef.current = 0;
+        // Reset so the next call's end is properly reported to the API
+        signalledRef.current = false;
       }
     }
     return () => {

@@ -6,27 +6,59 @@
  *  - Foreground message handling
  *  - Background/terminated message handling (set up in index.js)
  *
- * For incoming_call type messages, this triggers callKeepService.displayIncomingCall
- * so the native call UI appears even when the app is closed.
+ * NOTE: @react-native-firebase/messaging is a native module only available
+ * in development builds, NOT in standard Expo Go. All functions are safe
+ * no-ops when running in Expo Go.
  */
 
-import messaging, { type FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { Platform } from "react-native";
 import { callKeepService } from "./callKeepService";
 import { apiRequest } from "./api";
 
+// Lazily resolve the Firebase messaging module
+function getMessaging(): any | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("@react-native-firebase/messaging");
+    return (mod.default ?? mod)();
+  } catch {
+    return null;
+  }
+}
+
+// Lazily resolve the messaging module class (for static AuthorizationStatus)
+function getMessagingClass(): any | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("@react-native-firebase/messaging");
+    return mod.default ?? mod;
+  } catch {
+    return null;
+  }
+}
+
 async function requestPermission(): Promise<boolean> {
-  const authStatus = await messaging().requestPermission();
+  const instance = getMessaging();
+  const MessagingClass = getMessagingClass();
+  if (!instance || !MessagingClass) return false;
+
+  const authStatus = await instance.requestPermission();
   return (
-    authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-    authStatus === messaging.AuthorizationStatus.PROVISIONAL
+    authStatus === MessagingClass.AuthorizationStatus.AUTHORIZED ||
+    authStatus === MessagingClass.AuthorizationStatus.PROVISIONAL
   );
 }
 
 export async function registerFcmToken(): Promise<string | null> {
+  const instance = getMessaging();
+  if (!instance) {
+    console.warn("[FCM] Native module not available (Expo Go). Skipping FCM token registration.");
+    return null;
+  }
+
   try {
     if (Platform.OS === "ios") {
-      await messaging().registerDeviceForRemoteMessages();
+      await instance.registerDeviceForRemoteMessages();
     }
 
     const granted = await requestPermission();
@@ -35,7 +67,7 @@ export async function registerFcmToken(): Promise<string | null> {
       return null;
     }
 
-    const token = await messaging().getToken();
+    const token = await instance.getToken();
     if (!token) return null;
 
     await uploadFcmToken(token);
@@ -63,31 +95,19 @@ export async function removeFcmToken(): Promise<void> {
   } catch {}
 }
 
-/**
- * Handle a FCM message that arrives while the app is in the foreground.
- * For incoming_call type, show the native call UI via CallKeep.
- */
-export function handleForegroundMessage(
-  message: FirebaseMessagingTypes.RemoteMessage,
-): void {
-  const data = message.data as Record<string, string> | undefined;
+export function handleForegroundMessage(message: any): void {
+  const data = message?.data as Record<string, string> | undefined;
   if (!data) return;
 
   if (data.type === "incoming_call") {
-    const uuid    = data.callUuid ?? `call-${Date.now()}`;
-    const from    = data.fromExtension ?? "Unknown";
+    const uuid = data.callUuid ?? `call-${Date.now()}`;
+    const from = data.fromExtension ?? "Unknown";
     callKeepService.displayIncomingCall(uuid, from, `Extension ${from}`);
   }
 }
 
-/**
- * Background / Quit-state message handler (registered in index.js).
- * This function is called in a headless JS task — no React state available.
- */
-export function handleBackgroundMessage(
-  message: FirebaseMessagingTypes.RemoteMessage,
-): Promise<void> {
-  const data = message.data as Record<string, string> | undefined;
+export function handleBackgroundMessage(message: any): Promise<void> {
+  const data = message?.data as Record<string, string> | undefined;
   if (!data) return Promise.resolve();
 
   if (data.type === "incoming_call") {
@@ -101,16 +121,20 @@ export function handleBackgroundMessage(
 
 /**
  * Set up all FCM listeners for a running app.
- * Returns a cleanup function.
+ * Returns a cleanup function. Safe to call in Expo Go (returns a no-op cleanup).
  */
 export function setupFcmListeners(): () => void {
-  // Foreground messages
-  const unsubForeground = messaging().onMessage(async (message) => {
+  const instance = getMessaging();
+  if (!instance) {
+    console.warn("[FCM] Native module not available (Expo Go). Skipping FCM listeners.");
+    return () => {};
+  }
+
+  const unsubForeground = instance.onMessage(async (message: any) => {
     handleForegroundMessage(message);
   });
 
-  // Token refresh
-  const unsubTokenRefresh = messaging().onTokenRefresh(async (token) => {
+  const unsubTokenRefresh = instance.onTokenRefresh(async (token: string) => {
     await uploadFcmToken(token);
   });
 

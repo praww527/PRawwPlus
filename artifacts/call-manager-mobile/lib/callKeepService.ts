@@ -5,9 +5,11 @@
  *  - Native call UI on incoming push (both foreground, background, and terminated state)
  *  - Answer / end / DTMF events forwarded to the VoIP engine
  *  - Lock-screen call display on Android (ConnectionService) and iOS (CallKit)
+ *
+ * NOTE: react-native-callkeep is a native module only available in development builds.
+ * All methods are no-ops when running in Expo Go.
  */
 
-import RNCallKeep from "react-native-callkeep";
 import { Platform } from "react-native";
 import { voipEngine } from "./voipEngine";
 
@@ -21,11 +23,28 @@ type CallKeepListener = (event: CallKeepEvent) => void;
 
 const listeners: CallKeepListener[] = [];
 
+// Lazily resolve RNCallKeep so the app doesn't crash in Expo Go
+function getRNCallKeep(): any | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("react-native-callkeep");
+    return mod.default ?? mod;
+  } catch {
+    return null;
+  }
+}
+
 export const callKeepService = {
   setup(): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) {
+      console.warn("[CallKeep] Native module not available (Expo Go). Using no-op mode.");
+      return;
+    }
+
     const options = {
       ios: {
-        appName: "PRawwPlus",
+        appName: "PRaww+",
         supportsVideo: false,
         maximumCallGroups: "1",
         maximumCallsPerCallGroup: "1",
@@ -33,12 +52,11 @@ export const callKeepService = {
       },
       android: {
         alertTitle:       "Permissions required",
-        alertDescription: "PRawwPlus needs access to manage phone calls",
+        alertDescription: "PRaww+ needs access to manage phone calls",
         cancelButton:     "Cancel",
         okButton:         "OK",
         imageName:        "ic_launcher",
         additionalPermissions: [],
-        // Required for Android 14+
         selfManaged: true,
       },
     };
@@ -47,12 +65,10 @@ export const callKeepService = {
       console.warn("[CallKeep] Setup error:", err?.message ?? err);
     });
 
-    // iOS-only: request mic permission via CallKit
     if (Platform.OS === "ios") {
       RNCallKeep.setAvailable(true);
     }
 
-    // Register event handlers
     RNCallKeep.addEventListener("answerCall", ({ callUUID }: { callUUID: string }) => {
       console.log("[CallKeep] answerCall", callUUID);
       voipEngine.answerIncomingCall().catch(console.error);
@@ -81,7 +97,6 @@ export const callKeepService = {
     });
 
     RNCallKeep.addEventListener("didLoadWithEvents", (events: any[]) => {
-      // Handle events that were queued while the app was not running
       if (!Array.isArray(events)) return;
       for (const event of events) {
         if (event.name === "RNCallKeepPerformAnswerCallAction") {
@@ -103,29 +118,33 @@ export const callKeepService = {
   },
 
   displayIncomingCall(uuid: string, handle: string, displayName: string): void {
-    RNCallKeep.displayIncomingCall(
-      uuid,
-      handle,
-      displayName,
-      "number",
-      false,
-    );
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
   },
 
   reportCallConnected(uuid: string): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
     RNCallKeep.reportConnectedOutgoingCallWithUUID(uuid);
   },
 
   endCall(uuid: string): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
     RNCallKeep.endCall(uuid);
   },
 
   endAllCalls(): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
     RNCallKeep.endAllCalls();
   },
 
   reportCallEnded(uuid: string): void {
-    RNCallKeep.reportEndCallWithUUID(uuid, 2); // 2 = remote ended
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    RNCallKeep.reportEndCallWithUUID(uuid, 2);
   },
 
   addListener(listener: CallKeepListener): () => void {
@@ -137,6 +156,8 @@ export const callKeepService = {
   },
 
   destroy(): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
     RNCallKeep.removeEventListener("answerCall");
     RNCallKeep.removeEventListener("endCall");
     RNCallKeep.removeEventListener("didActivateAudioSession");
