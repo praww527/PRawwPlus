@@ -123,6 +123,29 @@ pnpm run --filter @workspace/api-spec codegen
 | `/api/sip/ws` | SIP WebSocket proxy for mobile JsSIP |
 | `/api/freeswitch/directory` | FreeSWITCH XML curl directory |
 
+## Carrier-Grade Backend Upgrades
+
+### ESL Event Buffer (`artifacts/api-server/src/lib/eslEventBuffer.ts`)
+Zero event loss system. When a CHANNEL_ANSWER or CHANNEL_HANGUP_COMPLETE event arrives over ESL but no matching DB call record exists yet (race between `POST /calls` and FreeSWITCH), the event is enqueued and retried with exponential back-off (200 ms → 1.6 s, max 5 attempts). Events per call-UUID are processed in FIFO order. Drops the event after max retries with a warning log. Buffer depth exposed on `GET /api/healthz`.
+
+### Formal Call State Machine (`artifacts/api-server/src/lib/callStateMachine.ts`)
+All valid state transitions are declared in one table:
+- `initiated` → `in-progress | missed | cancelled | failed`
+- `in-progress` → `completed | failed`
+- Terminal states (`completed`, `missed`, `cancelled`, `failed`) accept no further transitions (idempotent).
+
+`isTransitionAllowed()` returns `false` for already-terminal states (silently skip) and throws for genuinely invalid transitions. `causeToStatus()` maps 28 FreeSWITCH hangup causes to the correct final state.
+
+### Central CallOrchestrator (`artifacts/api-server/src/lib/callOrchestrator.ts`)
+Single source of truth for all call lifecycle logic. Removes billing code that was previously duplicated in three places:
+- `answerCall(fsCallId)` — CHANNEL_ANSWER path; sets up balance timers for external calls.
+- `finalizeCall(fsCallId, billsec, cause)` — CHANNEL_HANGUP_COMPLETE (ESL path); applies billing.
+- `endCallById(callId, userId, duration)` — REST `/calls/:id/end` (client-reported).
+- `webhookUpdate(...)` — legacy FreeSWITCH webhook compatibility.
+- `deductCoinsAndUpdateStats()` — single billing implementation used by all paths.
+
+`freeswitchESL.ts` now wires all CHANNEL_ANSWER / CHANNEL_HANGUP_COMPLETE events through the buffer → orchestrator pipeline. `routes/calls.ts` delegates `/end` and `/webhook` to the orchestrator.
+
 ## Bug Fixes Applied
 
 | Bug | File | Fix |
