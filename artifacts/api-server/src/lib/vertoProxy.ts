@@ -102,6 +102,11 @@ export function createVertoProxy(): WebSocketServer {
 /**
  * Attach the Verto proxy to an existing http.Server so it can handle the
  * HTTP → WebSocket upgrade on the path /api/verto/ws.
+ *
+ * IMPORTANT: Do NOT call socket.destroy() for unrecognised paths here.
+ * Other upgrade handlers (e.g. SIP proxy at /api/sip/ws) are registered on
+ * the same server and will handle their own paths. Destroying the socket in
+ * an else-branch would kill those connections before they can be handled.
  */
 export function attachVertoProxy(
   server: import("http").Server,
@@ -112,9 +117,8 @@ export function attachVertoProxy(
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
-    } else {
-      // Not our path — destroy to avoid hanging connections
-      socket.destroy();
     }
+    // For all other paths: do nothing — let the next registered upgrade
+    // handler (SIP proxy, etc.) take over.
   });
 }
