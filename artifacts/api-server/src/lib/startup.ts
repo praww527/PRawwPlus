@@ -43,23 +43,48 @@ export async function runStartup(): Promise<void> {
     return;
   }
 
-  // ── 2. Clean up stale calls (initiated/in-progress but server restarted) ──
+  // ── 2. Clean up stale calls left over from previous server sessions ──────
+  //
+  // Two distinct cases require different treatment:
+  //
+  //  "initiated"   — client created the DB record but CHANNEL_ANSWER never arrived,
+  //                  meaning the SIP leg never connected. Safe to mark failed after
+  //                  a short threshold (15 min). Real calls cannot stay "initiated"
+  //                  for that long — FreeSWITCH's own no-answer timeout fires first.
+  //
+  //  "in-progress" — the call was answered and the server tracked it as active. On
+  //                  restart all in-memory state (hangup timers, ESL auth) is gone.
+  //                  FreeSWITCH will have already cleared the call on its side, so
+  //                  we MUST finalize ALL in-progress records immediately regardless
+  //                  of age. Using createdAt here would be wrong: a 20-minute call
+  //                  restarted at minute 16 would be incorrectly marked "failed" by
+  //                  the threshold, and when ESL sends CHANNEL_HANGUP_COMPLETE the
+  //                  state machine rejects the transition (terminal state) — leaving
+  //                  a permanently wrong record.
   try {
-    const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
-    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
-    const staleResult = await CallModel.updateMany(
-      {
-        status: { $in: ["initiated", "in-progress"] },
-        createdAt: { $lt: cutoff },
-      },
-      {
-        status: "failed",
-        failReason: "Call ended unexpectedly (server restart)",
-        endedAt: new Date(),
-      },
-    );
-    if (staleResult.modifiedCount > 0) {
-      logger.info({ count: staleResult.modifiedCount }, "Cleaned up stale calls from previous session");
+    const now = new Date();
+    const STALE_INITIATED_MS = 15 * 60 * 1000; // 15 minutes
+    const initiatedCutoff = new Date(Date.now() - STALE_INITIATED_MS);
+
+    const [initiatedResult, inProgressResult] = await Promise.all([
+      // "initiated" calls older than 15 min → failed (never connected)
+      CallModel.updateMany(
+        { status: "initiated", createdAt: { $lt: initiatedCutoff } },
+        { status: "failed", failReason: "Call not connected (server restart)", endedAt: now },
+      ),
+      // ALL "in-progress" calls → failed immediately (server lost state for them)
+      CallModel.updateMany(
+        { status: "in-progress" },
+        { status: "failed", failReason: "Call ended unexpectedly (server restart)", endedAt: now },
+      ),
+    ]);
+
+    const total = initiatedResult.modifiedCount + inProgressResult.modifiedCount;
+    if (total > 0) {
+      logger.info(
+        { initiated: initiatedResult.modifiedCount, inProgress: inProgressResult.modifiedCount },
+        "Cleaned up stale calls from previous session",
+      );
     }
   } catch (err) {
     logger.warn({ err }, "Failed to clean up stale calls — non-fatal");

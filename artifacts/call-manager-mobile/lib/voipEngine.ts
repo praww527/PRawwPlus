@@ -338,12 +338,14 @@ class VoipEngine {
     this.session = session;
     const uuid   = uuidv4();
 
-    // No-answer timeout — only fires if still in calling/ringing state
+    // No-answer timeout — only fires if still in calling/ringing state.
+    // Use uppercase "NO_ANSWER" to match the FreeSWITCH cause convention so
+    // CallContext.onEnded correctly maps this to status "missed" (not "failed").
     this.startNoAnswerTimer(() => {
       if (this.state === "calling" || this.state === "ringing") {
         session.terminate({ status_code: 408, reason_phrase: "No Answer" });
         toneService.stopRingback();
-        this.handleSessionEnd(session, "No Answer");
+        this.handleSessionEnd(session, "NO_ANSWER");
       }
     });
 
