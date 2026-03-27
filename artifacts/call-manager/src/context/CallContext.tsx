@@ -88,7 +88,7 @@ interface CallContextValue {
   setMuted:         (muted: boolean) => void;
   setSpeaker:       (enabled: boolean) => void;
   setVertoConfig:   (cfg: VertoConfig) => void;
-  makeVertoCall:    (to: string) => Promise<string | null>;
+  makeVertoCall:    (to: string, callId?: string) => Promise<string | null>;
   answerVertoCall:  (callId: string, sdp: string) => Promise<void>;
   sendDtmf:         (digit: string) => void;
 }
@@ -180,10 +180,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallState("active");
   }, []);
 
-  const makeVertoCall = useCallback(async (to: string): Promise<string | null> => {
+  const makeVertoCall = useCallback(async (to: string, callId?: string): Promise<string | null> => {
     if (!clientRef.current) return null;
     try {
-      return await clientRef.current.makeCall(to);
+      return await clientRef.current.makeCall(to, callId);
     } catch (e) {
       console.warn("[Verto] makeCall error", e);
       return null;
