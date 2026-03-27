@@ -13,12 +13,10 @@
  *  - WebRTC audio stream management
  */
 
-import {
-  UA,
-  WebSocketInterface,
-  type RTCSession,
-  type UAConfiguration,
-} from "jssip";
+import { UA, WebSocketInterface } from "jssip";
+import type { RTCSession } from "jssip/lib/RTCSession";
+import type { UAConfiguration } from "jssip/lib/UA";
+import { DTMF_TRANSPORT } from "jssip/lib/Constants";
 import {
   mediaDevices,
   RTCPeerConnection,
@@ -203,7 +201,7 @@ class VoipEngine {
     const wsUrl  = deriveSipWsUrl();
     const socket = new WebSocketInterface(wsUrl);
 
-    const config: UAConfiguration = {
+    const config: UAConfiguration & { pcConfig?: { iceServers: { urls: string }[] } } = {
       sockets:          [socket],
       uri:              `sip:${creds.extension}@${creds.domain}`,
       password:         creds.password,
@@ -219,7 +217,7 @@ class VoipEngine {
       },
     };
 
-    this.ua = new UA(config);
+    this.ua = new UA(config as any);
 
     this.ua.on("registered", () => {
       this.setState("registered");
@@ -334,7 +332,7 @@ class VoipEngine {
 
     const session = this.ua.call(
       `sip:${destination}@${this.credentials?.domain}`,
-      callOptions,
+      callOptions as any,
     ) as RTCSession;
 
     this.session = session;
@@ -407,7 +405,7 @@ class VoipEngine {
     this.localStream  = localStream;
 
     this.session.answer({
-      mediaStream:      localStream,
+      mediaStream:      localStream as any,
       mediaConstraints: { audio: true, video: false },
       pcConfig: {
         iceServers: [
@@ -461,7 +459,7 @@ class VoipEngine {
     if (!this.session) return;
     try {
       this.session.sendDTMF(digit, {
-        transportType: "RFC2833",
+        transportType: DTMF_TRANSPORT.RFC2833,
         duration: 100,
         interToneGap: 70,
       });
@@ -492,7 +490,7 @@ class VoipEngine {
     this.localStream  = localStream;
 
     session.answer({
-      mediaStream:      localStream,
+      mediaStream:      localStream as any,
       mediaConstraints: { audio: true, video: false },
       pcConfig: {
         iceServers: [
@@ -563,7 +561,7 @@ class VoipEngine {
   }
 
   private wireRemoteStream(pc: RTCPeerConnection) {
-    pc.addEventListener("track", (event: any) => {
+    (pc as any).addEventListener("track", (event: any) => {
       const streams: MediaStream[] = event.streams;
       if (streams?.length) {
         this.remoteStream = streams[0];
@@ -583,7 +581,7 @@ class VoipEngine {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl:  true,
-      },
+      } as any,
       video: false,
     });
     return stream as unknown as MediaStream;

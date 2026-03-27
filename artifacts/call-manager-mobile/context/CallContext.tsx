@@ -24,7 +24,7 @@ import React, {
 } from "react";
 import { router } from "expo-router";
 import { Alert } from "react-native";
-import { type RTCSession } from "jssip";
+import type { RTCSession } from "jssip/lib/RTCSession";
 import {
   voipEngine,
   type CallState,
