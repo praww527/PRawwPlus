@@ -17,23 +17,34 @@ import { UA, WebSocketInterface } from "jssip";
 import type { RTCSession } from "jssip/lib/RTCSession";
 import type { UAConfiguration } from "jssip/lib/UA";
 import { DTMF_TRANSPORT } from "jssip/lib/Constants";
-import {
-  mediaDevices,
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-  MediaStream,
-  type MediaStreamTrack,
-} from "react-native-webrtc";
 import { v4 as uuidv4 } from "uuid";
 import { toneService } from "./toneService";
 import { getBaseUrl } from "./api";
 
+// Lazily resolve react-native-webrtc (not available in Expo Go)
+let _rnWebRTC: any = null;
+function getRNWebRTC(): any {
+  if (_rnWebRTC) return _rnWebRTC;
+  try {
+    _rnWebRTC = require("react-native-webrtc");
+  } catch {
+    console.warn("[VoIP] react-native-webrtc not available (Expo Go). VoIP calls disabled.");
+    _rnWebRTC = {};
+  }
+  return _rnWebRTC;
+}
+
 // Polyfill globals for JsSIP (expects browser environment)
-if (typeof global !== "undefined") {
-  (global as any).RTCPeerConnection     = RTCPeerConnection;
-  (global as any).RTCIceCandidate       = RTCIceCandidate;
-  (global as any).RTCSessionDescription = RTCSessionDescription;
+// Only runs when react-native-webrtc is available (i.e. development build)
+try {
+  const webRTC = require("react-native-webrtc");
+  if (typeof global !== "undefined") {
+    (global as any).RTCPeerConnection     = webRTC.RTCPeerConnection;
+    (global as any).RTCIceCandidate       = webRTC.RTCIceCandidate;
+    (global as any).RTCSessionDescription = webRTC.RTCSessionDescription;
+  }
+} catch {
+  // Expo Go — WebRTC polyfill unavailable, VoIP will not function
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -562,14 +573,17 @@ class VoipEngine {
     }
   }
 
-  private wireRemoteStream(pc: RTCPeerConnection) {
+  private wireRemoteStream(pc: any) {
     (pc as any).addEventListener("track", (event: any) => {
-      const streams: MediaStream[] = event.streams;
+      const streams: any[] = event.streams;
       if (streams?.length) {
         this.remoteStream = streams[0];
       } else if (event.track) {
         if (!this.remoteStream) {
-          this.remoteStream = new MediaStream([event.track as MediaStreamTrack]);
+          const { MediaStream: RNMediaStream } = getRNWebRTC();
+          if (RNMediaStream) {
+            this.remoteStream = new RNMediaStream([event.track]);
+          }
         } else {
           (this.remoteStream as any).addTrack(event.track);
         }
@@ -577,7 +591,9 @@ class VoipEngine {
     });
   }
 
-  private async getLocalAudioStream(): Promise<MediaStream> {
+  private async getLocalAudioStream(): Promise<any> {
+    const { mediaDevices } = getRNWebRTC();
+    if (!mediaDevices) throw new Error("react-native-webrtc not available");
     const stream = await mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -586,7 +602,7 @@ class VoipEngine {
       } as any,
       video: false,
     });
-    return stream as unknown as MediaStream;
+    return stream;
   }
 
   private stopLocalStream() {
