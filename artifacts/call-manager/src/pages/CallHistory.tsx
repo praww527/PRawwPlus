@@ -32,13 +32,22 @@ export default function CallHistory() {
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall } = useMakeCall();
   const { toast } = useToast();
-  const { startOutgoing, updateCallId, makeVertoCall, connectCall, endCall, isVertoConnected } = useCall();
+  const { startOutgoing, updateCallId, makeVertoCall, endCall, isVertoConnected } = useCall();
 
   const handleCallBack = async (number: string) => {
     const callType: "internal" | "external" = isInternalNum(number) ? "internal" : "external";
     const isInternal = callType === "internal";
     const coins = user?.coins ?? 0;
     const isActive = user?.subscriptionStatus === "active";
+
+    if (!isVertoConnected) {
+      toast({
+        title: "Not connected",
+        description: "VoIP connection is not ready. Please wait a moment and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (!isInternal && (!isActive || coins <= 0)) {
       toast({
@@ -51,10 +60,7 @@ export default function CallHistory() {
 
     startOutgoing({ number, callType });
     try {
-      let fsCallId: string | null = null;
-      if (isVertoConnected) {
-        fsCallId = await makeVertoCall(number);
-      }
+      const fsCallId = await makeVertoCall(number);
 
       const record = await initiateCall({
         data: { recipientNumber: number, fsCallId: fsCallId ?? undefined },
@@ -62,10 +68,6 @@ export default function CallHistory() {
 
       if (record?.id) {
         updateCallId(record.id);
-      }
-
-      if (!fsCallId) {
-        connectCall();
       }
     } catch (err: any) {
       endCall();

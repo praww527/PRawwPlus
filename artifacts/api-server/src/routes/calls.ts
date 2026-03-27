@@ -204,7 +204,9 @@ router.post("/calls/webhook/freeswitch", async (req, res) => {
         await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } });
       }
     }
-  } catch (_e) {}
+  } catch (err) {
+    console.error("[webhook] Failed to update call record or deduct coins:", err);
+  }
 
   res.sendStatus(200);
 });

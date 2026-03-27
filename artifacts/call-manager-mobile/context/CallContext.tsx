@@ -85,11 +85,26 @@ export function CallProvider({ children }: PropsWithChildren) {
   const credentialsRef    = useRef<VoipCredentials | null>(null);
   const activeCallIdRef   = useRef<string | null>(null);
 
-  // ── Network monitor ──
+  // ── Network monitor + auto re-register on recovery ──
 
   useEffect(() => {
     networkMonitor.start();
-    const remove = networkMonitor.addListener((state) => setNetworkState(state));
+
+    const remove = networkMonitor.addListener((state) => {
+      setNetworkState(state);
+
+      // When network comes back online and we have saved credentials but the
+      // engine is not registered (e.g. connection dropped), re-register.
+      if (state === "online" && credentialsRef.current) {
+        const engineState = voipEngine.getState();
+        if (engineState === "idle" || engineState === "error") {
+          voipEngine.register(credentialsRef.current).catch((err) => {
+            console.error("[VoIP] Auto re-register on network recovery failed:", err);
+          });
+        }
+      }
+    });
+
     setNetworkState(networkMonitor.getState());
     return () => {
       remove();
