@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared libs
+        run: pnpm --filter @workspace/db --filter @workspace/auth-web --filter @workspace/api-client-react run build
+
       - name: Build API server
         run: pnpm --filter @workspace/api-server run build
 

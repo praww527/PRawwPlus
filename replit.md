@@ -189,11 +189,32 @@ When a mobile user answers an incoming call, `POST /calls` is called with `direc
 
 ## Building Mobile APK / IPA
 
+`expo-dev-client` and `expo-updates` are installed. The slug is `prawwplus` and OTA updates are wired to the EAS project (`d70cf263-144d-4218-862c-98cfbaa8cfb2`).
+
 ```bash
 npm install -g eas-cli
 eas login
-# Android APK (internal/preview)
+# Development build with native VoIP modules (required for real calls)
+eas build --platform android --profile development
+# Preview APK (internal testing)
 eas build --platform android --profile preview
-# iOS IPA (internal/preview)
+# Production AAB for Google Play Store
+eas build --platform android --profile production-aab
+# iOS IPA
 eas build --platform ios --profile preview
+# Push OTA JS-only update (no app store submission needed)
+eas update --branch production --message "describe change"
 ```
+
+## Deployment Checklist
+
+### Render (web + API)
+1. Push this repo to GitHub
+2. Connect Render to the repo — Render reads `render.yaml` automatically
+3. Set all `sync: false` env vars in the Render dashboard (see Environment Variables table above)
+4. Done — every push to `main` triggers a deploy via GitHub Actions
+
+### GitHub Actions CI/CD secrets
+Add to GitHub repo → Settings → Secrets:
+- `EXPO_TOKEN` — from expo.dev → Account Settings → Access Tokens
+- `RENDER_DEPLOY_HOOK_URL` — from Render service → Settings → Deploy Hook

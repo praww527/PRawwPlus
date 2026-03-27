@@ -4,7 +4,7 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/call-manager run build && pnpm --filter @workspace/api-server run build
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/db --filter @workspace/auth-web --filter @workspace/api-client-react run build && pnpm --filter @workspace/call-manager run build && pnpm --filter @workspace/api-server run build
     startCommand: node artifacts/api-server/dist/index.cjs
     healthCheckPath: /api/healthz
     envVars:
@@ -45,4 +45,10 @@ services:
       - key: FREESWITCH_ESL_PASSWORD
         sync: false
       - key: FREESWITCH_SSH_USER
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
         sync: false
