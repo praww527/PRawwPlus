@@ -58,10 +58,14 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   });
 });
 
-router.get("/freeswitch/directory", async (req: Request, res: Response) => {
+async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<void> {
   await connectDB();
 
-  const { user: ext, domain } = req.query as { user?: string; domain?: string };
+  // mod_xml_curl sends POST by default (form-encoded body).
+  // Support both so manual GET debugging also works.
+  const params = (req.method === "POST" ? req.body : req.query) as Record<string, string | undefined>;
+  const ext = params["user"];
+  const domain = params["domain"];
 
   res.setHeader("Content-Type", "text/xml");
 
@@ -133,6 +137,10 @@ router.get("/freeswitch/directory", async (req: Request, res: Response) => {
   </section>
 </document>`,
   );
-});
+}
+
+// mod_xml_curl POSTs by default; also accept GET for manual curl/browser testing
+router.post("/freeswitch/directory", handleFreeSwitchDirectory);
+router.get("/freeswitch/directory", handleFreeSwitchDirectory);
 
 export default router;
