@@ -1,43 +1,9 @@
 import { useState, useEffect } from "react";
 import {
-  ChevronLeft, Phone, Wifi, Mic, Volume2, Shield,
-  Clock, Radio, Headphones, PhoneForwarded, PhoneMissed,
-  BellRing, BellOff, Loader2, Check,
+  ChevronLeft, Volume2, BellRing, BellOff, Clock, Loader2, Check,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useGetVertoConfig, useUpdateUserSettings } from "@workspace/api-client-react";
-
-interface ToggleRowProps {
-  icon: React.ReactNode;
-  iconBg: string;
-  iconColor: string;
-  label: string;
-  description?: string;
-  enabled: boolean;
-  onToggle: () => void;
-  disabled?: boolean;
-}
-
-function ToggleRow({ icon, iconBg, iconColor, label, description, enabled, onToggle, disabled }: ToggleRowProps) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", opacity: disabled ? 0.5 : 1 }}>
-      <div className="icon-badge" style={{ background: iconBg }}>
-        <span style={{ color: iconColor }}>{icon}</span>
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-1)", margin: 0 }}>{label}</p>
-        {description && <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", lineHeight: 1.3 }}>{description}</p>}
-      </div>
-      <div
-        className="toggle-track"
-        style={{ background: enabled ? "#1a8cff" : "rgba(255,255,255,0.15)", cursor: disabled ? "not-allowed" : "pointer" }}
-        onClick={disabled ? undefined : onToggle}
-      >
-        <div className="toggle-thumb" style={{ left: enabled ? 22 : 2 }} />
-      </div>
-    </div>
-  );
-}
 
 interface SelectRowProps {
   icon: React.ReactNode;
@@ -78,20 +44,18 @@ function SelectRow({ icon, iconBg, iconColor, label, value, options, onChange, d
   );
 }
 
-interface InputRowProps {
+interface ToggleRowProps {
   icon: React.ReactNode;
   iconBg: string;
   iconColor: string;
   label: string;
   description?: string;
-  value: string;
-  type?: string;
-  placeholder?: string;
-  onChange: (v: string) => void;
+  enabled: boolean;
+  onToggle: () => void;
   disabled?: boolean;
 }
 
-function InputRow({ icon, iconBg, iconColor, label, description, value, type = "text", placeholder, onChange, disabled }: InputRowProps) {
+function ToggleRow({ icon, iconBg, iconColor, label, description, enabled, onToggle, disabled }: ToggleRowProps) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", opacity: disabled ? 0.5 : 1 }}>
       <div className="icon-badge" style={{ background: iconBg }}>
@@ -101,23 +65,13 @@ function InputRow({ icon, iconBg, iconColor, label, description, value, type = "
         <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-1)", margin: 0 }}>{label}</p>
         {description && <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", lineHeight: 1.3 }}>{description}</p>}
       </div>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        disabled={disabled}
-        style={{
-          background: "rgba(255,255,255,0.08)",
-          border: "1px solid rgba(255,255,255,0.10)",
-          borderRadius: 8,
-          color: "var(--text-2)",
-          fontSize: 13,
-          padding: "4px 8px",
-          width: 120,
-          outline: "none",
-        }}
-      />
+      <div
+        className="toggle-track"
+        style={{ background: enabled ? "#1a8cff" : "rgba(255,255,255,0.15)", cursor: disabled ? "not-allowed" : "pointer" }}
+        onClick={disabled ? undefined : onToggle}
+      >
+        <div className="toggle-thumb" style={{ left: enabled ? 22 : 2 }} />
+      </div>
     </div>
   );
 }
@@ -158,19 +112,6 @@ const DURATION_OPTIONS = [
   { value: "120", label: "2 min" },
 ];
 
-type LocalSettings = {
-  wifiCalling: boolean;
-  noiseCancellation: boolean;
-  autoAnswer: boolean;
-  recordCalls: boolean;
-  hd: boolean;
-  earpiece: boolean;
-  forwarding: boolean;
-  waitingTone: boolean;
-  codec: string;
-  forwardTo: string;
-};
-
 export default function CallSettingsPage() {
   const [, setLocation] = useLocation();
 
@@ -179,18 +120,6 @@ export default function CallSettingsPage() {
   const [ringtone, setRingtone] = useState("default");
   const [ringtoneDuration, setRingtoneDuration] = useState("30");
   const [dnd, setDnd] = useState(false);
-  const [local, setLocal] = useState<LocalSettings>({
-    wifiCalling: true,
-    noiseCancellation: true,
-    autoAnswer: false,
-    recordCalls: false,
-    hd: true,
-    earpiece: false,
-    forwarding: false,
-    waitingTone: true,
-    codec: "Opus HD",
-    forwardTo: "Voicemail",
-  });
 
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -216,12 +145,6 @@ export default function CallSettingsPage() {
       setDnd(s.dnd ?? false);
     }
   }, [vertoConfig]);
-
-  const toggleLocal = (key: keyof LocalSettings) => {
-    if (typeof local[key] === "boolean") {
-      setLocal((s) => ({ ...s, [key]: !s[key] }));
-    }
-  };
 
   const handleSave = () => {
     setSaveError(null);
@@ -286,35 +209,6 @@ export default function CallSettingsPage() {
         </div>
       )}
 
-      <Section title="Audio & Quality">
-        <ToggleRow
-          icon={<Wifi size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
-          label="Wi-Fi Calling" description="Use internet for better call quality"
-          enabled={local.wifiCalling} onToggle={() => toggleLocal("wifiCalling")}
-        />
-        <ToggleRow
-          icon={<Mic size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
-          label="Noise Cancellation" description="Filter background noise automatically"
-          enabled={local.noiseCancellation} onToggle={() => toggleLocal("noiseCancellation")}
-        />
-        <ToggleRow
-          icon={<Radio size={15} />} iconBg="rgba(94,92,230,0.18)" iconColor="#5e5ce6"
-          label="HD Voice" description="High-definition audio when supported"
-          enabled={local.hd} onToggle={() => toggleLocal("hd")}
-        />
-        <SelectRow
-          icon={<Headphones size={15} />} iconBg="rgba(120,65,190,0.18)" iconColor="#bf5af2"
-          label="Audio Codec" value={local.codec}
-          options={[
-            { value: "Opus HD", label: "Opus HD" },
-            { value: "G.711", label: "G.711" },
-            { value: "G.722", label: "G.722" },
-            { value: "G.729", label: "G.729" },
-          ]}
-          onChange={(v) => setLocal((s) => ({ ...s, codec: v }))}
-        />
-      </Section>
-
       <Section title="Incoming Calls">
         <ToggleRow
           icon={dnd ? <BellOff size={15} /> : <BellRing size={15} />}
@@ -322,16 +216,7 @@ export default function CallSettingsPage() {
           iconColor={dnd ? "#ff453a" : "#30d158"}
           label="Do Not Disturb" description="Reject all incoming calls"
           enabled={dnd} onToggle={() => setDnd((v) => !v)}
-        />
-        <ToggleRow
-          icon={<Phone size={15} />} iconBg="rgba(255,149,0,0.18)" iconColor="#ff9500"
-          label="Auto-Answer" description="Answer calls automatically after 5 seconds"
-          enabled={local.autoAnswer} onToggle={() => toggleLocal("autoAnswer")}
-        />
-        <ToggleRow
-          icon={<Volume2 size={15} />} iconBg="rgba(48,209,88,0.15)" iconColor="#30d158"
-          label="Call Waiting Tone" description="Hear a tone when another call comes in"
-          enabled={local.waitingTone} onToggle={() => toggleLocal("waitingTone")}
+          disabled={isLoading}
         />
         <SelectRow
           icon={<Volume2 size={15} />} iconBg="rgba(255,214,10,0.15)" iconColor="#ffd60a"
@@ -349,40 +234,8 @@ export default function CallSettingsPage() {
         />
       </Section>
 
-      <Section title="Call Forwarding">
-        <ToggleRow
-          icon={<PhoneForwarded size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
-          label="Forward Calls" description="Redirect incoming calls when unavailable"
-          enabled={local.forwarding} onToggle={() => toggleLocal("forwarding")}
-        />
-        <SelectRow
-          icon={<PhoneMissed size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
-          label="Forward To" value={local.forwardTo}
-          options={[
-            { value: "Voicemail", label: "Voicemail" },
-            { value: "Another Number", label: "Another Number" },
-            { value: "Off", label: "Off" },
-          ]}
-          onChange={(v) => setLocal((s) => ({ ...s, forwardTo: v }))}
-        />
-      </Section>
-
-      <Section title="Privacy & Recording">
-        <ToggleRow
-          icon={<Shield size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
-          label="Record Calls" description="Automatically record all calls locally"
-          enabled={local.recordCalls} onToggle={() => toggleLocal("recordCalls")}
-        />
-        <ToggleRow
-          icon={<Clock size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
-          label="Use Earpiece by Default" description="Route audio to earpiece instead of speaker"
-          enabled={local.earpiece} onToggle={() => toggleLocal("earpiece")}
-        />
-      </Section>
-
       <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)", paddingBottom: 4 }}>
-        Ringtone, DND, ring duration and server settings sync to your account.
-        Other settings are device-local.
+        Settings sync to your account across all devices.
       </p>
     </div>
   );
