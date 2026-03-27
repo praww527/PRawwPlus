@@ -15,6 +15,8 @@ export const CallRecordStatus = {
   "in-progress": "in-progress",
   completed: "completed",
   failed: "failed",
+  missed: "missed",
+  cancelled: "cancelled",
   busy: "busy",
   "no-answer": "no-answer",
 } as const;

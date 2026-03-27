@@ -180,6 +180,8 @@ export const ListCallsResponse = zod.object({
         "in-progress",
         "completed",
         "failed",
+        "missed",
+        "cancelled",
         "busy",
         "no-answer",
       ]),
@@ -187,6 +189,12 @@ export const ListCallsResponse = zod.object({
       cost: zod.number().describe("Coins used (only for external calls)"),
       fsCallId: zod.string().nullish(),
       notes: zod.string().nullish(),
+      failReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+        ),
       startedAt: zod.date().nullish(),
       endedAt: zod.date().nullish(),
       createdAt: zod.date(),
@@ -219,6 +227,8 @@ export const MakeCallResponse = zod.object({
     "in-progress",
     "completed",
     "failed",
+    "missed",
+    "cancelled",
     "busy",
     "no-answer",
   ]),
@@ -226,6 +236,12 @@ export const MakeCallResponse = zod.object({
   cost: zod.number().describe("Coins used (only for external calls)"),
   fsCallId: zod.string().nullish(),
   notes: zod.string().nullish(),
+  failReason: zod
+    .string()
+    .nullish()
+    .describe(
+      "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+    ),
   startedAt: zod.date().nullish(),
   endedAt: zod.date().nullish(),
   createdAt: zod.date(),
@@ -250,6 +266,8 @@ export const GetCallResponse = zod.object({
     "in-progress",
     "completed",
     "failed",
+    "missed",
+    "cancelled",
     "busy",
     "no-answer",
   ]),
@@ -257,6 +275,12 @@ export const GetCallResponse = zod.object({
   cost: zod.number().describe("Coins used (only for external calls)"),
   fsCallId: zod.string().nullish(),
   notes: zod.string().nullish(),
+  failReason: zod
+    .string()
+    .nullish()
+    .describe(
+      "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+    ),
   startedAt: zod.date().nullish(),
   endedAt: zod.date().nullish(),
   createdAt: zod.date(),
@@ -286,6 +310,8 @@ export const EndCallResponse = zod.object({
     "in-progress",
     "completed",
     "failed",
+    "missed",
+    "cancelled",
     "busy",
     "no-answer",
   ]),
@@ -293,6 +319,12 @@ export const EndCallResponse = zod.object({
   cost: zod.number().describe("Coins used (only for external calls)"),
   fsCallId: zod.string().nullish(),
   notes: zod.string().nullish(),
+  failReason: zod
+    .string()
+    .nullish()
+    .describe(
+      "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+    ),
   startedAt: zod.date().nullish(),
   endedAt: zod.date().nullish(),
   createdAt: zod.date(),
@@ -569,6 +601,8 @@ export const AdminListCallsResponse = zod.object({
         "in-progress",
         "completed",
         "failed",
+        "missed",
+        "cancelled",
         "busy",
         "no-answer",
       ]),
@@ -576,6 +610,12 @@ export const AdminListCallsResponse = zod.object({
       cost: zod.number().describe("Coins used (only for external calls)"),
       fsCallId: zod.string().nullish(),
       notes: zod.string().nullish(),
+      failReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+        ),
       startedAt: zod.date().nullish(),
       endedAt: zod.date().nullish(),
       createdAt: zod.date(),

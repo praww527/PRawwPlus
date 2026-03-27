@@ -172,6 +172,8 @@ export const CallRecordStatus = {
   "in-progress": "in-progress",
   completed: "completed",
   failed: "failed",
+  missed: "missed",
+  cancelled: "cancelled",
   busy: "busy",
   "no-answer": "no-answer",
 } as const;
@@ -188,6 +190,8 @@ export interface CallRecord {
   cost: number;
   fsCallId?: string | null;
   notes?: string | null;
+  /** Human-readable reason for non-completed calls (set by ESL orchestrator) */
+  failReason?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
   createdAt: string;
