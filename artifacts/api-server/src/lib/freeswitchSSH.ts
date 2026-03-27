@@ -134,13 +134,22 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     );
     steps.push("Wrote call_manager_ws SIP profile");
 
-    // Write dialplan
+    // Write dialplan — top-level dialplan/ dir so FreeSWITCH's
+    // "dialplan/*.xml" include picks it up as a standalone context.
+    // The context is named "call_manager" (not "default") so it is
+    // completely isolated from the default FreeSWITCH dialplan.
     await writeRemoteFile(
       conn,
-      `${confDir}/dialplan/default/call_manager.xml`,
+      `${confDir}/dialplan/call_manager.xml`,
       dialplanXml(FS_HOST),
     );
     steps.push("Wrote call_manager dialplan");
+
+    // Remove the old file from dialplan/default/ if it exists (cleanup)
+    try {
+      await execCommand(conn, `rm -f '${confDir}/dialplan/default/call_manager.xml'`);
+      steps.push("Removed old dialplan/default/call_manager.xml (if present)");
+    } catch { /* ignore */ }
 
     // Locate fs_cli — try common install paths
     const fsCli = await execCommand(

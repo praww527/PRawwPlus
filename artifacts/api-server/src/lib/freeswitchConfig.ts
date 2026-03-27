@@ -68,7 +68,12 @@ export function vertoConf(fsIp: string): string {
       <param name="apply-candidate-acl" value="any_v4.auto"/>
 
       <param name="dialplan" value="XML"/>
-      <param name="context" value="default"/>
+      <!--
+        Use the dedicated "call_manager" context so calls are routed by OUR
+        dialplan only, completely isolated from the default FreeSWITCH dialplan
+        (which has its own 4-digit extension handlers that would match first).
+      -->
+      <param name="context" value="call_manager"/>
 
       <!--
         Codecs: Opus first for WebRTC browser compatibility, then PCMU/PCMA
@@ -99,16 +104,20 @@ export function dialplanXml(fsDomain: string): string {
   <!--
     PRawwPlus Dialplan — domain: ${fsDomain}
 
-    Bridge strategy: "user/\$1@${fsDomain}" is the correct FreeSWITCH built-in
-    endpoint that finds ALL registered contacts for a user — whether they
-    connected via Verto (web) or SIP/WS (mobile). This avoids the sequential
-    "verto_contact|sofia/..." pattern which can miss users and adds latency.
+    Context: "call_manager" — completely isolated from FreeSWITCH's built-in
+    "default" context. Both the Verto profile (port 8081) and the SIP/WS
+    profile (port 5066) are configured to use this context, so calls ALWAYS
+    land here and never hit the default FreeSWITCH extension handlers.
 
-    Failure handling avoids mod_voicemail (not always loaded). Every failure
-    path plays a voice announcement then hangs up with the correct SIP cause
-    code so the caller's UI shows the right message.
+    Bridge strategy: "verto_contact/N@domain" finds web app (Verto WebRTC)
+    registrations.  "user/N@domain" finds mobile (SIP/WS) registrations.
+    The comma "," dials them SIMULTANEOUSLY — first to answer wins.
+
+    Failure handling does NOT depend on mod_voicemail (may not be loaded).
+    Every failure path plays a TTS announcement then hangs up with the correct
+    SIP cause code so the caller's UI shows the right reason.
   -->
-  <context name="default">
+  <context name="call_manager">
 
     <!--
       Internal extension-to-extension calls (1000–9999).
@@ -124,10 +133,14 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="continue_on_fail=true"/>
         <!--
-          "user/" endpoint finds ALL registered contacts for the extension
-          (Verto/WebRTC web clients AND SIP/WS mobile clients simultaneously).
+          Simultaneous ring: both Verto (web/WebRTC) and SIP/WS (mobile JsSIP)
+          contacts for the extension are called at the same time.
+          IMPORTANT: "user/" only finds SIP registrations (mod_sofia).
+                     "verto_contact/" only finds Verto registrations (mod_verto).
+          We need BOTH with "," (simultaneous) so web AND mobile clients ring.
+          First to answer wins; the other leg is cleanly released.
         -->
-        <action application="bridge" data="user/\$1@${fsDomain}"/>
+        <action application="bridge" data="verto_contact/\$1@${fsDomain},user/\$1@${fsDomain}"/>
       </condition>
 
       <!-- Callee is busy (cause 17) -->
@@ -213,7 +226,11 @@ export function dialplanXml(fsDomain: string): string {
 export function sipProfileXml(fsIp: string, _appUrl: string): string {
   return `<profile name="call_manager_ws">
   <settings>
-    <param name="context" value="default"/>
+    <!--
+      Use the dedicated "call_manager" context — same as the Verto profile —
+      so SIP/WS mobile clients are routed by our dialplan, not the default one.
+    -->
+    <param name="context" value="call_manager"/>
     <param name="dialplan" value="XML"/>
 
     <!-- Bind SIP to a non-standard port to avoid conflicts with internal/external profiles -->
