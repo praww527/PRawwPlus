@@ -274,6 +274,15 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
     <param name="dtmf-duration" value="2000"/>
     <param name="rfc2833-pt" value="101"/>
 
+    <!--
+      RTP timeouts: disconnect if no RTP arrives within 30s (dead call cleanup).
+      This ensures that if the remote party's connection silently drops and no
+      BYE is sent, FreeSWITCH will detect the RTP silence and send a BYE to
+      the mobile SIP/WS client — preventing stuck call timers on the app side.
+    -->
+    <param name="rtp-timeout-sec" value="30"/>
+    <param name="rtp-hold-timeout-sec" value="120"/>
+
     <!-- Session timers / registration -->
     <param name="session-timeout" value="1800"/>
     <param name="max-registrations-per-extension" value="5"/>

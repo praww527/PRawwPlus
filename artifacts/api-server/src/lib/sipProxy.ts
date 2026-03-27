@@ -14,6 +14,9 @@ import { logger } from "./logger";
 
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 
+// Keepalive interval — ping every 25 s so the connection survives NAT/LB idle timeouts
+const PING_INTERVAL_MS = 25_000;
+
 function safeCloseCode(code: number): number {
   return RECEIVE_ONLY_CODES.has(code) ? 1001 : code;
 }
@@ -34,8 +37,33 @@ export function createSipProxy(): WebSocketServer {
 
     const upstream = new WebSocket(upstreamUrl, ["sip"]);
 
+    // ── Keepalive ping/pong ──────────────────────────────────────────────────
+    // Without periodic pings, NAT gateways and load-balancers silently drop
+    // idle TCP connections mid-call. The mobile client then never receives the
+    // SIP BYE from FreeSWITCH, leaving the call timer running forever.
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+
+    function startPing() {
+      pingTimer = setInterval(() => {
+        if (upstream.readyState === WebSocket.OPEN) {
+          upstream.ping();
+        }
+        if (client.readyState === WebSocket.OPEN) {
+          client.ping();
+        }
+      }, PING_INTERVAL_MS);
+    }
+
+    function stopPing() {
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+    }
+
     upstream.on("open", () => {
       logger.debug("SIP proxy: upstream connected");
+      startPing();
     });
 
     upstream.on("message", (data, isBinary) => {
@@ -45,11 +73,13 @@ export function createSipProxy(): WebSocketServer {
     });
 
     upstream.on("close", (code, reason) => {
+      stopPing();
       const safe = safeCloseCode(code);
       if (client.readyState === WebSocket.OPEN) client.close(safe, reason);
     });
 
     upstream.on("error", (err) => {
+      stopPing();
       logger.warn({ err: err.message }, "SIP proxy: upstream error");
       if (client.readyState === WebSocket.OPEN) client.close(1011, Buffer.from("upstream error"));
     });
@@ -61,11 +91,13 @@ export function createSipProxy(): WebSocketServer {
     });
 
     client.on("close", (code, reason) => {
+      stopPing();
       const safe = safeCloseCode(code);
       if (upstream.readyState === WebSocket.OPEN) upstream.close(safe, reason);
     });
 
     client.on("error", (err) => {
+      stopPing();
       logger.warn({ err: err.message }, "SIP proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(1011, Buffer.from("client error"));
     });

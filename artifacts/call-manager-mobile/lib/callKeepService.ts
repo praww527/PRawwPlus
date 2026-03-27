@@ -5,10 +5,12 @@
  *  - Native call UI on incoming push (both foreground, background, and terminated state)
  *  - Answer / end / DTMF events forwarded to the VoIP engine
  *  - Lock-screen call display on Android (ConnectionService) and iOS (CallKit)
+ *
+ * Gracefully degrades in Expo Go / environments where CallKeep is not available.
  */
 
-import RNCallKeep from "react-native-callkeep";
 import { Platform } from "react-native";
+import { isExpoGo } from "./isExpoGo";
 import { voipEngine } from "./voipEngine";
 
 export type CallKeepEvent =
@@ -21,8 +23,27 @@ type CallKeepListener = (event: CallKeepEvent) => void;
 
 const listeners: CallKeepListener[] = [];
 
+function getRNCallKeep(): any | null {
+  if (isExpoGo) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require("react-native-callkeep").default;
+  } catch {
+    console.warn("[CallKeep] react-native-callkeep not available");
+    return null;
+  }
+}
+
 export const callKeepService = {
   setup(): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) {
+      if (isExpoGo) {
+        console.log("[CallKeep] Skipped — running in Expo Go (dev preview mode)");
+      }
+      return;
+    }
+
     const options = {
       ios: {
         appName: "PRawwPlus",
@@ -38,7 +59,6 @@ export const callKeepService = {
         okButton:         "OK",
         imageName:        "ic_launcher",
         additionalPermissions: [],
-        // Required for Android 14+
         selfManaged: true,
       },
     };
@@ -47,12 +67,10 @@ export const callKeepService = {
       console.warn("[CallKeep] Setup error:", err?.message ?? err);
     });
 
-    // iOS-only: request mic permission via CallKit
     if (Platform.OS === "ios") {
       RNCallKeep.setAvailable(true);
     }
 
-    // Register event handlers
     RNCallKeep.addEventListener("answerCall", ({ callUUID }: { callUUID: string }) => {
       console.log("[CallKeep] answerCall", callUUID);
       voipEngine.answerIncomingCall().catch(console.error);
@@ -81,7 +99,6 @@ export const callKeepService = {
     });
 
     RNCallKeep.addEventListener("didLoadWithEvents", (events: any[]) => {
-      // Handle events that were queued while the app was not running
       if (!Array.isArray(events)) return;
       for (const event of events) {
         if (event.name === "RNCallKeepPerformAnswerCallAction") {
@@ -103,29 +120,53 @@ export const callKeepService = {
   },
 
   displayIncomingCall(uuid: string, handle: string, displayName: string): void {
-    RNCallKeep.displayIncomingCall(
-      uuid,
-      handle,
-      displayName,
-      "number",
-      false,
-    );
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    try {
+      RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+    } catch (e) {
+      console.warn("[CallKeep] displayIncomingCall error:", e);
+    }
   },
 
   reportCallConnected(uuid: string): void {
-    RNCallKeep.reportConnectedOutgoingCallWithUUID(uuid);
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    try {
+      RNCallKeep.reportConnectedOutgoingCallWithUUID(uuid);
+    } catch (e) {
+      console.warn("[CallKeep] reportCallConnected error:", e);
+    }
   },
 
   endCall(uuid: string): void {
-    RNCallKeep.endCall(uuid);
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    try {
+      RNCallKeep.endCall(uuid);
+    } catch (e) {
+      console.warn("[CallKeep] endCall error:", e);
+    }
   },
 
   endAllCalls(): void {
-    RNCallKeep.endAllCalls();
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    try {
+      RNCallKeep.endAllCalls();
+    } catch (e) {
+      console.warn("[CallKeep] endAllCalls error:", e);
+    }
   },
 
   reportCallEnded(uuid: string): void {
-    RNCallKeep.reportEndCallWithUUID(uuid, 2); // 2 = remote ended
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    try {
+      RNCallKeep.reportEndCallWithUUID(uuid, 2);
+    } catch (e) {
+      console.warn("[CallKeep] reportCallEnded error:", e);
+    }
   },
 
   addListener(listener: CallKeepListener): () => void {
@@ -137,10 +178,16 @@ export const callKeepService = {
   },
 
   destroy(): void {
-    RNCallKeep.removeEventListener("answerCall");
-    RNCallKeep.removeEventListener("endCall");
-    RNCallKeep.removeEventListener("didActivateAudioSession");
-    RNCallKeep.removeEventListener("didDeactivateAudioSession");
-    RNCallKeep.removeEventListener("didLoadWithEvents");
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    try {
+      RNCallKeep.removeEventListener("answerCall");
+      RNCallKeep.removeEventListener("endCall");
+      RNCallKeep.removeEventListener("didActivateAudioSession");
+      RNCallKeep.removeEventListener("didDeactivateAudioSession");
+      RNCallKeep.removeEventListener("didLoadWithEvents");
+    } catch (e) {
+      console.warn("[CallKeep] destroy error:", e);
+    }
   },
 };

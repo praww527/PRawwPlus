@@ -11,29 +11,48 @@
  *  - Full SIP cause → human-readable error mapping
  *  - InCallManager audio routing integration
  *  - WebRTC audio stream management
+ *
+ * Gracefully degrades in Expo Go where react-native-webrtc is unavailable.
  */
 
 import { UA, WebSocketInterface } from "jssip";
 import type { RTCSession } from "jssip/lib/RTCSession";
 import type { UAConfiguration } from "jssip/lib/UA";
 import { DTMF_TRANSPORT } from "jssip/lib/Constants";
-import {
-  mediaDevices,
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-  MediaStream,
-  type MediaStreamTrack,
-} from "react-native-webrtc";
 import { v4 as uuidv4 } from "uuid";
 import { toneService } from "./toneService";
 import { getBaseUrl } from "./api";
+import { isExpoGo } from "./isExpoGo";
 
-// Polyfill globals for JsSIP (expects browser environment)
-if (typeof global !== "undefined") {
-  (global as any).RTCPeerConnection     = RTCPeerConnection;
-  (global as any).RTCIceCandidate       = RTCIceCandidate;
-  (global as any).RTCSessionDescription = RTCSessionDescription;
+// ── Conditionally load react-native-webrtc ───────────────────────────────────
+// In Expo Go, native WebRTC is not available. We set up dummy globals so JsSIP
+// doesn't crash on import, and makeCall / answerCall will throw a friendly error.
+
+let mediaDevices: any = null;
+let NativeRTCPeerConnection: any = null;
+let NativeRTCIceCandidate: any = null;
+let NativeRTCSessionDescription: any = null;
+let NativeMediaStream: any = null;
+
+if (!isExpoGo) {
+  try {
+    const webrtc = require("react-native-webrtc");
+    mediaDevices              = webrtc.mediaDevices;
+    NativeRTCPeerConnection   = webrtc.RTCPeerConnection;
+    NativeRTCIceCandidate     = webrtc.RTCIceCandidate;
+    NativeRTCSessionDescription = webrtc.RTCSessionDescription;
+    NativeMediaStream         = webrtc.MediaStream;
+
+    if (typeof global !== "undefined") {
+      (global as any).RTCPeerConnection     = NativeRTCPeerConnection;
+      (global as any).RTCIceCandidate       = NativeRTCIceCandidate;
+      (global as any).RTCSessionDescription = NativeRTCSessionDescription;
+    }
+  } catch (e) {
+    console.warn("[VoIP] react-native-webrtc not available:", e);
+  }
+} else {
+  console.log("[VoIP] WebRTC skipped — running in Expo Go (dev preview mode)");
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -148,8 +167,8 @@ class VoipEngine {
   private ua:              UA | null = null;
   private session:         RTCSession | null = null;
   private waitingSession:  WaitingCall | null = null;
-  private localStream:     MediaStream | null = null;
-  private remoteStream:    MediaStream | null = null;
+  private localStream:     any | null = null;
+  private remoteStream:    any | null = null;
   private state:           CallState = "idle";
   private listeners:       Partial<{ [K in keyof VoipEventMap]: VoipEventMap[K][] }> = {};
   private credentials:     VoipCredentials | null = null;
@@ -184,8 +203,8 @@ class VoipEngine {
   // ── Accessors ──
 
   getState(): CallState             { return this.state; }
-  getLocalStream():  MediaStream | null { return this.localStream; }
-  getRemoteStream(): MediaStream | null { return this.remoteStream; }
+  getLocalStream():  any | null     { return this.localStream; }
+  getRemoteStream(): any | null     { return this.remoteStream; }
   getCurrentCall():  CallInfo | null    { return this.currentCallInfo; }
   getWaitingCall():  WaitingCall | null { return this.waitingSession; }
   isOnHold():        boolean            { return this.isHeld; }
@@ -208,7 +227,12 @@ class VoipEngine {
       display_name:     creds.extension,
       register:         true,
       register_expires: 300,
-      session_timers:   false,
+      // Session timers (RFC 4028) — enabled so both JsSIP and FreeSWITCH
+      // exchange periodic refreshes. If the SIP connection silently drops
+      // mid-call, the session timer will expire and JsSIP will fire the
+      // "ended" event, correctly ending the call on the mobile side.
+      session_timers:   true,
+      session_timers_refresh_method: "UPDATE",
       pcConfig: {
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
@@ -312,6 +336,13 @@ class VoipEngine {
     if (!this.ua || this.state !== "registered") {
       throw new Error("Not registered — cannot make call");
     }
+    if (!mediaDevices || !NativeRTCPeerConnection) {
+      throw new Error(
+        isExpoGo
+          ? "Calling requires a development build. Expo Go does not support WebRTC."
+          : "WebRTC is not available on this device."
+      );
+    }
 
     this.setState("calling");
     toneService.startRingback();
@@ -352,12 +383,8 @@ class VoipEngine {
       const hasBody = Boolean(e?.response?.body);
 
       if (statusCode === 180) {
-        // 180 Ringing — remote is alerting, transition UI to ringing state.
-        // Keep local ringback playing; the remote side has not sent audio yet.
         this.setState("ringing");
       } else if (statusCode === 183 && hasBody) {
-        // 183 Session Progress with SDP — FreeSWITCH early media.
-        // Switch from local ringback tone to the remote audio stream.
         toneService.stopRingback();
       }
     });
@@ -398,6 +425,10 @@ class VoipEngine {
 
   async answerIncomingCall(): Promise<void> {
     if (!this.session || this.session.direction !== "incoming") return;
+    if (!mediaDevices || !NativeRTCPeerConnection) {
+      console.warn("[VoIP] Cannot answer — WebRTC not available");
+      return;
+    }
 
     toneService.stopRingtone();
 
@@ -476,10 +507,6 @@ class VoipEngine {
     const { session, fromNumber, uuid } = this.waitingSession;
     this.waitingSession = null;
 
-    // Null out this.session and point it to the new session BEFORE terminating
-    // the old one. This way, when the old session's "ended" event fires and
-    // calls handleSessionEnd, the session reference mismatch tells it to skip
-    // the state reset — we already have a new active call.
     const oldSession = this.session;
     this.session = session;
     if (oldSession) {
@@ -523,8 +550,8 @@ class VoipEngine {
 
   muteMicrophone(muted: boolean): void {
     if (!this.localStream) return;
-    (this.localStream as any).getAudioTracks?.()?.forEach((t: MediaStreamTrack) => {
-      (t as any).enabled = !muted;
+    this.localStream.getAudioTracks?.()?.forEach((t: any) => {
+      t.enabled = !muted;
     });
     toneService.setMicMute(muted);
   }
@@ -560,22 +587,25 @@ class VoipEngine {
     }
   }
 
-  private wireRemoteStream(pc: RTCPeerConnection) {
-    (pc as any).addEventListener("track", (event: any) => {
-      const streams: MediaStream[] = event.streams;
+  private wireRemoteStream(pc: any) {
+    pc.addEventListener("track", (event: any) => {
+      const streams: any[] = event.streams;
       if (streams?.length) {
         this.remoteStream = streams[0];
       } else if (event.track) {
-        if (!this.remoteStream) {
-          this.remoteStream = new MediaStream([event.track as MediaStreamTrack]);
-        } else {
-          (this.remoteStream as any).addTrack(event.track);
+        if (!this.remoteStream && NativeMediaStream) {
+          this.remoteStream = new NativeMediaStream([event.track]);
+        } else if (this.remoteStream) {
+          this.remoteStream.addTrack(event.track);
         }
       }
     });
   }
 
-  private async getLocalAudioStream(): Promise<MediaStream> {
+  private async getLocalAudioStream(): Promise<any> {
+    if (!mediaDevices) {
+      throw new Error("MediaDevices not available — WebRTC is not loaded.");
+    }
     const stream = await mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -584,12 +614,12 @@ class VoipEngine {
       } as any,
       video: false,
     });
-    return stream as unknown as MediaStream;
+    return stream;
   }
 
   private stopLocalStream() {
     if (this.localStream) {
-      (this.localStream as any).getTracks?.()?.forEach((t: MediaStreamTrack) => t.stop());
+      this.localStream.getTracks?.()?.forEach((t: any) => t.stop());
       this.localStream = null;
     }
   }

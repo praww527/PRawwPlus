@@ -33,16 +33,23 @@ function RootLayoutNav() {
     }
   }, [user, isLoading]);
 
-  // Set up CallKeep once on mount
+  // Set up CallKeep once on mount (no-op in Expo Go)
   useEffect(() => {
-    callKeepService.setup();
-    return () => { callKeepService.destroy(); };
+    try { callKeepService.setup(); } catch (e) { console.warn("[Layout] CallKeep setup error:", e); }
+    return () => {
+      try { callKeepService.destroy(); } catch {}
+    };
   }, []);
 
-  // Set up FCM foreground message listener
+  // Set up FCM foreground message listener (no-op in Expo Go)
   useEffect(() => {
-    const cleanup = setupFcmListeners();
-    return cleanup;
+    try {
+      const cleanup = setupFcmListeners();
+      return cleanup;
+    } catch (e) {
+      console.warn("[Layout] FCM listener setup error:", e);
+      return () => {};
+    }
   }, []);
 
   return (
