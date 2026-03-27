@@ -596,7 +596,7 @@ export const ListContactsResponse = zod.object({
       id: zod.string(),
       userId: zod.string(),
       name: zod.string(),
-      phoneNumber: zod.string(),
+      number: zod.string(),
       email: zod.string().nullish(),
       createdAt: zod.date(),
     }),
@@ -609,8 +609,9 @@ export const ListContactsResponse = zod.object({
  */
 export const CreateContactBody = zod.object({
   name: zod.string(),
-  phoneNumber: zod.string(),
+  number: zod.string(),
   email: zod.string().optional(),
+  fromPhone: zod.boolean().optional(),
 });
 
 /**
@@ -620,8 +621,9 @@ export const BulkImportContactsBody = zod.object({
   contacts: zod.array(
     zod.object({
       name: zod.string(),
-      phoneNumber: zod.string(),
+      number: zod.string(),
       email: zod.string().optional(),
+      fromPhone: zod.boolean().optional(),
     }),
   ),
 });

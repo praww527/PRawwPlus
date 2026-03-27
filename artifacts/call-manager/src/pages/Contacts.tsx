@@ -298,17 +298,30 @@ export default function Contacts() {
     }
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
+
+    // Pre-generate the FreeSWITCH call UUID so the DB record exists BEFORE
+    // we send verto.invite. This prevents ESL events (CHANNEL_ANSWER etc.)
+    // from arriving before the record is created and being silently dropped.
+    const fsCallId = crypto.randomUUID();
+
     startOutgoing({ number, name, callType });
 
     try {
-      const fsCallId = await makeVertoCall(number);
-
+      // Create the call record first — fsCallId links it to ESL events.
       const record = await initiateCall({
-        data: { recipientNumber: number, fsCallId: fsCallId ?? undefined },
+        data: { recipientNumber: number, fsCallId },
       });
 
       if (record?.id) {
         updateCallId(record.id);
+      }
+
+      // Now fire the Verto invite with the same pre-generated UUID.
+      const vertoCallId = await makeVertoCall(number, fsCallId);
+
+      if (vertoCallId === null) {
+        // makeVertoCall returned null — WebSocket issue or ICE failure.
+        throw new Error("VoIP connection error. Please try again.");
       }
     } catch (err: any) {
       endCall();

@@ -71,7 +71,7 @@ const UserSchema = new Schema<IUser>(
     totalCallsUsed: { type: Number, default: 0 },
     totalCoinsUsed: { type: Number, default: 0 },
     isAdmin: { type: Boolean, default: false },
-    extension: { type: Number, index: true, sparse: true },
+    extension: { type: Number, index: true, sparse: true, unique: true },
     fsPassword: { type: String },
     ringtone: { type: String, default: "default" },
     ringtoneDuration: { type: Number, default: 30 },
