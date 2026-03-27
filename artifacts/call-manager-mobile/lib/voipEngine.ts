@@ -295,11 +295,11 @@ class VoipEngine {
 
       session.on("ended",  (e: any) => {
         toneService.stopRingtone();
-        this.handleSessionEnd(e?.cause ?? "ended");
+        this.handleSessionEnd(session, e?.cause ?? "ended");
       });
       session.on("failed", (e: any) => {
         toneService.stopRingtone();
-        this.handleSessionEnd(e?.cause ?? "failed");
+        this.handleSessionEnd(session, e?.cause ?? "failed");
       });
 
       session.on("peerconnection", (data: any) => {
@@ -340,22 +340,28 @@ class VoipEngine {
     this.session = session;
     const uuid   = uuidv4();
 
-    // No-answer timeout
+    // No-answer timeout — only fires if still in calling/ringing state
     this.startNoAnswerTimer(() => {
-      if (this.state === "calling") {
+      if (this.state === "calling" || this.state === "ringing") {
         session.terminate({ status_code: 408, reason_phrase: "No Answer" });
         toneService.stopRingback();
-        this.handleSessionEnd("No Answer");
+        this.handleSessionEnd(session, "No Answer");
       }
     });
 
     session.on("progress", (e: any) => {
-      // FreeSWITCH is sending early media (ringback from server side)
-      // Stop local ringback so we don't play both
-      if (e?.response?.body) {
+      const statusCode: number | undefined = e?.response?.status_code;
+      const hasBody = Boolean(e?.response?.body);
+
+      if (statusCode === 180) {
+        // 180 Ringing — remote is alerting, transition UI to ringing state.
+        // Keep local ringback playing; the remote side has not sent audio yet.
+        this.setState("ringing");
+      } else if (statusCode === 183 && hasBody) {
+        // 183 Session Progress with SDP — FreeSWITCH early media.
+        // Switch from local ringback tone to the remote audio stream.
         toneService.stopRingback();
       }
-      this.setState("calling");
     });
 
     session.on("accepted", () => {
@@ -376,14 +382,13 @@ class VoipEngine {
     session.on("ended", (e: any) => {
       this.clearNoAnswerTimer();
       toneService.stopRingback();
-      this.handleSessionEnd(e?.cause ?? "ended");
+      this.handleSessionEnd(session, e?.cause ?? "ended");
     });
 
     session.on("failed", (e: any) => {
       this.clearNoAnswerTimer();
       toneService.stopRingback();
-      this.setState("registered");
-      this.handleSessionEnd(e?.cause ?? "failed");
+      this.handleSessionEnd(session, e?.cause ?? "failed");
     });
 
     session.on("peerconnection", (data: any) => {
@@ -470,15 +475,18 @@ class VoipEngine {
   async answerWaitingCall(): Promise<void> {
     if (!this.waitingSession) return;
 
-    // Hang up or hold the current call
-    if (this.session) {
-      try { this.session.terminate(); } catch {}
-      this.session = null;
-    }
-
     const { session, fromNumber, uuid } = this.waitingSession;
     this.waitingSession = null;
+
+    // Null out this.session and point it to the new session BEFORE terminating
+    // the old one. This way, when the old session's "ended" event fires and
+    // calls handleSessionEnd, the session reference mismatch tells it to skip
+    // the state reset — we already have a new active call.
+    const oldSession = this.session;
     this.session = session;
+    if (oldSession) {
+      try { oldSession.terminate(); } catch {}
+    }
 
     const localStream = await this.getLocalAudioStream();
     this.localStream  = localStream;
@@ -529,7 +537,16 @@ class VoipEngine {
 
   // ── Private helpers ──
 
-  private handleSessionEnd(reason: string) {
+  private handleSessionEnd(endedSession: RTCSession, reason: string) {
+    // If this.session already points to a different (newer) session — a call-swap
+    // just occurred. Only clean up audio; do NOT reset state or emit callEnded,
+    // as the new call is already active.
+    if (this.session && this.session !== endedSession) {
+      toneService.stopRingback();
+      toneService.stopRingtone();
+      return;
+    }
+
     toneService.stopCallAudio();
     toneService.stopRingback();
     toneService.stopRingtone();

@@ -190,7 +190,7 @@ export default function Contacts() {
   const [importing, setImporting] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { startOutgoing, updateCallId, connectCall, endCall, isVertoConnected, makeVertoCall } = useCall();
+  const { startOutgoing, updateCallId, endCall, isVertoConnected, makeVertoCall } = useCall();
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall } = useMakeCall();
   const { data: numbersData } = useListMyNumbers();
@@ -272,6 +272,15 @@ export default function Contacts() {
     const coins = user?.coins ?? 0;
     const isActive = user?.subscriptionStatus === "active";
 
+    if (!isVertoConnected) {
+      toast({
+        title: "Not connected",
+        description: "VoIP connection is not ready. Please wait a moment and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!isInternal) {
       if (!primaryNumber) {
         toast({ title: "No number assigned", description: "Claim a phone number first.", variant: "destructive" });
@@ -292,10 +301,7 @@ export default function Contacts() {
     startOutgoing({ number, name, callType });
 
     try {
-      let fsCallId: string | null = null;
-      if (isVertoConnected) {
-        fsCallId = await makeVertoCall(number);
-      }
+      const fsCallId = await makeVertoCall(number);
 
       const record = await initiateCall({
         data: { recipientNumber: number, fsCallId: fsCallId ?? undefined },
@@ -303,10 +309,6 @@ export default function Contacts() {
 
       if (record?.id) {
         updateCallId(record.id);
-      }
-
-      if (!fsCallId) {
-        connectCall();
       }
     } catch (err: any) {
       endCall();
