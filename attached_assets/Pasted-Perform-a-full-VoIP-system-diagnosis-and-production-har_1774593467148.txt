@@ -1,0 +1,142 @@
+Perform a full VoIP system diagnosis and production hardening across mobile apps (Android & iOS), backend, web, and FreeSWITCH.
+
+⸻
+
+System Context
+	•	SIP/WebRTC-based calling via FreeSWITCH
+	•	Mobile apps:
+	•	Android (Kotlin/Java)
+	•	iOS (Swift + CallKit)
+	•	SIP SDK (e.g., PJSIP / Linphone)
+	•	Backend services:
+	•	Authentication + API layer
+	•	Database (users, extensions, registrations, CDRs)
+	•	Real-time communication between app ↔ backend ↔ FreeSWITCH
+
+⸻
+
+Analysis Scope
+
+SIP Signaling Flow
+	•	Validate: INVITE → 100 Trying → 180 Ringing → 183 Session Progress → 200 OK → ACK → BYE
+	•	Detect missing, duplicate, or incorrect state transitions
+
+Mobile Call State Handling
+	•	Ensure correct states: dialing → ringing → connected → ended
+	•	No UI/state desynchronization
+	•	Handle background/foreground transitions
+	•	Re-register on network changes
+
+Timer Logic (Critical)
+	•	Start ONLY on 200 OK
+	•	Never start on 180 or 183
+	•	Stop on BYE, CANCEL, or ERROR
+
+RTP / Audio Flow
+	•	2-way audio within ≤ 2 seconds
+	•	Detect one-way audio, no audio, NAT/firewall issues
+	•	Validate ICE/STUN/TURN if using WebRTC
+
+Backend & Database
+	•	Ensure consistency of:
+	•	Users
+	•	SIP extensions
+	•	Registrations
+	•	Call Detail Records (CDRs)
+	•	Enforce unique call UUID across all systems
+
+⸻
+
+Correct Behavior Definition
+	•	Timer starts strictly on 200 OK
+	•	No call marked “connected” before answer
+	•	Audio is bi-directional within 2 seconds
+	•	Calls terminate cleanly with BYE
+	•	Failed calls handled gracefully (reject, timeout, network drop)
+	•	No ghost or stuck calls
+
+⸻
+
+Bug Identification
+	•	Detect known and unknown issues:
+	•	Incorrect state transitions
+	•	Early media misinterpretation (183 vs 200 OK)
+	•	Audio issues
+	•	Race conditions
+	•	Registration failures
+
+⸻
+
+Network & Infrastructure
+	•	NAT traversal issues
+	•	ICE/STUN/TURN validation
+	•	Packet loss / jitter
+	•	Firewall/port issues
+	•	TLS/SRTP configuration
+
+⸻
+
+Observability (Mandatory)
+	•	Global Call UUID across app, backend, and FreeSWITCH
+	•	Full SIP + RTP logging
+	•	Timestamped structured logs (JSON preferred)
+
+⸻
+
+Input Data
+	•	SIP logs (FreeSWITCH)
+	•	Mobile app logs
+	•	Backend logs
+	•	FreeSWITCH configs (dialplan, profiles)
+	•	App call-handling code
+
+⸻
+
+Required Output
+
+Root Cause Analysis
+	•	Identify exact causes across all layers
+
+Fixes
+	•	Mobile code fixes
+	•	FreeSWITCH configuration fixes
+	•	Backend + DB fixes
+
+Production Checklist
+	•	Call flow validated
+	•	Audio verified
+	•	Edge cases handled
+	•	Logging active
+
+Test Scenarios (must pass)
+	•	Call answered
+	•	Call rejected
+	•	No answer timeout
+	•	Network switch (WiFi ↔ mobile)
+	•	Background/foreground transitions
+	•	Airplane mode during call
+
+⸻
+
+Security
+	•	SIP authentication enforced
+	•	TLS + SRTP enabled where applicable
+	•	Secure credential storage
+	•	Protection against unauthorized access
+
+⸻
+
+Deployment
+
+Android
+	•	Signed APK / AAB
+	•	Background service stability
+
+iOS
+	•	TestFlight-ready build
+	•	CallKit + PushKit integration
+
+Backend
+	•	Production-ready configs
+	•	Scalable FreeSWITCH deployment
+	•	Monitoring & alerting enabled
