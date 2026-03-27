@@ -41,7 +41,7 @@ This is a React Native bare-workflow VoIP app using JsSIP + WebRTC + CallKeep + 
 
 ### Backend environment variables
 
-Set these on the API server (already added to Replit Secrets):
+Set these in the project's environment secrets (server-side only):
 
 ```
 FIREBASE_PROJECT_ID=your-firebase-project-id

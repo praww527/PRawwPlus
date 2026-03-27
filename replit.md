@@ -1,8 +1,8 @@
-# PRawwPlus Workspace
+# PRawwPlus — Project Documentation
 
 ## Overview
 
-PRawwPlus (PRaww+) — a VoIP calling application for South Africa using FreeSWITCH for SIP/WebRTC calls, PayFast for payments, and custom email/password auth. Built as a pnpm monorepo.
+PRawwPlus (PRaww+) — a production VoIP calling platform for South Africa, using FreeSWITCH for SIP/WebRTC calls, PayFast for payments, and custom email/password auth. Built as a pnpm monorepo.
 
 ## Stack
 
@@ -80,7 +80,7 @@ Located in `artifacts/call-manager-mobile/`. A production-ready managed-workflow
 
 ## Environment Variables / Secrets
 
-All configured in Replit Secrets or shared env vars:
+All configured in the project's environment secrets or shared env vars:
 
 | Variable | Description |
 |---|---|

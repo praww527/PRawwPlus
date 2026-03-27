@@ -96,20 +96,25 @@ export function vertoConf(fsIp: string): string {
 
 export function dialplanXml(fsDomain: string): string {
   return `<include>
-  <!-- PRawwPlus Dialplan — domain: ${fsDomain} -->
+  <!--
+    PRawwPlus Dialplan — domain: ${fsDomain}
+
+    Bridge strategy: "user/\$1@${fsDomain}" is the correct FreeSWITCH built-in
+    endpoint that finds ALL registered contacts for a user — whether they
+    connected via Verto (web) or SIP/WS (mobile). This avoids the sequential
+    "verto_contact|sofia/..." pattern which can miss users and adds latency.
+
+    Failure handling avoids mod_voicemail (not always loaded). Every failure
+    path plays a voice announcement then hangs up with the correct SIP cause
+    code so the caller's UI shows the right message.
+  -->
   <context name="default">
 
     <!--
       Internal extension-to-extension calls (1000–9999).
-
-      Flow after a failed bridge:
-        USER_BUSY                            → busy signal  → hang up USER_BUSY
-        NO_ANSWER / NORMAL_CLEARING          → voicemail    → hang up NO_ANSWER
-        UNREGISTERED / USER_NOT_REGISTERED   → unavailable  → hang up UNREGISTERED
-        anything else                        → unavailable  → preserve bridge cause
-
-      The final hangup cause is forwarded to the browser in the verto.bye
-      message so the UI can show the correct reason to the caller.
+      hangup_after_bridge=false keeps the A-leg alive after the bridge ends
+      so the subsequent conditions can play announcements.
+      continue_on_fail=true ensures those conditions are evaluated.
     -->
     <extension name="internal_extensions" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="on-false">
@@ -117,103 +122,75 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="effective_caller_id_number=\${caller_id_number}"/>
         <action application="set" data="call_timeout=30"/>
         <action application="set" data="hangup_after_bridge=false"/>
-        <action application="set" data="ringback=\${us-ring}"/>
         <action application="set" data="continue_on_fail=true"/>
-        <!-- Try Verto first (web/desktop clients), then SIP (mobile JsSIP clients) -->
-        <action application="bridge" data="verto_contact/\$1@${fsDomain}|sofia/call_manager_ws/\$1@${fsDomain}"/>
+        <!--
+          "user/" endpoint finds ALL registered contacts for the extension
+          (Verto/WebRTC web clients AND SIP/WS mobile clients simultaneously).
+        -->
+        <action application="bridge" data="user/\$1@${fsDomain}"/>
       </condition>
 
-      <!--
-        Callee is busy on another call.
-        Voice: "The number you are calling is currently busy. Please try again later."
-        Cause code 17 (USER_BUSY).
-      -->
+      <!-- Callee is busy (cause 17) -->
       <condition field="\${bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="speak" data="flite|kal|The number you are calling is currently busy. Please try again later."/>
-        <action application="sleep" data="1000"/>
+        <action application="sleep" data="500"/>
         <action application="hangup" data="USER_BUSY"/>
       </condition>
 
-      <!--
-        Callee did not answer within ring timeout → send to voicemail.
-        If mod_voicemail is not loaded or the extension has no mailbox,
-        FreeSWITCH will hang up with NO_ANSWER automatically.
-        Cause code 19 (NO_ANSWER).
-      -->
-      <condition field="\${bridge_hangup_cause}" expression="^(NO_ANSWER|NORMAL_CLEARING)$" break="on-true">
+      <!-- Callee did not answer in time (cause 19) -->
+      <condition field="\${bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
+        <action application="sleep" data="300"/>
+        <action application="speak" data="flite|kal|The person you are calling is not available. Please try again later."/>
         <action application="sleep" data="500"/>
-        <action application="voicemail" data="default ${fsDomain} \$1"/>
-        <anti-action application="speak" data="flite|kal|The person you are calling is not available. Please try again later."/>
-        <anti-action application="sleep" data="1000"/>
-        <anti-action application="hangup" data="NO_ANSWER"/>
+        <action application="hangup" data="NO_ANSWER"/>
       </condition>
 
-      <!--
-        Callee is not registered (not logged in / offline).
-        Voice: "The number you have dialed is currently unavailable."
-        Cause code 20 (SUBSCRIBER_ABSENT / maps to UNREGISTERED on A-leg).
-      -->
-      <condition field="\${bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|NO_ROUTE_DESTINATION|DESTINATION_OUT_OF_ORDER)$" break="on-true">
+      <!-- Caller cancelled before answer -->
+      <condition field="\${bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
+        <action application="hangup" data="\${bridge_hangup_cause}"/>
+      </condition>
+
+      <!-- Callee offline / not registered (cause 20) -->
+      <condition field="\${bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
-        <action application="sleep" data="1000"/>
+        <action application="sleep" data="500"/>
         <action application="hangup" data="UNREGISTERED"/>
       </condition>
 
-      <!--
-        Call was cancelled by caller before it was answered (ORIGINATOR_CANCEL).
-        No announcement needed — the caller already hung up.
-      -->
-      <condition field="\${bridge_hangup_cause}" expression="^ORIGINATOR_CANCEL$" break="on-true">
-        <action application="hangup" data="ORIGINATOR_CANCEL"/>
+      <!-- Unknown destination -->
+      <condition field="\${bridge_hangup_cause}" expression="^(NO_ROUTE_DESTINATION|UNALLOCATED_NUMBER)$" break="on-true">
+        <action application="answer"/>
+        <action application="sleep" data="300"/>
+        <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
+        <action application="sleep" data="500"/>
+        <action application="hangup" data="NO_ROUTE_DESTINATION"/>
       </condition>
 
-      <!--
-        Fallback for any other bridge failure — voice announcement then preserve cause.
-      -->
+      <!-- Catch-all for any other bridge failure -->
       <condition field="\${bridge_hangup_cause}" expression="^(.+)$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="speak" data="flite|kal|The call could not be completed. Please try again later."/>
-        <action application="sleep" data="1000"/>
+        <action application="sleep" data="500"/>
         <action application="hangup" data="\${bridge_hangup_cause}"/>
       </condition>
     </extension>
 
     <!--
-      Voicemail direct access.
-        *97        — check your own voicemail
-        *98<ext>   — check another extension's voicemail
-    -->
-    <extension name="voicemail_self">
-      <condition field="destination_number" expression="^\*97$">
-        <action application="answer"/>
-        <action application="voicemail" data="check default ${fsDomain} \${caller_id_number}"/>
-      </condition>
-    </extension>
-
-    <extension name="voicemail_other">
-      <condition field="destination_number" expression="^\*98([1-9][0-9]{3})$">
-        <action application="answer"/>
-        <action application="voicemail" data="check default ${fsDomain} \$1"/>
-      </condition>
-    </extension>
-
-    <!--
-      Invalid / unallocated numbers: any destination not matching 1000–9999 or
-      the voicemail codes above — answer, play voice announcement, hang up.
+      Invalid / unallocated numbers: any destination not matching 1000–9999.
     -->
     <extension name="invalid_number">
       <condition field="destination_number" expression="^(.*)$">
         <action application="log" data="WARNING Rejected unmatched destination: \$1"/>
         <action application="answer"/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
-        <action application="sleep" data="1000"/>
+        <action application="sleep" data="500"/>
         <action application="hangup" data="NO_ROUTE_DESTINATION"/>
       </condition>
     </extension>
@@ -226,26 +203,36 @@ export function dialplanXml(fsDomain: string): string {
  * Sofia SIP profile with WebSocket transport (mod_sofia).
  * Mobile clients connect via wss://APP_URL/api/sip/ws → ws://fs:5066
  * This profile is written to sip_profiles/call_manager_ws.xml
+ *
+ * Port notes:
+ *  - SIP-over-TCP/UDP uses port 5068 (non-standard) to avoid clashing with
+ *    FreeSWITCH's built-in "internal" profile (5060) and "external" (5080).
+ *  - WebSocket transport uses port 5066 (ws-binding) — the API SIP proxy
+ *    forwards wss://APP/api/sip/ws → ws://FS:5066.
  */
-export function sipProfileXml(fsIp: string, appUrl: string): string {
+export function sipProfileXml(fsIp: string, _appUrl: string): string {
   return `<profile name="call_manager_ws">
   <settings>
     <param name="context" value="default"/>
     <param name="dialplan" value="XML"/>
+
+    <!-- Bind SIP to a non-standard port to avoid conflicts with internal/external profiles -->
     <param name="sip-ip" value="${fsIp}"/>
     <param name="ext-sip-ip" value="${fsIp}"/>
+    <param name="sip-port" value="5068"/>
+
+    <!-- RTP -->
     <param name="rtp-ip" value="0.0.0.0"/>
     <param name="ext-rtp-ip" value="${fsIp}"/>
-
-    <!-- WebSocket transport on port 5066 (plain WS; TLS terminated by reverse proxy) -->
-    <param name="ws-binding" value="0.0.0.0:5066"/>
-
-    <!-- RTP port range -->
     <param name="rtp-port-range" value="16384-32768"/>
 
-    <!-- Codecs — Opus first for WebRTC -->
+    <!-- WebSocket transport on port 5066 (plain WS; TLS terminated by proxy) -->
+    <param name="ws-binding" value="0.0.0.0:5066"/>
+
+    <!-- Codecs — Opus first for WebRTC compatibility -->
     <param name="inbound-codec-prefs" value="opus,PCMU,PCMA,G722"/>
     <param name="outbound-codec-prefs" value="opus,PCMU,PCMA,G722"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
 
     <!-- STUN -->
     <param name="stun-enabled" value="true"/>
@@ -255,16 +242,17 @@ export function sipProfileXml(fsIp: string, appUrl: string): string {
     <param name="auth-calls" value="true"/>
     <param name="inbound-reg-force-matching-username" value="true"/>
 
-    <!-- Session timers -->
-    <param name="session-timeout" value="1800"/>
-
     <!-- NAT traversal -->
     <param name="aggressive-nat-detection" value="true"/>
     <param name="apply-nat-acl" value="nat.auto"/>
 
-    <!-- DTMF -->
+    <!-- DTMF RFC 2833 -->
     <param name="dtmf-duration" value="2000"/>
     <param name="rfc2833-pt" value="101"/>
+
+    <!-- Session timers / registration -->
+    <param name="session-timeout" value="1800"/>
+    <param name="max-registrations-per-extension" value="5"/>
 
     <!-- Logging -->
     <param name="sip-trace" value="no"/>
