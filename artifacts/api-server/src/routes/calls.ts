@@ -38,14 +38,17 @@ router.post("/calls", async (req, res) => {
   }
   await connectDB();
   const userId = (req as any).user.id;
-  const { recipientNumber, notes, fsCallId } = req.body;
+  const { recipientNumber, notes, fsCallId, direction } = req.body;
 
   if (!recipientNumber) {
     res.status(400).json({ error: "recipientNumber is required" });
     return;
   }
 
-  const callType = isInternalNumber(recipientNumber) ? "internal" : "external";
+  // Inbound calls are internal by nature (extension-to-extension within the PBX)
+  const callType = direction === "inbound"
+    ? "internal"
+    : isInternalNumber(recipientNumber) ? "internal" : "external";
 
   const user = await UserModel.findById(userId);
   if (!user) {
@@ -79,6 +82,7 @@ router.post("/calls", async (req, res) => {
     callerNumber,
     recipientNumber,
     callType,
+    direction:       direction === "inbound" ? "inbound" : "outbound",
     status:          "initiated",
     duration:        0,
     cost:            0,

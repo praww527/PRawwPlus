@@ -70,7 +70,7 @@ function StatusBadge({ callState, networkState }: { callState: string; networkSt
 
 export default function DialpadScreen() {
   const { user }                                    = useAuth();
-  const { callState, networkState, lastFailureReason, register, makeCall } = useCall();
+  const { callState, networkState, apiStatus, lastFailureReason, register, makeCall } = useCall();
   const [digits,      setDigits]      = useState("");
   const [registering, setRegistering] = useState(false);
   const [fwdEnabled,  setFwdEnabled]  = useState(false);
@@ -165,6 +165,20 @@ export default function DialpadScreen() {
           </View>
         ) : null}
 
+        {/* API connectivity status */}
+        {apiStatus === "unavailable" && (
+          <View style={styles.warnBanner}>
+            <Feather name="wifi-off" size={14} color="#FF9F0A" />
+            <Text style={styles.warnBannerText}>Server unavailable — retrying in background</Text>
+          </View>
+        )}
+        {apiStatus === "timeout" && (
+          <View style={styles.warnBanner}>
+            <Feather name="clock" size={14} color="#FF9F0A" />
+            <Text style={styles.warnBannerText}>Connection timeout — check your network</Text>
+          </View>
+        )}
+
         {/* Last failure reason */}
         {lastFailureReason && (
           <View style={styles.errorBanner}>
@@ -231,6 +245,8 @@ const styles = StyleSheet.create({
   statusText:      { fontSize: 13, fontWeight: "600" },
   infoBanner:      { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#141414", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginBottom: 6 },
   infoBannerText:  { fontSize: 13, color: "#aaa" },
+  warnBanner:      { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#1F1500", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: "#FF9F0A33" },
+  warnBannerText:  { flex: 1, fontSize: 13, color: "#FF9F0A" },
   errorBanner:     { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#2A0000", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: "#FF3B3033" },
   errorText:       { flex: 1, fontSize: 13, color: "#FF3B30" },
   display:         { flexDirection: "row", alignItems: "center", justifyContent: "center", minHeight: 64, marginBottom: 4, paddingHorizontal: 16 },

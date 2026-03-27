@@ -104,9 +104,10 @@ async function transitionCallStatus(
 
   const allowed = isTransitionAllowed(call.status, to);
   if (!allowed) {
-    // Terminal state — already processed, idempotent
-    logger.debug({ fsCallId, from: call.status, to },
-      "[Orchestrator] Skipping — call already in terminal state");
+    // Terminal state — already processed, idempotent. Warn so production
+    // dashboards can track duplicate events (ESL replay, double client calls).
+    logger.warn({ fsCallId, from: call.status, to },
+      "[Orchestrator] Skipping state transition — call already in terminal state");
     return { callId: String(call._id), userId: String(call.userId), callType: call.callType };
   }
 

@@ -156,6 +156,36 @@ Single source of truth for all call lifecycle logic. Removes billing code that w
 | Contacts race: same `makeVertoCall` before `initiateCall` issue | `call-manager/src/pages/Contacts.tsx` | Same fix as DialPad (pre-generate UUID, DB record first) |
 | OpenAPI spec used `phoneNumber` but backend/DB/generated client used `number` | `lib/api-spec/openapi.yaml` | Renamed to `number`; added `fromPhone` to `CreateContactRequest`; re-ran codegen |
 | Extension assignment race under concurrent signups | `lib/db/src/models/User.ts`, `extension.ts` | Added `unique: true` to sparse extension index; retry loop (up to 10×) on duplicate-key error |
+| Web `causeToEndStatus` sent `"busy"`/`"no-answer"` (invalid status values) | `call-manager/src/pages/CallingScreen.tsx` | Remapped `USER_BUSY`/`CALL_REJECTED` → `"cancelled"`, `NO_ANSWER` → `"missed"` |
+| Web: Verto connection drop stored as `"completed"` (undefined cause) | `call-manager/src/pages/CallingScreen.tsx` | Changed default case in `causeToEndStatus` to return `"failed"` |
+| Mobile: call DB record ID was discarded after creation | `call-manager-mobile/context/CallContext.tsx` | Stored ID in `dbCallIdRef`, call `POST /calls/:id/end` on hang-up |
+| Mobile: no-answer timer fired `"No Answer"` (mixed case); didn't match `"NO_ANSWER"` check | `call-manager-mobile/lib/voipEngine.ts` | Changed timer to emit `"NO_ANSWER"` (uppercase, matching FreeSWITCH convention) |
+| `endCallById` (REST path) never stored `failReason` for non-completed calls | `api-server/src/lib/callOrchestrator.ts` | Added `failReason` mapping for `missed`/`cancelled`/`failed` statuses |
+| Stale cleanup applied 15-min threshold to `in-progress` calls — active long calls wrongly failed | `api-server/src/lib/startup.ts` | Split: `initiated` → 15-min threshold; `in-progress` → fail immediately on restart |
+| `POST /calls` missing `direction` field; callee never got inbound call history record | `lib/db/src/models/Call.ts`, `api-server/src/routes/calls.ts`, `CallContext.tsx` | Added `direction: "inbound"\|"outbound"` to schema; callee creates record on answer |
+| Fire-and-forget `POST /calls/:id/end` silently dropped on network failure | `call-manager-mobile/lib/callEndQueue.ts` | Persistent `AsyncStorage` retry queue with auto-flush on foreground + network reconnect |
+| Mobile API calls had no timeout — hung indefinitely on poor networks | `call-manager-mobile/lib/api.ts` | Added 10 s `AbortController` timeout to every `apiRequest` call |
+| Production mobile build fell back to `http://localhost:8080` silently | `call-manager-mobile/lib/api.ts` | Throws at startup if `EXPO_PUBLIC_DOMAIN` is unset in production builds |
+| Invalid state transitions logged at `debug` level — invisible in production | `api-server/src/lib/callOrchestrator.ts`, `eslEventBuffer.ts` | Promoted to `warn` level |
+
+## Mobile Reliability Features
+
+### Call-End Retry Queue (`call-manager-mobile/lib/callEndQueue.ts`)
+Persistent `AsyncStorage`-backed queue for `POST /calls/:id/end` requests that fail due to network loss or server unavailability. Items are replayed automatically:
+- On app foreground (`AppState "active"` event)
+- On network reconnection (via `networkMonitor`)
+- On next successful login / SIP register
+
+Items expire after 24 hours and are discarded after 10 failed attempts. `404` and `401` responses cause immediate discard (record gone / session expired).
+
+### API Status UI (`call-manager-mobile/app/(tabs)/index.tsx`)
+The dialpad screen shows contextual banners:
+- 🟡 **"Server unavailable — retrying in background"** — when an API call returns 5xx or connection is refused
+- 🟡 **"Connection timeout — check your network"** — when a request times out after 10 s
+- 🔴 **Call failure reason** — SIP-level errors shown as before
+
+### Inbound Call History
+When a mobile user answers an incoming call, `POST /calls` is called with `direction: "inbound"` and the caller's extension as `recipientNumber`. This creates a call history record for the callee, so both parties have a record of the call. The record is finalized via the same `callEndQueue` path as outbound calls.
 
 ## Building Mobile APK / IPA
 

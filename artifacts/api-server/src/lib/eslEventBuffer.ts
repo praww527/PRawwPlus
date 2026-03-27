@@ -83,18 +83,21 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
     return;
   }
 
-  // RETRY
+  // RETRY — DB record not found yet (race between ESL event and client POST /calls)
   ev.attempt++;
   if (ev.attempt > MAX_RETRIES) {
+    // This is a real problem: the ESL event arrived for a call that was never
+    // recorded in the DB (mobile call without fsCallId link, or record creation
+    // failed). Log at warn so it shows up in production monitoring.
     logger.warn({ fsCallId: ev.fsCallId, label: ev.label, maxRetries: MAX_RETRIES },
-      "[ESLBuffer] Max retries exceeded — dropping event");
+      "[ESLBuffer] Max retries exceeded — ESL event dropped (no matching DB record)");
     dequeue(ev.fsCallId);
     return;
   }
 
   const delay = BASE_DELAY_MS * Math.pow(2, ev.attempt - 1);
-  logger.debug({ fsCallId: ev.fsCallId, label: ev.label, attempt: ev.attempt, delayMs: delay },
-    "[ESLBuffer] Retrying event after delay");
+  logger.warn({ fsCallId: ev.fsCallId, label: ev.label, attempt: ev.attempt, delayMs: delay },
+    "[ESLBuffer] DB record not found — retrying ESL event after delay");
 
   ev.retryTimer = setTimeout(() => processEvent(ev), delay);
 }
