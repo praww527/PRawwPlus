@@ -102,16 +102,35 @@ export default function DialPad() {
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
 
+    // Pre-generate the FreeSWITCH call UUID so we can store it in the DB
+    // BEFORE initiating the Verto call. This prevents a race condition where
+    // FreeSWITCH fires CHANNEL_ORIGINATE / CHANNEL_ANSWER events before the
+    // call record exists, causing the ESL handler to silently drop them.
+    const fsCallId = crypto.randomUUID();
+
     // Show calling UI immediately
     startOutgoing({ number, callType });
 
     try {
-      let fsCallId: string | null = null;
+      // Create the server-side call record FIRST (validates subscription/balance).
+      // The fsCallId is stored now so ESL events arriving during ICE negotiation
+      // can find this record.
+      const record = await initiateCall({
+        data: {
+          recipientNumber: number,
+          fsCallId,
+        },
+      });
+
+      if (record?.id) {
+        updateCallId(record.id);
+      }
 
       if (vertoActive) {
-        // Attempt to place the call via FreeSWITCH Verto WebRTC
-        fsCallId = await makeVertoCall(number);
-        if (!fsCallId) {
+        // Place the Verto WebRTC call, reusing the pre-generated UUID as the
+        // Verto callID so FreeSWITCH uses it as its channel Unique-ID.
+        const vertoCallId = await makeVertoCall(number, fsCallId);
+        if (!vertoCallId) {
           // makeVertoCall returned null — WebSocket issue or ICE failure
           endCall();
           toast({
@@ -121,21 +140,7 @@ export default function DialPad() {
           });
           return;
         }
-      }
-
-      // Create the server-side call record (also validates subscription/balance)
-      const record = await initiateCall({
-        data: {
-          recipientNumber: number,
-          fsCallId: fsCallId ?? undefined,
-        },
-      });
-
-      if (record?.id) {
-        updateCallId(record.id);
-      }
-
-      if (!vertoActive) {
+      } else {
         // No Verto connection — immediately mark as connected (non-VoIP fallback)
         connectCall();
       }

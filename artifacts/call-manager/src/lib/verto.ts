@@ -114,8 +114,8 @@ export class VertoClient {
     this.ws = null;
   }
 
-  async makeCall(to: string): Promise<string> {
-    const callId = crypto.randomUUID();
+  async makeCall(to: string, presetCallId?: string): Promise<string> {
+    const callId = presetCallId ?? crypto.randomUUID();
     this.currentCallId = callId;
     this.remoteSdpSet  = false;
 
