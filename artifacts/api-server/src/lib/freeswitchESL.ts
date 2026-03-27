@@ -7,24 +7,20 @@
  * Responsibilities:
  *  - Authenticate and subscribe to call events
  *  - On CHANNEL_ORIGINATE: send push notification to callee (incoming call alert)
- *  - On CHANNEL_ANSWER: mark call in-progress, schedule automatic hangup
- *    when user's coin balance is exhausted (external calls only), with voice
- *    announcement before disconnecting
- *  - On CHANNEL_HANGUP_COMPLETE: finalise call record, deduct coins,
- *    send push notification for missed calls
+ *  - On CHANNEL_ANSWER: hand off to CallOrchestrator via ESL event buffer
+ *  - On CHANNEL_HANGUP_COMPLETE: hand off to CallOrchestrator via ESL event buffer
  *  - Expose sendApiCommand() for one-shot FreeSWITCH API calls
+ *
+ * Call state transitions and billing are now owned by CallOrchestrator.
+ * Zero-event-loss buffering is handled by eslEventBuffer.
  */
 
 import net from "net";
 import { Client as SSHClient, type ClientChannel } from "ssh2";
 import { logger } from "./logger";
-import { connectDB, CallModel, UserModel } from "@workspace/db";
-
-const COINS_PER_MINUTE = 1;
-/** Minimum balance before a call is allowed to start (safety margin) */
-const MIN_COINS_SAFETY  = 0.1;
-/** Seconds to wait after speaking the insufficient-balance message before killing the call */
-const INSUFFICIENT_BALANCE_VOICE_DELAY = 9_000;
+import { connectDB, UserModel } from "@workspace/db";
+import { enqueueEslEvent } from "./eslEventBuffer";
+import { answerCall, finalizeCall, setEslCommandFn, clearAllHangupTimers } from "./callOrchestrator";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -43,7 +39,8 @@ function cleanKey(raw: string): string {
     .trim();
 }
 
-/** Send an Expo push notification via the Expo push gateway */
+// ─── Push notification helpers ─────────────────────────────────────────────
+
 async function sendExpoPush(
   pushToken: string,
   title: string,
@@ -70,14 +67,6 @@ async function sendExpoPush(
   }
 }
 
-/**
- * Send a high-priority FCM data-only message to an Android device.
- * Data-only messages bypass the notification tray and wake the app in the
- * background/terminated state so react-native-callkeep can show the system call UI.
- *
- * Requires env vars: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
- * Falls back to Expo push if Firebase credentials are not configured.
- */
 async function sendFcmDataMessage(
   fcmToken: string,
   data: Record<string, string>,
@@ -92,30 +81,23 @@ async function sendFcmDataMessage(
   }
 
   try {
-    // Build a JWT assertion for Firebase service account
     const now = Math.floor(Date.now() / 1000);
     const payload = {
-      iss: clientEmail,
-      sub: clientEmail,
+      iss: clientEmail, sub: clientEmail,
       aud: "https://oauth2.googleapis.com/token",
-      iat: now,
-      exp: now + 3600,
+      iat: now, exp: now + 3600,
       scope: "https://www.googleapis.com/auth/firebase.messaging",
     };
-
-    // Build unsigned JWT
     const header  = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
     const claims  = Buffer.from(JSON.stringify(payload)).toString("base64url");
     const signing = `${header}.${claims}`;
 
-    // Sign with RSA-SHA256 using Node.js crypto
     const { createSign } = await import("node:crypto");
     const signer = createSign("RSA-SHA256");
     signer.update(signing);
     const sig = signer.sign(privateKey, "base64url");
     const jwt = `${signing}.${sig}`;
 
-    // Exchange JWT for an access token
     const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -128,7 +110,6 @@ async function sendFcmDataMessage(
     const accessToken = tokenData.access_token;
     if (!accessToken) throw new Error("Failed to obtain FCM access token");
 
-    // Send FCM message
     const fcmResp = await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
       {
@@ -141,18 +122,14 @@ async function sendFcmDataMessage(
           message: {
             token: fcmToken,
             data,
-            android: {
-              priority: "HIGH",
-              ttl: "30s",
-            },
+            android: { priority: "HIGH", ttl: "30s" },
           },
         }),
       },
     );
 
     if (!fcmResp.ok) {
-      const err = await fcmResp.text();
-      logger.warn({ err }, "[FCM] FCM HTTP v1 API returned error");
+      logger.warn({ err: await fcmResp.text() }, "[FCM] FCM HTTP v1 API returned error");
     } else {
       logger.info({ tokenPrefix: fcmToken.slice(0, 20) }, "[FCM] Data message sent OK");
     }
@@ -161,6 +138,8 @@ async function sendFcmDataMessage(
   }
 }
 
+// ─── FreeSwitchESL class ───────────────────────────────────────────────────
+
 class FreeSwitchESL {
   private socket:          net.Socket | null = null;
   private sshConn:         SSHClient | null  = null;
@@ -168,9 +147,7 @@ class FreeSwitchESL {
   private authenticated =  false;
   private destroyed =      false;
   private reconnectTimer:  ReturnType<typeof setTimeout> | null = null;
-  /** Tracks scheduled balance-hangup timers so we can cancel on early hangup */
-  private hangupTimers =   new Map<string, ReturnType<typeof setTimeout>>();
-  /** Maps B-leg UUID → destination extension for push notifications */
+  /** Maps B-leg UUID → destination extension for missed-call push notifications */
   private originateDestMap = new Map<string, string>();
 
   connect() {
@@ -198,7 +175,6 @@ class FreeSwitchESL {
 
   private connectViaSsh(rawKey: string) {
     logger.info({ host: ESL_HOST, sshPort: SSH_PORT }, "[ESL] SSH tunnel connecting");
-
     const conn = new SSHClient();
     this.sshConn = conn;
 
@@ -289,8 +265,7 @@ class FreeSwitchESL {
   disconnect() {
     this.destroyed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    for (const t of this.hangupTimers.values()) clearTimeout(t);
-    this.hangupTimers.clear();
+    clearAllHangupTimers();
     this.originateDestMap.clear();
     this.socket?.destroy?.();
     this.sshConn?.end();
@@ -302,7 +277,6 @@ class FreeSwitchESL {
     return this.authenticated;
   }
 
-  /** Send a raw ESL command line (appends \n\n) */
   private sendLine(cmd: string) {
     if (!this.socket) return;
     try {
@@ -312,10 +286,6 @@ class FreeSwitchESL {
     }
   }
 
-  /**
-   * Send a FreeSWITCH API command via ESL (fire-and-forget).
-   * Example: sendApiCommand("uuid_kill abc-123-456 ALLOTTED_TIMEOUT")
-   */
   sendApiCommand(apiCmd: string) {
     if (!this.authenticated) {
       logger.warn({ apiCmd }, "[ESL] sendApiCommand called while not authenticated — ignored");
@@ -381,6 +351,8 @@ class FreeSwitchESL {
       if (reply.startsWith("+OK accepted")) {
         logger.info("[ESL] Authenticated — subscribing to call events");
         this.authenticated = true;
+        // Wire the orchestrator's ESL command function now that we are authenticated
+        setEslCommandFn((cmd) => this.sendApiCommand(cmd));
         this.sendLine("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE");
       } else if (reply.startsWith("+OK")) {
         // Subscription/command ACK — ignore
@@ -393,33 +365,52 @@ class FreeSwitchESL {
     if (ct === "text/event-plain") {
       const body    = this.parseHeaders(event.body);
       const evtName = body["Event-Name"] ?? "";
+
       if (evtName === "CHANNEL_ORIGINATE") {
-        this.handleOriginate(body).catch((e) => logger.error({ err: e }, "[ESL] handleOriginate error"));
+        this.handleOriginate(body).catch((e) =>
+          logger.error({ err: e }, "[ESL] handleOriginate error"));
+
       } else if (evtName === "CHANNEL_ANSWER") {
-        this.handleAnswer(body).catch((e) => logger.error({ err: e }, "[ESL] handleAnswer error"));
+        const uuid = body["Unique-ID"];
+        if (uuid) {
+          enqueueEslEvent(uuid, "CHANNEL_ANSWER", () => answerCall(uuid));
+        }
+
       } else if (evtName === "CHANNEL_HANGUP_COMPLETE") {
-        this.handleHangup(body).catch((e) => logger.error({ err: e }, "[ESL] handleHangup error"));
+        const uuid        = body["Unique-ID"];
+        const billsec     = parseInt(body["billsec"] ?? "0");
+        const hangupCause = body["Hangup-Cause"] ?? "";
+
+        if (uuid) {
+          // Send missed-call push before handing off to orchestrator
+          const destExt = this.originateDestMap.get(uuid);
+          this.originateDestMap.delete(uuid);
+          if (destExt && (hangupCause === "NO_ANSWER" || hangupCause === "ORIGINATOR_CANCEL")) {
+            this.sendMissedCallPush(
+              uuid, destExt, body["Caller-Caller-ID-Number"] ?? "Unknown",
+            ).catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
+          }
+
+          enqueueEslEvent(uuid, "CHANNEL_HANGUP_COMPLETE",
+            () => finalizeCall(uuid, billsec, hangupCause));
+        }
       }
     }
   }
 
   /**
    * CHANNEL_ORIGINATE fires when FreeSWITCH attempts to ring the B-leg.
-   * Use this to send push notifications to the callee on their mobile device.
+   * Only handles push notifications — call state is not involved yet.
    */
   private async handleOriginate(h: Record<string, string>) {
-    const uuid = h["Unique-ID"];
-    const destExt = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
+    const uuid     = h["Unique-ID"];
+    const destExt  = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
     const callerExt = h["Caller-Caller-ID-Number"] ?? h["Channel-Caller-ID-Number"] ?? "Unknown";
 
     if (!uuid || !destExt) return;
-
-    // Only care about internal extension calls (4-digit extensions)
     if (!/^[1-9]\d{3}$/.test(destExt)) return;
 
-    // Track this originate so we know the destination on hangup (for missed call push)
     this.originateDestMap.set(uuid, destExt);
-
     logger.info({ uuid, destExt, callerExt }, "[ESL] CHANNEL_ORIGINATE — checking push token");
 
     await connectDB();
@@ -434,14 +425,16 @@ class FreeSwitchESL {
     }
     if (destUser.notificationPrefs?.incomingCalls === false) return;
 
-    const pushData = { type: "incoming_call", fromExtension: callerExt, toExtension: destExt, callUuid: uuid };
+    const pushData = {
+      type: "incoming_call",
+      fromExtension: callerExt,
+      toExtension: destExt,
+      callUuid: uuid,
+    };
 
-    // Send FCM data-only message (wakes app in background/terminated for callkeep)
     if (destUser.fcmToken) {
       await sendFcmDataMessage(destUser.fcmToken, pushData);
     }
-
-    // Also send Expo push as fallback (shows notification if FCM not configured or for iOS)
     if (destUser.expoPushToken) {
       await sendExpoPush(
         destUser.expoPushToken,
@@ -450,111 +443,6 @@ class FreeSwitchESL {
         pushData,
       );
     }
-  }
-
-  private async handleAnswer(h: Record<string, string>) {
-    const fsCallId = h["Unique-ID"];
-    if (!fsCallId) return;
-
-    await connectDB();
-    const call = await CallModel.findOne({ fsCallId });
-    if (!call || call.endedAt) return;
-
-    await CallModel.updateOne({ fsCallId }, { status: "in-progress", startedAt: new Date() });
-    logger.info({ fsCallId }, "[ESL] CHANNEL_ANSWER → in-progress");
-
-    // Mid-call balance enforcement for external calls
-    if (call.callType === "external") {
-      const user = await UserModel.findById(call.userId).select("coins").lean();
-      const coins = user?.coins ?? 0;
-
-      if (coins < MIN_COINS_SAFETY) {
-        // No balance at all — play voice announcement then hang up
-        logger.warn({ fsCallId, coins }, "[ESL] Insufficient coins on answer — announcing and hanging up");
-        this.sendApiCommand(
-          `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance is insufficient to make this call. Please top up your account. The call will be disconnected.`,
-        );
-        setTimeout(() => {
-          this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
-        }, INSUFFICIENT_BALANCE_VOICE_DELAY);
-        return;
-      }
-
-      // Schedule hangup when balance would be exhausted
-      // 1 coin = 1 minute, add 5-second buffer so billing rounds up cleanly
-      const allowedSecs = Math.floor((coins / COINS_PER_MINUTE) * 60);
-      const schedHangup = Math.max(5, allowedSecs - 5);
-
-      logger.info({ fsCallId, coins, allowedSecs, schedHangup }, "[ESL] Scheduling balance-based hangup");
-
-      const timer = setTimeout(() => {
-        this.hangupTimers.delete(fsCallId);
-        logger.warn({ fsCallId }, "[ESL] Balance exhausted — announcing and sending uuid_kill");
-        // Warn the caller 10 seconds before cut (if balance drops near zero during the call)
-        this.sendApiCommand(
-          `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance has been exhausted. The call will be disconnected now.`,
-        );
-        setTimeout(() => {
-          this.sendApiCommand(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`);
-        }, INSUFFICIENT_BALANCE_VOICE_DELAY);
-      }, schedHangup * 1000);
-
-      this.hangupTimers.set(fsCallId, timer);
-    }
-  }
-
-  private async handleHangup(h: Record<string, string>) {
-    const fsCallId    = h["Unique-ID"];
-    const billsec     = parseInt(h["billsec"] ?? "0");
-    const hangupCause = h["Hangup-Cause"] ?? "";
-    if (!fsCallId) return;
-
-    // Cancel any pending balance hangup timer
-    const timer = this.hangupTimers.get(fsCallId);
-    if (timer) {
-      clearTimeout(timer);
-      this.hangupTimers.delete(fsCallId);
-    }
-
-    // Send missed call push notification to callee if they didn't answer
-    const destExt = this.originateDestMap.get(fsCallId);
-    this.originateDestMap.delete(fsCallId);
-
-    if (destExt && (hangupCause === "NO_ANSWER" || hangupCause === "ORIGINATOR_CANCEL")) {
-      this.sendMissedCallPush(fsCallId, destExt, h["Caller-Caller-ID-Number"] ?? "Unknown").catch(
-        (e) => logger.error({ err: e }, "[Push] Missed call push error"),
-      );
-    }
-
-    await connectDB();
-    const call = await CallModel.findOne({ fsCallId });
-    if (!call || call.endedAt) return;
-
-    let coinsUsed = 0;
-    if (call.callType === "external" && billsec > 0) {
-      coinsUsed = Math.ceil((billsec / 60) * COINS_PER_MINUTE);
-    }
-
-    await CallModel.updateOne(
-      { _id: call._id },
-      { status: "completed", duration: billsec, cost: coinsUsed, endedAt: new Date() },
-    );
-
-    if (coinsUsed > 0) {
-      await UserModel.updateOne({ _id: call.userId }, [
-        {
-          $set: {
-            coins:          { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
-            totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
-            totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
-          },
-        },
-      ]);
-    } else {
-      await UserModel.updateOne({ _id: call.userId }, { $inc: { totalCallsUsed: 1 } });
-    }
-
-    logger.info({ fsCallId, billsec, coinsUsed, hangupCause }, "[ESL] CHANNEL_HANGUP_COMPLETE → completed");
   }
 
   private async sendMissedCallPush(fsCallId: string, destExt: string, callerExt: string) {
@@ -575,6 +463,8 @@ class FreeSwitchESL {
     );
   }
 }
+
+// ─── Module-level exports ──────────────────────────────────────────────────
 
 export function startESL() {
   if (!ESL_HOST) return;
@@ -598,7 +488,6 @@ export function eslStatus(): { enabled: boolean; connected: boolean; host: strin
   };
 }
 
-/** Send a one-shot FreeSWITCH API command via the active ESL connection */
 export function sendEslApiCommand(cmd: string): boolean {
   if (!eslClient?.isConnected()) return false;
   eslClient.sendApiCommand(cmd);
