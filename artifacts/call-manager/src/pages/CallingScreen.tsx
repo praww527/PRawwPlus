@@ -137,13 +137,14 @@ export default function CallingScreen() {
   };
 
   /** Map a FreeSWITCH hangup cause to the status enum the REST API accepts */
-  function causeToEndStatus(cause: string | undefined): "completed" | "failed" | "no-answer" | "busy" {
+  function causeToEndStatus(cause: string | undefined): "completed" | "failed" | "missed" | "cancelled" {
     switch (cause) {
-      case "USER_BUSY":                     return "busy";
-      case "NO_ANSWER":
-      case "RECOVERY_ON_TIMER_EXPIRE":      return "no-answer";
-      case "NORMAL_CLEARING":
+      case "USER_BUSY":
       case "ORIGINATOR_CANCEL":
+      case "CALL_REJECTED":                 return "cancelled";
+      case "NO_ANSWER":
+      case "RECOVERY_ON_TIMER_EXPIRE":      return "missed";
+      case "NORMAL_CLEARING":
       case "ALLOTTED_TIMEOUT":              return "completed";
       default:                              return cause ? "failed" : "completed";
     }
