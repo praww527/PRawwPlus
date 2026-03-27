@@ -10,7 +10,9 @@
  *  - No-answer timeout handling
  *  - SIP cause → user-friendly error messages
  *  - Network state monitoring
- *  - Call record creation & close via API
+ *  - Outbound call record creation & finalization via API (with persistent retry queue)
+ *  - Inbound call record creation on answer (callee call history)
+ *  - API connectivity status surfaced to the UI
  */
 
 import React, {
@@ -35,8 +37,20 @@ import {
 import { callKeepService } from "@/lib/callKeepService";
 import { networkMonitor } from "@/lib/networkMonitor";
 import { apiRequest } from "@/lib/api";
+import {
+  enqueueEndCall,
+  flushEndCallQueue,
+  startCallEndQueueListeners,
+} from "@/lib/callEndQueue";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+/** "ok"          — last API call succeeded
+ *  "unavailable" — server returned 5xx or connection refused
+ *  "timeout"     — request exceeded the 10-second limit
+ *  "unknown"     — no API call has been made yet
+ */
+export type ApiStatus = "ok" | "unavailable" | "timeout" | "unknown";
 
 interface CallContextValue {
   callState:            CallState;
@@ -50,6 +64,7 @@ interface CallContextValue {
   isOnHold:             boolean;
   lastFailureReason:    string | null;
   networkState:         "online" | "offline" | "unknown";
+  apiStatus:            ApiStatus;
   register:             () => Promise<void>;
   unregister:           () => Promise<void>;
   makeCall:             (destination: string) => Promise<void>;
@@ -81,13 +96,28 @@ export function CallProvider({ children }: PropsWithChildren) {
   const [isOnHold,          setIsOnHold]          = useState(false);
   const [lastFailureReason, setLastFailureReason] = useState<string | null>(null);
   const [networkState,      setNetworkState]      = useState<"online" | "offline" | "unknown">("unknown");
+  const [apiStatus,         setApiStatus]         = useState<ApiStatus>("unknown");
 
-  const credentialsRef    = useRef<VoipCredentials | null>(null);
-  const activeCallIdRef   = useRef<string | null>(null);
-  const dbCallIdRef       = useRef<string | null>(null);
+  const credentialsRef     = useRef<VoipCredentials | null>(null);
+  const activeCallIdRef    = useRef<string | null>(null);
+  const dbCallIdRef        = useRef<string | null>(null);
   const callConnectedAtRef = useRef<number | null>(null);
+  // Track the direction of the current call so onConnected knows whether to
+  // create an inbound DB record or use the already-created outbound one.
+  const pendingDirectionRef = useRef<"inbound" | "outbound" | null>(null);
+  // Capture incomingFrom at call-answer time for the inbound DB record
+  const incomingFromRef    = useRef<string | null>(null);
 
-  // ── Network monitor + auto re-register on recovery ──
+  // ── Persistent end-call retry queue ──────────────────────────────────────
+
+  useEffect(() => {
+    const cleanup = startCallEndQueueListeners();
+    // Flush any requests that were queued during the previous session
+    flushEndCallQueue().catch(() => {});
+    return cleanup;
+  }, []);
+
+  // ── Network monitor + auto re-register on recovery ────────────────────────
 
   useEffect(() => {
     networkMonitor.start();
@@ -95,8 +125,6 @@ export function CallProvider({ children }: PropsWithChildren) {
     const remove = networkMonitor.addListener((state) => {
       setNetworkState(state);
 
-      // When network comes back online and we have saved credentials but the
-      // engine is not registered (e.g. connection dropped), re-register.
       if (state === "online" && credentialsRef.current) {
         const engineState = voipEngine.getState();
         if (engineState === "idle" || engineState === "error") {
@@ -114,7 +142,68 @@ export function CallProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  // ── VoIP engine wiring ──
+  // ── Helper: finalize a call record via the API (with queue fallback) ──────
+
+  const finalizeCallRecord = useCallback(
+    async (dbCallId: string, durationSecs: number, status: string) => {
+      try {
+        const res = await apiRequest(`/calls/${dbCallId}/end`, {
+          method: "POST",
+          body: JSON.stringify({ duration: durationSecs, status }),
+        });
+
+        if (res.ok) {
+          setApiStatus("ok");
+          return;
+        }
+
+        // Server-side error — queue for retry
+        setApiStatus("unavailable");
+      } catch (err: any) {
+        if (err?.name === "TimeoutError") {
+          setApiStatus("timeout");
+        } else {
+          setApiStatus("unavailable");
+        }
+      }
+
+      // Network or server error — persist and retry later
+      await enqueueEndCall(dbCallId, durationSecs, status);
+    },
+    [],
+  );
+
+  // ── Helper: create a call DB record ───────────────────────────────────────
+
+  const createCallRecord = useCallback(
+    async (recipientNumber: string, direction: "inbound" | "outbound"): Promise<string | null> => {
+      try {
+        const res = await apiRequest("/calls", {
+          method: "POST",
+          body: JSON.stringify({ recipientNumber, direction }),
+        });
+
+        if (res.ok) {
+          setApiStatus("ok");
+          const record = await res.json();
+          return record?.id ?? null;
+        }
+
+        setApiStatus("unavailable");
+        return null;
+      } catch (err: any) {
+        if (err?.name === "TimeoutError") {
+          setApiStatus("timeout");
+        } else {
+          setApiStatus("unavailable");
+        }
+        return null;
+      }
+    },
+    [],
+  );
+
+  // ── VoIP engine wiring ────────────────────────────────────────────────────
 
   useEffect(() => {
     const onState = (state: CallState) => {
@@ -130,6 +219,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       setIncomingSession(session);
       setIncomingFrom(from);
       setIncomingUuid(uuid);
+      incomingFromRef.current = from;
       setLastFailureReason(null);
       callKeepService.displayIncomingCall(uuid, from, from);
       router.push("/incoming-call");
@@ -139,7 +229,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       setWaitingCall(info);
     };
 
-    const onConnected = (info: CallInfo) => {
+    const onConnected = async (info: CallInfo) => {
       setActiveCall(info);
       setIncomingSession(null);
       setIncomingFrom(null);
@@ -153,11 +243,20 @@ export function CallProvider({ children }: PropsWithChildren) {
       callConnectedAtRef.current = Date.now();
       callKeepService.reportCallConnected(info.uuid);
       router.push("/active-call");
+
+      // For inbound calls: create the DB record now that the call is answered.
+      // Outbound calls already have a record created in makeCall().
+      if (info.direction === "inbound" && !dbCallIdRef.current) {
+        const callerNumber = incomingFromRef.current ?? info.remoteNumber;
+        const callId = await createCallRecord(callerNumber, "inbound");
+        // Store even if null — onEnded guards against null dbCallId
+        dbCallIdRef.current = callId;
+      }
     };
 
-    const onEnded = (_rawReason: string, friendlyMessage: string) => {
-      const prevCall = activeCallIdRef.current;
-      const dbCallId = dbCallIdRef.current;
+    const onEnded = async (_rawReason: string, friendlyMessage: string) => {
+      const prevCall    = activeCallIdRef.current;
+      const dbCallId    = dbCallIdRef.current;
       const connectedAt = callConnectedAtRef.current;
 
       setActiveCall(null);
@@ -168,39 +267,38 @@ export function CallProvider({ children }: PropsWithChildren) {
       setIsMuted(false);
       setIsSpeakerOn(false);
       setIsOnHold(false);
-      activeCallIdRef.current = null;
-      dbCallIdRef.current = null;
+      activeCallIdRef.current    = null;
+      dbCallIdRef.current        = null;
       callConnectedAtRef.current = null;
+      pendingDirectionRef.current = null;
+      incomingFromRef.current    = null;
 
       if (prevCall) callKeepService.endAllCalls();
 
-      // Finalize the call record in the database
-      if (dbCallId) {
-        const durationSecs = connectedAt
-          ? Math.floor((Date.now() - connectedAt) / 1000)
-          : 0;
+      // Determine final status from the SIP reason string
+      const durationSecs = connectedAt
+        ? Math.floor((Date.now() - connectedAt) / 1000)
+        : 0;
 
-        let finalStatus = "completed";
-        const silent = ["ended", "Canceled", "ORIGINATOR_CANCEL", "NORMAL_CLEARING"];
-        if (!silent.some((s) => _rawReason?.includes(s))) {
-          if (_rawReason?.includes("NO_ANSWER") || _rawReason?.includes("RECOVERY_ON_TIMER_EXPIRE")) {
-            finalStatus = "missed";
-          } else if (_rawReason?.includes("USER_BUSY") || _rawReason?.includes("CALL_REJECTED")) {
-            finalStatus = "cancelled";
-          } else if (_rawReason && _rawReason !== "ended") {
-            finalStatus = durationSecs > 0 ? "completed" : "failed";
-          }
+      let finalStatus = "completed";
+      const silentReasons = ["ended", "Canceled", "ORIGINATOR_CANCEL", "NORMAL_CLEARING"];
+      if (!silentReasons.some((s) => _rawReason?.includes(s))) {
+        if (_rawReason?.includes("NO_ANSWER") || _rawReason?.includes("RECOVERY_ON_TIMER_EXPIRE")) {
+          finalStatus = "missed";
+        } else if (_rawReason?.includes("USER_BUSY") || _rawReason?.includes("CALL_REJECTED")) {
+          finalStatus = "cancelled";
+        } else if (_rawReason && _rawReason !== "ended") {
+          finalStatus = durationSecs > 0 ? "completed" : "failed";
         }
+      }
 
-        apiRequest(`/calls/${dbCallId}/end`, {
-          method: "POST",
-          body: JSON.stringify({ duration: durationSecs, status: finalStatus }),
-        }).catch(() => {});
+      // Finalize the call record (with retry queue fallback)
+      if (dbCallId) {
+        await finalizeCallRecord(dbCallId, durationSecs, finalStatus);
       }
 
       // Show reason only for non-trivial endings
-      const silent = ["ended", "Canceled", "ORIGINATOR_CANCEL", "NORMAL_CLEARING"];
-      if (friendlyMessage && !silent.some((s) => _rawReason?.includes(s))) {
+      if (friendlyMessage && !silentReasons.some((s) => _rawReason?.includes(s))) {
         setLastFailureReason(friendlyMessage);
       }
 
@@ -222,7 +320,6 @@ export function CallProvider({ children }: PropsWithChildren) {
     voipEngine.on("callEnded",     onEnded);
     voipEngine.on("error",         onError);
 
-    // CallKeep events → VoIP engine
     const removeCallKeepListener = callKeepService.addListener((event) => {
       if (event.type === "answerCall") {
         voipEngine.answerIncomingCall().catch(console.error);
@@ -241,19 +338,25 @@ export function CallProvider({ children }: PropsWithChildren) {
       voipEngine.off("error",         onError);
       removeCallKeepListener();
     };
-  }, []);
+  }, [createCallRecord, finalizeCallRecord]);
 
-  // ── Register ──
+  // ── Register ──────────────────────────────────────────────────────────────
 
   const register = useCallback(async () => {
     try {
       if (!networkMonitor.isOnline()) {
         throw new Error("No internet connection. Please check your network settings.");
       }
-      const res    = await apiRequest("/verto/config");
-      const config = await res.json();
-      if (!res.ok) throw new Error(config.error ?? "Failed to fetch VoIP configuration");
 
+      const res = await apiRequest("/verto/config");
+      if (!res.ok) {
+        setApiStatus("unavailable");
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).error ?? "Failed to fetch VoIP configuration");
+      }
+
+      setApiStatus("ok");
+      const config = await res.json();
       const domain = process.env.EXPO_PUBLIC_FREESWITCH_DOMAIN ?? config.domain ?? "";
       const creds: VoipCredentials = {
         extension: String(config.extension),
@@ -263,7 +366,15 @@ export function CallProvider({ children }: PropsWithChildren) {
 
       credentialsRef.current = creds;
       await voipEngine.register(creds);
+
+      // Flush any queued end-call requests now that we have an auth session
+      flushEndCallQueue().catch(() => {});
     } catch (err: any) {
+      if (err?.name === "TimeoutError") {
+        setApiStatus("timeout");
+      } else if (!err?.message?.includes("internet connection")) {
+        setApiStatus("unavailable");
+      }
       console.error("[VoIP] Register error:", err);
       throw err;
     }
@@ -274,7 +385,7 @@ export function CallProvider({ children }: PropsWithChildren) {
     credentialsRef.current = null;
   }, []);
 
-  // ── Make call ──
+  // ── Make call ─────────────────────────────────────────────────────────────
 
   const makeCall = useCallback(async (destination: string) => {
     if (!networkMonitor.isOnline()) {
@@ -282,44 +393,33 @@ export function CallProvider({ children }: PropsWithChildren) {
       return;
     }
     setLastFailureReason(null);
-    dbCallIdRef.current = null;
-    callConnectedAtRef.current = null;
+    dbCallIdRef.current         = null;
+    callConnectedAtRef.current  = null;
+    pendingDirectionRef.current = "outbound";
+
     try {
-      // Record call in the API before placing it and store the call ID
-      try {
-        const res = await apiRequest("/calls", {
-          method: "POST",
-          body: JSON.stringify({ recipientNumber: destination }),
-        });
-        if (res.ok) {
-          const record = await res.json();
-          if (record?.id) {
-            dbCallIdRef.current = record.id;
-          }
-        }
-      } catch {
-        // Non-fatal if the call record creation fails
-      }
+      // Create the outbound DB record before placing the call so the ID is
+      // available if the call fails instantly or the app is killed.
+      const callId = await createCallRecord(destination, "outbound");
+      dbCallIdRef.current = callId;
 
       await voipEngine.makeCall(destination);
     } catch (err: any) {
-      // If the SIP call fails immediately, finalize the call record
+      // SIP precondition failure (not registered, etc.) — finalize immediately
       if (dbCallIdRef.current) {
-        apiRequest(`/calls/${dbCallIdRef.current}/end`, {
-          method: "POST",
-          body: JSON.stringify({ duration: 0, status: "failed" }),
-        }).catch(() => {});
+        await finalizeCallRecord(dbCallIdRef.current, 0, "failed");
         dbCallIdRef.current = null;
       }
       const msg = err?.message ?? "Could not place the call";
       setLastFailureReason(msg);
       throw err;
     }
-  }, []);
+  }, [createCallRecord, finalizeCallRecord]);
 
-  // ── Answer / Decline ──
+  // ── Answer / Decline ──────────────────────────────────────────────────────
 
   const answerCall = useCallback(async () => {
+    pendingDirectionRef.current = "inbound";
     await voipEngine.answerIncomingCall();
   }, []);
 
@@ -329,6 +429,7 @@ export function CallProvider({ children }: PropsWithChildren) {
     setIncomingSession(null);
     setIncomingFrom(null);
     setIncomingUuid(null);
+    incomingFromRef.current = null;
     if (router.canGoBack()) router.back();
   }, [incomingUuid]);
 
@@ -337,23 +438,18 @@ export function CallProvider({ children }: PropsWithChildren) {
     if (activeCall?.uuid) callKeepService.endCall(activeCall.uuid);
   }, [activeCall]);
 
-  // ── Hold / Unhold ──
+  // ── Hold / Unhold ─────────────────────────────────────────────────────────
 
-  const holdCall = useCallback(() => {
-    voipEngine.hold();
-  }, []);
+  const holdCall   = useCallback(() => { voipEngine.hold();   }, []);
+  const unholdCall = useCallback(() => { voipEngine.unhold(); }, []);
 
-  const unholdCall = useCallback(() => {
-    voipEngine.unhold();
-  }, []);
-
-  // ── DTMF ──
+  // ── DTMF ──────────────────────────────────────────────────────────────────
 
   const sendDTMF = useCallback((digit: string) => {
     voipEngine.sendDTMF(digit);
   }, []);
 
-  // ── Call waiting ──
+  // ── Call waiting ──────────────────────────────────────────────────────────
 
   const answerWaitingCall = useCallback(async () => {
     await voipEngine.answerWaitingCall();
@@ -365,7 +461,7 @@ export function CallProvider({ children }: PropsWithChildren) {
     setWaitingCall(null);
   }, []);
 
-  // ── Mute / Speaker ──
+  // ── Mute / Speaker ────────────────────────────────────────────────────────
 
   const toggleMute = useCallback(() => {
     const next = !isMuted;
@@ -393,6 +489,7 @@ export function CallProvider({ children }: PropsWithChildren) {
         isOnHold,
         lastFailureReason,
         networkState,
+        apiStatus,
         register,
         unregister,
         makeCall,

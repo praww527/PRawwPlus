@@ -6,6 +6,7 @@ export interface ICall extends Document<string> {
   callerNumber?: string;
   recipientNumber: string;
   callType: "internal" | "external";
+  direction: "inbound" | "outbound";
   status: string;
   duration: number;
   cost: number;
@@ -25,6 +26,7 @@ const CallSchema = new Schema<ICall>(
     callerNumber: { type: String },
     recipientNumber: { type: String, required: true },
     callType: { type: String, enum: ["internal", "external"], default: "external" },
+    direction: { type: String, enum: ["inbound", "outbound"], default: "outbound" },
     status: { type: String, default: "initiated" },
     duration: { type: Number, default: 0 },
     cost: { type: Number, default: 0 },
