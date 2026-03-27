@@ -86,6 +86,15 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
   const appUrl = getAppUrl();
   if (!appUrl) return { success: false, steps: [], error: "APP_URL not set — configure https://rtc.PRaww.co.za in environment" };
 
+  // In development, APP_URL points to the production domain which may not route
+  // to this dev server. Use the Replit dev domain so FreeSWITCH can reach the
+  // directory endpoint on the currently running instance.
+  const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+  const directoryBaseUrl =
+    process.env.NODE_ENV !== "production" && replitDevDomain
+      ? `https://${replitDevDomain}`
+      : appUrl;
+
   const steps: string[] = [];
   let conn: SSHClient | null = null;
 
@@ -102,11 +111,12 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     } catch {}
     steps.push(`Config dir: ${confDir}`);
 
-    // Write xml_curl.conf
+    // Write xml_curl.conf — use directoryBaseUrl so FreeSWITCH reaches THIS instance
+    steps.push(`Directory URL base: ${directoryBaseUrl}`);
     await writeRemoteFile(
       conn,
       `${confDir}/autoload_configs/xml_curl.conf.xml`,
-      xmlCurlConf(appUrl),
+      xmlCurlConf(directoryBaseUrl),
     );
     steps.push("Wrote xml_curl.conf.xml");
 

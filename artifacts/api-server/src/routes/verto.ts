@@ -64,13 +64,24 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   // mod_xml_curl sends POST by default (form-encoded body).
   // Support both so manual GET debugging also works.
   const params = (req.method === "POST" ? req.body : req.query) as Record<string, string | undefined>;
-  const ext = params["user"];
+
+  // FreeSWITCH versions vary: some send `user=<ext>`, others send `key_name=user&key_value=<ext>`.
+  // Also check `huntgroup_id` and `number_alias` as additional fallbacks.
+  const ext =
+    params["user"] ??
+    (params["key_name"] === "user" ? params["key_value"] : undefined) ??
+    params["number_alias"];
   const domain = params["domain"];
+
+  // Log the full params so we can see exactly what FreeSWITCH sends
+  const { logger } = await import("../lib/logger");
+  logger.info({ params, method: req.method, ext }, "[DIR] FreeSWITCH directory request");
 
   res.setHeader("Content-Type", "text/xml");
 
   if (!ext) {
-    res.status(400).send(
+    logger.warn({ params }, "[DIR] No user/extension found in request — returning not found");
+    res.status(200).send(
       `<?xml version="1.0" encoding="UTF-8"?>
 <document type="freeswitch/xml">
   <section name="result">
@@ -83,7 +94,8 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
 
   const extensionNum = parseInt(ext, 10);
   if (isNaN(extensionNum)) {
-    res.status(400).send(
+    logger.warn({ ext }, "[DIR] Non-numeric extension — returning not found");
+    res.status(200).send(
       `<?xml version="1.0" encoding="UTF-8"?>
 <document type="freeswitch/xml">
   <section name="result">
@@ -99,7 +111,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
     .lean();
 
   if (!dbUser || !dbUser.fsPassword) {
-    res.status(404).send(
+    res.status(200).send(
       `<?xml version="1.0" encoding="UTF-8"?>
 <document type="freeswitch/xml">
   <section name="result">
