@@ -84,6 +84,8 @@ export function CallProvider({ children }: PropsWithChildren) {
 
   const credentialsRef    = useRef<VoipCredentials | null>(null);
   const activeCallIdRef   = useRef<string | null>(null);
+  const dbCallIdRef       = useRef<string | null>(null);
+  const callConnectedAtRef = useRef<number | null>(null);
 
   // ── Network monitor + auto re-register on recovery ──
 
@@ -148,12 +150,16 @@ export function CallProvider({ children }: PropsWithChildren) {
       setIsOnHold(false);
       setLastFailureReason(null);
       activeCallIdRef.current = info.uuid;
+      callConnectedAtRef.current = Date.now();
       callKeepService.reportCallConnected(info.uuid);
       router.push("/active-call");
     };
 
     const onEnded = (_rawReason: string, friendlyMessage: string) => {
       const prevCall = activeCallIdRef.current;
+      const dbCallId = dbCallIdRef.current;
+      const connectedAt = callConnectedAtRef.current;
+
       setActiveCall(null);
       setIncomingSession(null);
       setIncomingFrom(null);
@@ -163,8 +169,34 @@ export function CallProvider({ children }: PropsWithChildren) {
       setIsSpeakerOn(false);
       setIsOnHold(false);
       activeCallIdRef.current = null;
+      dbCallIdRef.current = null;
+      callConnectedAtRef.current = null;
 
       if (prevCall) callKeepService.endAllCalls();
+
+      // Finalize the call record in the database
+      if (dbCallId) {
+        const durationSecs = connectedAt
+          ? Math.floor((Date.now() - connectedAt) / 1000)
+          : 0;
+
+        let finalStatus = "completed";
+        const silent = ["ended", "Canceled", "ORIGINATOR_CANCEL", "NORMAL_CLEARING"];
+        if (!silent.some((s) => _rawReason?.includes(s))) {
+          if (_rawReason?.includes("NO_ANSWER") || _rawReason?.includes("RECOVERY_ON_TIMER_EXPIRE")) {
+            finalStatus = "missed";
+          } else if (_rawReason?.includes("USER_BUSY") || _rawReason?.includes("CALL_REJECTED")) {
+            finalStatus = "cancelled";
+          } else if (_rawReason && _rawReason !== "ended") {
+            finalStatus = durationSecs > 0 ? "completed" : "failed";
+          }
+        }
+
+        apiRequest(`/calls/${dbCallId}/end`, {
+          method: "POST",
+          body: JSON.stringify({ duration: durationSecs, status: finalStatus }),
+        }).catch(() => {});
+      }
 
       // Show reason only for non-trivial endings
       const silent = ["ended", "Canceled", "ORIGINATOR_CANCEL", "NORMAL_CLEARING"];
@@ -250,15 +282,35 @@ export function CallProvider({ children }: PropsWithChildren) {
       return;
     }
     setLastFailureReason(null);
+    dbCallIdRef.current = null;
+    callConnectedAtRef.current = null;
     try {
-      // Record call in the API before placing it
-      await apiRequest("/calls", {
-        method: "POST",
-        body: JSON.stringify({ recipientNumber: destination }),
-      }).catch(() => {}); // Non-fatal if this fails
+      // Record call in the API before placing it and store the call ID
+      try {
+        const res = await apiRequest("/calls", {
+          method: "POST",
+          body: JSON.stringify({ recipientNumber: destination }),
+        });
+        if (res.ok) {
+          const record = await res.json();
+          if (record?.id) {
+            dbCallIdRef.current = record.id;
+          }
+        }
+      } catch {
+        // Non-fatal if the call record creation fails
+      }
 
       await voipEngine.makeCall(destination);
     } catch (err: any) {
+      // If the SIP call fails immediately, finalize the call record
+      if (dbCallIdRef.current) {
+        apiRequest(`/calls/${dbCallIdRef.current}/end`, {
+          method: "POST",
+          body: JSON.stringify({ duration: 0, status: "failed" }),
+        }).catch(() => {});
+        dbCallIdRef.current = null;
+      }
       const msg = err?.message ?? "Could not place the call";
       setLastFailureReason(msg);
       throw err;

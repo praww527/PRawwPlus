@@ -30,13 +30,13 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=3000 BASE_PATH=/ pnpm --filter @workspace/call-manager run dev & PORT=8080 pnpm --filter @workspace/api-server run dev"
-waitForPort = 3000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=3000 BASE_PATH=/ pnpm --filter @workspace/call-manager run dev & PORT=8080 pnpm --filter @workspace/api-server run dev & PORT=8081 pnpm --filter @workspace/call-manager-mobile run dev"
+waitForPort = 3000
 
 [agent]
 stack = "PNPM_WORKSPACE"

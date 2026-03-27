@@ -9,7 +9,7 @@
  */
 
 import crypto from "crypto";
-import { connectDB, UserModel } from "@workspace/db";
+import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { logger } from "./logger";
 import { startESL } from "./freeswitchESL";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
@@ -43,7 +43,29 @@ export async function runStartup(): Promise<void> {
     return;
   }
 
-  // ── 2. Start FreeSWITCH ESL listener ────────────────────────────────────
+  // ── 2. Clean up stale calls (initiated/in-progress but server restarted) ──
+  try {
+    const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
+    const staleResult = await CallModel.updateMany(
+      {
+        status: { $in: ["initiated", "in-progress"] },
+        createdAt: { $lt: cutoff },
+      },
+      {
+        status: "failed",
+        failReason: "Call ended unexpectedly (server restart)",
+        endedAt: new Date(),
+      },
+    );
+    if (staleResult.modifiedCount > 0) {
+      logger.info({ count: staleResult.modifiedCount }, "Cleaned up stale calls from previous session");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to clean up stale calls — non-fatal");
+  }
+
+  // ── 3. Start FreeSWITCH ESL listener ────────────────────────────────────
   if (process.env.FREESWITCH_DOMAIN) {
     startESL();
     logger.info("FreeSWITCH ESL listener started");
