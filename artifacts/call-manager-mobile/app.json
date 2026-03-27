@@ -1,13 +1,22 @@
 {
   "expo": {
     "name": "PRawwPlus",
-    "slug": "call-manager-mobile",
+    "slug": "prawwplus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "prawwplus",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d70cf263-144d-4218-862c-98cfbaa8cfb2",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -66,6 +75,7 @@
       ],
       "expo-font",
       "expo-web-browser",
+      "expo-updates",
       [
         "@react-native-firebase/app",
         {}
