@@ -123,7 +123,18 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   }
 
   const fsDomain = domain ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
-  const displayName = dbUser.name ?? dbUser.username ?? dbUser.email ?? String(extensionNum);
+  const rawName = dbUser.name ?? dbUser.username ?? dbUser.email ?? String(extensionNum);
+
+  // Escape XML special characters so names with &, <, >, " or ' cannot break the directory XML.
+  const xmlEscape = (s: string) =>
+    s.replace(/&/g, "&amp;")
+     .replace(/</g, "&lt;")
+     .replace(/>/g, "&gt;")
+     .replace(/"/g, "&quot;")
+     .replace(/'/g, "&apos;");
+
+  const displayName  = xmlEscape(rawName);
+  const safePassword = xmlEscape(dbUser.fsPassword!);
 
   res.send(
     `<?xml version="1.0" encoding="UTF-8"?>
@@ -132,13 +143,13 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
     <domain name="${fsDomain}">
       <user id="${extensionNum}">
         <params>
-          <param name="password" value="${dbUser.fsPassword}"/>
-          <param name="vm-password" value="${dbUser.fsPassword}"/>
+          <param name="password" value="${safePassword}"/>
+          <param name="vm-password" value="${safePassword}"/>
         </params>
         <variables>
           <variable name="toll_allow" value="domestic,international,local"/>
           <variable name="accountcode" value="${extensionNum}"/>
-          <variable name="user_context" value="default"/>
+          <variable name="user_context" value="call_manager"/>
           <variable name="effective_caller_id_name" value="${displayName}"/>
           <variable name="effective_caller_id_number" value="${extensionNum}"/>
           <variable name="outbound_caller_id_name" value="${displayName}"/>

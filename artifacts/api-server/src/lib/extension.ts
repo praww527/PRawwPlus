@@ -28,19 +28,40 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
     return { extension: user.extension, fsPassword };
   }
 
-  // Neither exists — assign next available extension + generate password
-  const maxUser = await UserModel.findOne({ extension: { $exists: true, $ne: null } })
-    .sort({ extension: -1 })
-    .select("extension");
-
-  const nextExtension = maxUser?.extension != null ? maxUser.extension + 1 : EXTENSION_START;
+  // Neither exists — assign next available extension + generate password.
+  // Retry up to 10 times to handle concurrent signups: two callers may both
+  // read the same max extension and try to assign the same next value. The
+  // unique sparse index on `extension` means the second write gets a duplicate
+  // key error (code 11000), so we simply re-read the new max and try again.
   const fsPassword = generateSipPassword();
 
-  // Use $exists: false to guard against race conditions
-  await UserModel.updateOne(
-    { _id: userId, $or: [{ extension: { $exists: false } }, { extension: null }] },
-    { $set: { extension: nextExtension, fsPassword } }
-  );
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const maxUser = await UserModel.findOne({ extension: { $exists: true, $ne: null } })
+      .sort({ extension: -1 })
+      .select("extension");
+
+    const nextExtension = maxUser?.extension != null ? maxUser.extension + 1 : EXTENSION_START;
+
+    try {
+      const result = await UserModel.updateOne(
+        { _id: userId, $or: [{ extension: { $exists: false } }, { extension: null }] },
+        { $set: { extension: nextExtension, fsPassword } }
+      );
+
+      if (result.modifiedCount === 0) {
+        // Another concurrent request already assigned this user an extension.
+        break;
+      }
+
+      // Successfully assigned — fall through to final read.
+      break;
+    } catch (err: any) {
+      // Duplicate key on the unique extension index — another user grabbed the
+      // same extension between our read and write. Loop and try the next value.
+      if (err?.code === 11000) continue;
+      throw err;
+    }
+  }
 
   const updated = await UserModel.findById(userId).select("extension fsPassword");
   if (!updated?.extension || !updated?.fsPassword) return null;

@@ -1125,7 +1125,7 @@ components:
           type: string
         name:
           type: string
-        phoneNumber:
+        number:
           type: string
         email:
           type: string
@@ -1133,7 +1133,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, userId, name, phoneNumber, createdAt]
+      required: [id, userId, name, number, createdAt]
 
     ContactListResponse:
       type: object
@@ -1151,11 +1151,13 @@ components:
       properties:
         name:
           type: string
-        phoneNumber:
+        number:
           type: string
         email:
           type: string
-      required: [name, phoneNumber]
+        fromPhone:
+          type: boolean
+      required: [name, number]
 
     BulkImportContactsRequest:
       type: object

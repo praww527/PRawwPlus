@@ -8,6 +8,7 @@
 
 export interface CreateContactRequest {
   name: string;
-  phoneNumber: string;
+  number: string;
   email?: string;
+  fromPhone?: boolean;
 }

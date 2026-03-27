@@ -123,6 +123,17 @@ pnpm run --filter @workspace/api-spec codegen
 | `/api/sip/ws` | SIP WebSocket proxy for mobile JsSIP |
 | `/api/freeswitch/directory` | FreeSWITCH XML curl directory |
 
+## Bug Fixes Applied
+
+| Bug | File | Fix |
+|-----|------|-----|
+| FreeSWITCH directory `user_context` was `"default"` — SIP channels joined wrong dialplan | `api-server/src/routes/verto.ts` | Changed to `"call_manager"` so all channels stay in our isolated dialplan |
+| XML injection in directory handler | `api-server/src/routes/verto.ts` | Added `xmlEscape()` for `displayName` and `fsPassword` before embedding in XML |
+| DialPad race: `makeVertoCall` fired before DB record existed | `call-manager/src/pages/DialPad.tsx` | Pre-generate UUID → `initiateCall` first → `makeVertoCall(uuid)` |
+| Contacts race: same `makeVertoCall` before `initiateCall` issue | `call-manager/src/pages/Contacts.tsx` | Same fix as DialPad (pre-generate UUID, DB record first) |
+| OpenAPI spec used `phoneNumber` but backend/DB/generated client used `number` | `lib/api-spec/openapi.yaml` | Renamed to `number`; added `fromPhone` to `CreateContactRequest`; re-ran codegen |
+| Extension assignment race under concurrent signups | `lib/db/src/models/User.ts`, `extension.ts` | Added `unique: true` to sparse extension index; retry loop (up to 10×) on duplicate-key error |
+
 ## Building Mobile APK / IPA
 
 ```bash

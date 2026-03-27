@@ -10,7 +10,7 @@ export interface ContactRecord {
   id: string;
   userId: string;
   name: string;
-  phoneNumber: string;
+  number: string;
   email?: string | null;
   createdAt: Date;
 }
