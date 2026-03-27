@@ -251,10 +251,25 @@ export async function endCallById(
 
   const coinsUsed = call.callType === "external" ? calcCoins(durationSecs) : 0;
 
-  await CallModel.updateOne(
-    { _id: callId },
-    { status: to, duration: durationSecs, cost: coinsUsed, endedAt: new Date() },
-  );
+  const restUpdate: Record<string, unknown> = {
+    status:   to,
+    duration: durationSecs,
+    cost:     coinsUsed,
+    endedAt:  new Date(),
+  };
+
+  // Mirror what finalizeCall does for the ESL path: non-completed calls get a
+  // failReason so the web/mobile UI can display meaningful reason text.
+  if (to !== "completed") {
+    const reasonMap: Record<string, string> = {
+      missed:    "No answer",
+      cancelled: "Call cancelled",
+      failed:    "Call failed",
+    };
+    restUpdate.failReason = reasonMap[to] ?? "Call ended";
+  }
+
+  await CallModel.updateOne({ _id: callId }, restUpdate);
 
   await deductCoinsAndUpdateStats(String(call.userId), coinsUsed, callId);
 

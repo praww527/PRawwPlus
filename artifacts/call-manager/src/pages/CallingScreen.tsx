@@ -146,7 +146,10 @@ export default function CallingScreen() {
       case "RECOVERY_ON_TIMER_EXPIRE":      return "missed";
       case "NORMAL_CLEARING":
       case "ALLOTTED_TIMEOUT":              return "completed";
-      default:                              return cause ? "failed" : "completed";
+      // Undefined cause = Verto WebSocket dropped with no hangup event.
+      // Previously this mapped to "completed" which was incorrect — a call that
+      // drops due to network loss should be recorded as "failed", not "completed".
+      default:                              return "failed";
     }
   }
 
