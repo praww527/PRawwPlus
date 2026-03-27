@@ -15,44 +15,6 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Expo Go (Mobile Preview)"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=3000 BASE_PATH=/ pnpm --filter @workspace/call-manager run dev & PORT=8080 pnpm --filter @workspace/api-server run dev"
-waitForPort = 3000
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow]]
-name = "Expo Go (Mobile Preview)"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=8081 pnpm --filter @workspace/call-manager-mobile run dev"
-waitForPort = 8081
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -100,4 +62,4 @@ FREESWITCH_ESL_PORT = "8021"
 FREESWITCH_ESL_PASSWORD = "ClueCon"
 FREESWITCH_INTERNAL_WS_URL = "ws://158.180.29.84:8081/"
 MONGODB_URI = "mongodb+srv://prawwplus_db_user:2bHe7oWfeBT2zc09@cluster0.zjzasyi.mongodb.net/?appName=Cluster0"
-SMTP_FROM = "no-reply@prawwplus.co.za"
+SMTP_FROM = "noreply@praww.co.za"

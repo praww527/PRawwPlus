@@ -28,7 +28,13 @@ async function sendMail(to: string, subject: string, html: string) {
     logger.info({ to, subject }, "EMAIL (console fallback):\n" + html.replace(/<[^>]+>/g, ""));
     return;
   }
-  await transport.sendMail({ from: FROM, to, subject, html });
+  try {
+    const info = await transport.sendMail({ from: FROM, to, subject, html });
+    logger.info({ to, subject, messageId: info.messageId }, "Email sent successfully");
+  } catch (err: any) {
+    logger.error({ to, subject, err: err?.message ?? err }, "Failed to send email");
+    throw err;
+  }
 }
 
 export async function sendVerificationEmail(email: string, token: string, baseUrl: string) {
