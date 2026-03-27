@@ -19,7 +19,7 @@
 
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { logger } from "./logger";
-import { isTransitionAllowed, causeToStatus, type CallStatus } from "./callStateMachine";
+import { isTransitionAllowed, causeToStatus, causeToLabel, type CallStatus } from "./callStateMachine";
 import { EventResult } from "./eslEventBuffer";
 
 const COINS_PER_MINUTE = 1;
@@ -199,11 +199,16 @@ export async function finalizeCall(
   const finalStatus = causeToStatus(hangupCause);
   const coinsUsed = call.callType === "external" ? calcCoins(billsec) : 0;
 
-  const result = await transitionCallStatus(fsCallId, finalStatus, {
+  const update: Record<string, unknown> = {
     duration: billsec,
     cost:     coinsUsed,
     endedAt:  new Date(),
-  });
+  };
+  if (finalStatus !== "completed") {
+    update.failReason = causeToLabel(hangupCause);
+  }
+
+  const result = await transitionCallStatus(fsCallId, finalStatus, update);
 
   if (!result) return EventResult.RETRY;
 

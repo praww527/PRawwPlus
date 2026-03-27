@@ -184,6 +184,17 @@ export default function CallHistory() {
                       }}>
                         {call.status}
                       </p>
+                      {call.failReason && (
+                        <p style={{
+                          fontSize: 9, fontWeight: 500,
+                          color: "var(--text-3)",
+                          marginTop: 1,
+                          maxWidth: 90,
+                          lineHeight: 1.3,
+                        }}>
+                          {call.failReason}
+                        </p>
+                      )}
                     </div>
 
                     <button

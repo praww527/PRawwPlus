@@ -866,7 +866,7 @@ components:
           enum: [internal, external]
         status:
           type: string
-          enum: [initiated, ringing, in-progress, completed, failed, busy, no-answer]
+          enum: [initiated, ringing, in-progress, completed, failed, missed, cancelled, busy, no-answer]
         duration:
           type: integer
         cost:
@@ -878,6 +878,10 @@ components:
         notes:
           type: string
           nullable: true
+        failReason:
+          type: string
+          nullable: true
+          description: Human-readable reason for non-completed calls (set by ESL orchestrator)
         startedAt:
           type: string
           format: date-time

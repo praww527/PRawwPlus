@@ -11,6 +11,7 @@ export interface ICall extends Document<string> {
   cost: number;
   fsCallId?: string;
   notes?: string;
+  failReason?: string;
   startedAt?: Date;
   endedAt?: Date;
   createdAt: Date;
@@ -29,6 +30,7 @@ const CallSchema = new Schema<ICall>(
     cost: { type: Number, default: 0 },
     fsCallId: { type: String },
     notes: { type: String },
+    failReason: { type: String },
     startedAt: { type: Date },
     endedAt: { type: Date },
   },

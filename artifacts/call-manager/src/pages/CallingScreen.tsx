@@ -86,7 +86,7 @@ export default function CallingScreen() {
 
     signalEndCall({
       callId: callInfo.callId,
-      data: { duration, status: "completed" },
+      data: { duration, status: causeToEndStatus(hangupInfo?.cause) },
     })
       .catch(() => {})
       .finally(() => {
@@ -135,6 +135,19 @@ export default function CallingScreen() {
     sendDtmf(digit);
     setDtmfBuffer((b) => (b + digit).slice(-12));
   };
+
+  /** Map a FreeSWITCH hangup cause to the status enum the REST API accepts */
+  function causeToEndStatus(cause: string | undefined): "completed" | "failed" | "no-answer" | "busy" {
+    switch (cause) {
+      case "USER_BUSY":                     return "busy";
+      case "NO_ANSWER":
+      case "RECOVERY_ON_TIMER_EXPIRE":      return "no-answer";
+      case "NORMAL_CLEARING":
+      case "ORIGINATOR_CANCEL":
+      case "ALLOTTED_TIMEOUT":              return "completed";
+      default:                              return cause ? "failed" : "completed";
+    }
+  }
 
   const endedMessage = hangupInfo?.message ?? "Call Ended";
 

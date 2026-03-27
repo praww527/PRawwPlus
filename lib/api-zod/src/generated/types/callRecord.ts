@@ -20,6 +20,8 @@ export interface CallRecord {
   cost: number;
   fsCallId?: string | null;
   notes?: string | null;
+  /** Human-readable reason for non-completed calls (set by ESL orchestrator) */
+  failReason?: string | null;
   startedAt?: Date | null;
   endedAt?: Date | null;
   createdAt: Date;

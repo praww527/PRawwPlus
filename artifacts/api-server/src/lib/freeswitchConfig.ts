@@ -143,67 +143,74 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="verto_contact/\$1@${fsDomain},user/\$1@${fsDomain}"/>
       </condition>
 
-      <!-- Callee is busy (cause 17) -->
+      <!-- Callee is busy (cause 17)
+           Busy tone: 480+620 Hz, 500ms on / 500ms off, 4 cycles (~4 s).
+           tone_stream is always available regardless of mod_flite.
+           speak is attempted after as a best-effort voice announcement.  -->
       <condition field="\${bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="300"/>
+        <action application="playback" data="tone_stream://%(500,500,480,620);loops=4"/>
         <action application="speak" data="flite|kal|The number you are calling is currently busy. Please try again later."/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="hangup" data="USER_BUSY"/>
       </condition>
 
-      <!-- Callee did not answer in time (cause 19) -->
+      <!-- Callee did not answer in time (cause 19)
+           Reorder / fast-busy tone: 480+620 Hz, 250ms on / 250ms off, 6 cycles (~3 s). -->
       <condition field="\${bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="300"/>
+        <action application="playback" data="tone_stream://%(250,250,480,620);loops=6"/>
         <action application="speak" data="flite|kal|The person you are calling is not available. Please try again later."/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="hangup" data="NO_ANSWER"/>
       </condition>
 
-      <!-- Caller cancelled before answer -->
+      <!-- Caller cancelled before answer — just hang up, no announcement needed -->
       <condition field="\${bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
         <action application="hangup" data="\${bridge_hangup_cause}"/>
       </condition>
 
-      <!-- Callee offline / not registered (cause 20) -->
+      <!-- Callee offline / not registered (cause 20)
+           SIT tone (Special Information Tone): 913→1370→1776 Hz, 274ms each, 2 repeats. -->
       <condition field="\${bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="300"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="hangup" data="UNREGISTERED"/>
       </condition>
 
-      <!-- Unknown destination -->
+      <!-- Unknown destination
+           SIT tone followed by announcement. -->
       <condition field="\${bridge_hangup_cause}" expression="^(NO_ROUTE_DESTINATION|UNALLOCATED_NUMBER)$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="300"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="hangup" data="NO_ROUTE_DESTINATION"/>
       </condition>
 
       <!-- Catch-all for any other bridge failure -->
       <condition field="\${bridge_hangup_cause}" expression="^(.+)$" break="on-true">
         <action application="answer"/>
-        <action application="sleep" data="300"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The call could not be completed. Please try again later."/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="hangup" data="\${bridge_hangup_cause}"/>
       </condition>
     </extension>
 
     <!--
       Invalid / unallocated numbers: any destination not matching 1000–9999.
+      SIT tone + voice for maximum clarity.
     -->
     <extension name="invalid_number">
       <condition field="destination_number" expression="^(.*)$">
         <action application="log" data="WARNING Rejected unmatched destination: \$1"/>
         <action application="answer"/>
-        <action application="sleep" data="300"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
-        <action application="sleep" data="500"/>
+        <action application="sleep" data="300"/>
         <action application="hangup" data="NO_ROUTE_DESTINATION"/>
       </condition>
     </extension>
