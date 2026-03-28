@@ -177,6 +177,7 @@ export const ListCallsResponse = zod.object({
       status: zod.enum([
         "initiated",
         "ringing",
+        "answered",
         "in-progress",
         "completed",
         "failed",
@@ -224,6 +225,7 @@ export const MakeCallResponse = zod.object({
   status: zod.enum([
     "initiated",
     "ringing",
+    "answered",
     "in-progress",
     "completed",
     "failed",
@@ -263,6 +265,7 @@ export const GetCallResponse = zod.object({
   status: zod.enum([
     "initiated",
     "ringing",
+    "answered",
     "in-progress",
     "completed",
     "failed",
@@ -307,6 +310,7 @@ export const EndCallResponse = zod.object({
   status: zod.enum([
     "initiated",
     "ringing",
+    "answered",
     "in-progress",
     "completed",
     "failed",
@@ -598,6 +602,7 @@ export const AdminListCallsResponse = zod.object({
       status: zod.enum([
         "initiated",
         "ringing",
+        "answered",
         "in-progress",
         "completed",
         "failed",

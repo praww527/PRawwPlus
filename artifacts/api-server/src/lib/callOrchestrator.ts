@@ -1,16 +1,13 @@
 /**
  * CallOrchestrator — single source of truth for call lifecycle logic.
  *
- * Previously, billing, state updates, and timer management were duplicated
- * across three places:
- *   • freeswitchESL.ts  (handleAnswer / handleHangup)
- *   • routes/calls.ts   (POST /calls/:callId/end)
- *   • routes/calls.ts   (POST /calls/webhook/freeswitch)
- *
- * This service owns all of that. Callers provide raw event data; the
- * orchestrator validates state transitions, deducts coins, and updates the DB.
+ * Call state transitions:
+ *   initiated → ringing   (CHANNEL_ORIGINATE via ESL)
+ *   ringing   → answered  (CHANNEL_ANSWER via ESL)
+ *   answered  → completed / failed / missed / cancelled  (CHANNEL_HANGUP_COMPLETE via ESL)
  *
  * Public API:
+ *   ringingCall(fsCallId)                    — CHANNEL_ORIGINATE
  *   answerCall(fsCallId)                     — CHANNEL_ANSWER
  *   finalizeCall(fsCallId, billsec, cause)   — CHANNEL_HANGUP_COMPLETE (ESL)
  *   endCallById(callId, userId, duration)    — REST /calls/:id/end (client-reported)
@@ -87,9 +84,10 @@ async function deductCoinsAndUpdateStats(
 
 // ─── State-gated DB write ─────────────────────────────────────────────────
 
+
 /**
  * Atomically transition a call's status field in MongoDB.
- * Returns the updated document, or null if the transition is not allowed
+ * Returns the updated document metadata, or null if the transition is not allowed
  * (already in a terminal state — silently idempotent).
  * Throws if the transition is explicitly invalid.
  */
@@ -97,15 +95,28 @@ async function transitionCallStatus(
   fsCallId: string,
   to: CallStatus,
   update: Record<string, unknown>,
+  otherLegId?: string,
 ): Promise<{ callId: string; userId: string; callType: string } | null> {
   await connectDB();
-  const call = await CallModel.findOne({ fsCallId });
-  if (!call) return null;           // caller will decide if this is RETRY or DONE
+  let call = await CallModel.findOne({ fsCallId });
+  if (!call && otherLegId && otherLegId !== fsCallId) {
+    call = await CallModel.findOne({ fsCallId: otherLegId });
+    if (call) {
+      logger.debug({ fsCallId, otherLegId }, "[Orchestrator] Resolved call via Other-Leg-Unique-ID");
+    }
+  }
+  if (!call) return null;
 
-  const allowed = isTransitionAllowed(call.status, to);
+  let allowed: boolean;
+  try {
+    allowed = isTransitionAllowed(call.status, to);
+  } catch (err: unknown) {
+    logger.warn({ fsCallId, from: call.status, to, err: (err as Error).message },
+      "[Orchestrator] Invalid state transition — skipping");
+    return { callId: String(call._id), userId: String(call.userId), callType: call.callType };
+  }
+
   if (!allowed) {
-    // Terminal state — already processed, idempotent. Warn so production
-    // dashboards can track duplicate events (ESL replay, double client calls).
     logger.warn({ fsCallId, from: call.status, to },
       "[Orchestrator] Skipping state transition — call already in terminal state");
     return { callId: String(call._id), userId: String(call.userId), callType: call.callType };
@@ -119,20 +130,84 @@ async function transitionCallStatus(
 // ─── Public API ────────────────────────────────────────────────────────────
 
 /**
- * Handle CHANNEL_ANSWER: transition initiated → in-progress and, for external
- * calls, schedule a balance-exhaustion hangup.
+ * Handle CHANNEL_ORIGINATE: transition initiated → ringing.
  *
- * Returns EventResult.RETRY when the DB record doesn't exist yet (buffer will retry).
+ * FreeSWITCH fires CHANNEL_ORIGINATE on the B-leg (the outgoing channel).
+ * The A-leg UUID (= fsCallId stored in DB) is passed as `aLegUuid`.
+ *
+ * Returns EventResult.RETRY when the DB record doesn't exist yet.
  */
-export async function answerCall(fsCallId: string): Promise<EventResult> {
+export async function ringingCall(
+  aLegUuid: string,
+  bLegUuid: string,
+): Promise<EventResult> {
   await connectDB();
-  const call = await CallModel.findOne({ fsCallId })
-    .select("status callType userId endedAt")
+
+  // Try to find by A-leg UUID first (this is what's stored as fsCallId)
+  let call = await CallModel.findOne({ fsCallId: aLegUuid })
+    .select("status")
     .lean();
+
+  // Fallback: try B-leg UUID (in case we stored the wrong one)
+  if (!call && bLegUuid !== aLegUuid) {
+    call = await CallModel.findOne({ fsCallId: bLegUuid })
+      .select("status")
+      .lean();
+    if (call) {
+      logger.debug({ aLegUuid, bLegUuid }, "[Orchestrator] ringingCall resolved via B-leg UUID");
+    }
+  }
 
   if (!call) return EventResult.RETRY;
 
-  const result = await transitionCallStatus(fsCallId, "in-progress", { startedAt: new Date() });
+  // Pass both UUIDs so transitionCallStatus can resolve whichever matches DB
+  const result = await transitionCallStatus(aLegUuid, "ringing", {}, bLegUuid);
+  if (!result) return EventResult.RETRY;
+
+  logger.info({ aLegUuid, bLegUuid }, "[Orchestrator] Call marked ringing");
+  return EventResult.DONE;
+}
+
+/**
+ * Handle CHANNEL_ANSWER: transition initiated/ringing → answered and, for external
+ * calls, schedule a balance-exhaustion hangup.
+ *
+ * FreeSWITCH fires CHANNEL_ANSWER on BOTH legs. We check the primary UUID first
+ * then fall back to the other-leg UUID so we catch whichever fires first.
+ *
+ * Returns EventResult.RETRY when the DB record doesn't exist yet (buffer will retry).
+ */
+export async function answerCall(
+  fsCallId: string,
+  otherLegId?: string,
+): Promise<EventResult> {
+  await connectDB();
+
+  let call = await CallModel.findOne({ fsCallId })
+    .select("status callType userId endedAt")
+    .lean();
+
+  // Try the other leg (B-leg CHANNEL_ANSWER carries A-leg UUID in Other-Leg-Unique-ID)
+  if (!call && otherLegId && otherLegId !== fsCallId) {
+    call = await CallModel.findOne({ fsCallId: otherLegId })
+      .select("status callType userId endedAt")
+      .lean();
+    if (call) {
+      logger.debug({ fsCallId, otherLegId }, "[Orchestrator] answerCall resolved via Other-Leg-Unique-ID");
+      // Swap so the orchestrator uses the matching UUID
+      fsCallId = otherLegId;
+    }
+  }
+
+  if (!call) return EventResult.RETRY;
+
+  // Already answered or in terminal state
+  if (call.status === "answered" || call.endedAt) {
+    logger.debug({ fsCallId }, "[Orchestrator] answerCall — already answered, skipping");
+    return EventResult.DONE;
+  }
+
+  const result = await transitionCallStatus(fsCallId, "answered", { startedAt: new Date() });
   if (!result) return EventResult.RETRY;
 
   // Mid-call balance enforcement for external calls
@@ -181,13 +256,27 @@ export async function finalizeCall(
   fsCallId: string,
   billsec: number,
   hangupCause: string,
+  otherLegId?: string,
 ): Promise<EventResult> {
   cancelHangupTimer(fsCallId);
+  if (otherLegId) cancelHangupTimer(otherLegId);
 
   await connectDB();
-  const call = await CallModel.findOne({ fsCallId })
+
+  let call = await CallModel.findOne({ fsCallId })
     .select("status callType userId endedAt _id")
     .lean();
+
+  // Try other leg if primary not found
+  if (!call && otherLegId && otherLegId !== fsCallId) {
+    call = await CallModel.findOne({ fsCallId: otherLegId })
+      .select("status callType userId endedAt _id")
+      .lean();
+    if (call) {
+      logger.debug({ fsCallId, otherLegId }, "[Orchestrator] finalizeCall resolved via Other-Leg-Unique-ID");
+      fsCallId = otherLegId;
+    }
+  }
 
   if (!call) return EventResult.RETRY;
 
@@ -243,8 +332,17 @@ export async function endCallById(
     return { ...existing, id: existing!._id } as Record<string, unknown>;
   }
 
-  const to = (requestedStatus ?? "completed") as CallStatus;
-  const allowed = isTransitionAllowed(call.status, to);
+  // Normalise incoming status: accept both legacy "in-progress"/"completed" and new "answered"
+  const rawStatus = requestedStatus ?? "completed";
+  const to = (rawStatus === "in-progress" ? "answered" : rawStatus) as CallStatus;
+
+  let allowed: boolean;
+  try {
+    allowed = isTransitionAllowed(call.status, to);
+  } catch {
+    allowed = false;
+  }
+
   if (!allowed) {
     const existing = await CallModel.findById(callId).lean();
     return { ...existing, id: existing!._id } as Record<string, unknown>;
@@ -259,8 +357,6 @@ export async function endCallById(
     endedAt:  new Date(),
   };
 
-  // Mirror what finalizeCall does for the ESL path: non-completed calls get a
-  // failReason so the web/mobile UI can display meaningful reason text.
   if (to !== "completed") {
     const reasonMap: Record<string, string> = {
       missed:    "No answer",
@@ -295,17 +391,23 @@ export async function webhookUpdate(
   if (!call) return;
 
   if (event === "CHANNEL_ANSWER") {
-    if (isTransitionAllowed(call.status, "in-progress")) {
-      await CallModel.updateOne({ _id: callId }, { status: "in-progress", startedAt: new Date() });
-    }
+    try {
+      if (isTransitionAllowed(call.status, "answered")) {
+        await CallModel.updateOne({ _id: callId }, { status: "answered", startedAt: new Date() });
+      }
+    } catch { /* invalid transition — ignore */ }
     return;
   }
 
   if (event === "CHANNEL_HANGUP" || event === "CHANNEL_HANGUP_COMPLETE") {
-    if (call.endedAt) return;       // idempotent
+    if (call.endedAt) return;
 
-    const to = (status ?? "completed") as CallStatus;
-    if (!isTransitionAllowed(call.status, to)) return;
+    const rawStatus = status ?? "completed";
+    const to = (rawStatus === "in-progress" ? "answered" : rawStatus) as CallStatus;
+
+    let allowed = false;
+    try { allowed = isTransitionAllowed(call.status, to); } catch { /* invalid */ }
+    if (!allowed) return;
 
     const coinsUsed = call.callType === "external" ? calcCoins(durationSecs) : 0;
 

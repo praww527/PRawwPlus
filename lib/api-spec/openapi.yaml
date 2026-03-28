@@ -866,7 +866,7 @@ components:
           enum: [internal, external]
         status:
           type: string
-          enum: [initiated, ringing, in-progress, completed, failed, missed, cancelled, busy, no-answer]
+          enum: [initiated, ringing, answered, in-progress, completed, failed, missed, cancelled, busy, no-answer]
         duration:
           type: integer
         cost:

@@ -60,6 +60,7 @@ export class VertoClient {
   private ws:             WebSocket | null = null;
   private pc:             RTCPeerConnection | null = null;
   private localStream:    MediaStream | null = null;
+  private remoteStream:   MediaStream | null = null;
   private remoteAudio:    HTMLAudioElement | null = null;
   private sessId:         string;
   private msgId =         1;
@@ -118,6 +119,7 @@ export class VertoClient {
     const callId = presetCallId ?? crypto.randomUUID();
     this.currentCallId = callId;
     this.remoteSdpSet  = false;
+    this.remoteStream  = null;
 
     const pc = await this.setupPeerConnection();
 
@@ -399,24 +401,62 @@ export class VertoClient {
     }
 
     pc.ontrack = (e) => {
-      console.log("[Verto] Remote track received:", e.track.kind, "streams:", e.streams.length);
+      console.log("[Verto] Remote track received:", e.track.kind, "streams:", e.streams.length, "readyState:", e.track.readyState);
+
+      // Build a stable MediaStream. FreeSWITCH sometimes sends tracks without
+      // a stream (e.streams is empty) so we construct one manually.
+      if (!this.remoteStream) {
+        this.remoteStream = e.streams[0] ? new MediaStream(e.streams[0].getTracks()) : new MediaStream();
+      }
+
+      // Add the track if not already present
+      const existing = this.remoteStream.getTracks().find((t) => t.id === e.track.id);
+      if (!existing) {
+        this.remoteStream.addTrack(e.track);
+        console.log("[Verto] Track added to remoteStream:", e.track.kind, e.track.id);
+      }
+
+      // Only audio matters for VoIP
+      if (e.track.kind !== "audio") return;
+
       if (!this.remoteAudio) {
         this.remoteAudio = new Audio();
         this.remoteAudio.autoplay = true;
+        // Attach to DOM so browser autoplay policies treat it as user-initiated
+        this.remoteAudio.style.display = "none";
+        document.body.appendChild(this.remoteAudio);
       }
-      const stream = e.streams[0] ?? null;
-      if (this.remoteAudio.srcObject !== stream) {
-        this.remoteAudio.srcObject = stream;
-        this.remoteAudio.play().catch(() => {
-          // Autoplay blocked — resume on next user gesture
+
+      if (this.remoteAudio.srcObject !== this.remoteStream) {
+        this.remoteAudio.srcObject = this.remoteStream;
+      }
+
+      const tryPlay = () => {
+        const audio = this.remoteAudio;
+        if (!audio) return;
+        audio.play().then(() => {
+          console.log("[Verto] Audio playback started");
+        }).catch((err: Error) => {
+          console.warn("[Verto] Autoplay blocked:", err.message, "— will retry on next user gesture");
           const resume = () => {
             this.remoteAudio?.play().catch(() => {});
             document.removeEventListener("click", resume);
+            document.removeEventListener("keydown", resume);
             document.removeEventListener("touchstart", resume);
           };
-          document.addEventListener("click", resume, { once: true });
+          document.addEventListener("click",      resume, { once: true });
+          document.addEventListener("keydown",    resume, { once: true });
           document.addEventListener("touchstart", resume, { once: true });
         });
+      };
+
+      // Give the track a moment to become live before playing
+      if (e.track.readyState === "live") {
+        tryPlay();
+      } else {
+        e.track.addEventListener("unmute", tryPlay, { once: true });
+        // Fallback: try after a short delay regardless
+        setTimeout(tryPlay, 500);
       }
     };
 
@@ -478,12 +518,21 @@ export class VertoClient {
       for (const t of this.localStream.getTracks()) t.stop();
       this.localStream = null;
     }
+    if (this.remoteStream) {
+      for (const t of this.remoteStream.getTracks()) t.stop();
+      this.remoteStream = null;
+    }
     if (this.pc) {
       this.pc.close();
       this.pc = null;
     }
     if (this.remoteAudio) {
+      this.remoteAudio.pause();
       this.remoteAudio.srcObject = null;
+      // Remove from DOM if attached
+      if (this.remoteAudio.parentNode) {
+        this.remoteAudio.parentNode.removeChild(this.remoteAudio);
+      }
       this.remoteAudio = null;
     }
     this.remoteSdpSet = false;

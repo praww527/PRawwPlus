@@ -12,6 +12,7 @@ export type CallRecordStatus =
 export const CallRecordStatus = {
   initiated: "initiated",
   ringing: "ringing",
+  answered: "answered",
   "in-progress": "in-progress",
   completed: "completed",
   failed: "failed",

@@ -20,7 +20,7 @@ import { Client as SSHClient, type ClientChannel } from "ssh2";
 import { logger } from "./logger";
 import { connectDB, UserModel } from "@workspace/db";
 import { enqueueEslEvent } from "./eslEventBuffer";
-import { answerCall, finalizeCall, setEslCommandFn, clearAllHangupTimers } from "./callOrchestrator";
+import { ringingCall, answerCall, finalizeCall, setEslCommandFn, clearAllHangupTimers } from "./callOrchestrator";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -371,28 +371,51 @@ class FreeSwitchESL {
           logger.error({ err: e }, "[ESL] handleOriginate error"));
 
       } else if (evtName === "CHANNEL_ANSWER") {
-        const uuid = body["Unique-ID"];
+        // FreeSWITCH fires CHANNEL_ANSWER on both A-leg and B-leg.
+        // The A-leg UUID matches the fsCallId stored in the DB (= Verto callID).
+        // The B-leg UUID won't match, but its Other-Leg-Unique-ID points to the A-leg.
+        // We enqueue on BOTH UUIDs so whichever hits first wins; the second will be
+        // a no-op because answerCall checks for already-answered status.
+        const uuid         = body["Unique-ID"] ?? "";
+        const otherLegUuid = body["Other-Leg-Unique-ID"] ?? "";
+
         if (uuid) {
-          enqueueEslEvent(uuid, "CHANNEL_ANSWER", () => answerCall(uuid));
+          enqueueEslEvent(
+            uuid,
+            "CHANNEL_ANSWER",
+            () => answerCall(uuid, otherLegUuid || undefined),
+          );
         }
 
       } else if (evtName === "CHANNEL_HANGUP_COMPLETE") {
-        const uuid        = body["Unique-ID"];
-        const billsec     = parseInt(body["billsec"] ?? "0");
-        const hangupCause = body["Hangup-Cause"] ?? "";
+        const uuid         = body["Unique-ID"] ?? "";
+        const otherLegUuid = body["Other-Leg-Unique-ID"] ?? "";
+
+        // FreeSWITCH stores call duration in variable_billsec (channel variable).
+        // The top-level "billsec" field may not exist in all versions.
+        const billsec = parseInt(
+          body["variable_billsec"] ?? body["billsec"] ?? "0",
+        );
+        const hangupCause = body["Hangup-Cause"] ?? body["variable_hangup_cause"] ?? "";
 
         if (uuid) {
           // Send missed-call push before handing off to orchestrator
-          const destExt = this.originateDestMap.get(uuid);
-          this.originateDestMap.delete(uuid);
+          const destExt = this.originateDestMap.get(uuid) ?? this.originateDestMap.get(otherLegUuid);
+          if (destExt) {
+            this.originateDestMap.delete(uuid);
+            this.originateDestMap.delete(otherLegUuid);
+          }
           if (destExt && (hangupCause === "NO_ANSWER" || hangupCause === "ORIGINATOR_CANCEL")) {
             this.sendMissedCallPush(
               uuid, destExt, body["Caller-Caller-ID-Number"] ?? "Unknown",
             ).catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
           }
 
-          enqueueEslEvent(uuid, "CHANNEL_HANGUP_COMPLETE",
-            () => finalizeCall(uuid, billsec, hangupCause));
+          enqueueEslEvent(
+            uuid,
+            "CHANNEL_HANGUP_COMPLETE",
+            () => finalizeCall(uuid, billsec, hangupCause, otherLegUuid || undefined),
+          );
         }
       }
     }
@@ -400,18 +423,33 @@ class FreeSwitchESL {
 
   /**
    * CHANNEL_ORIGINATE fires when FreeSWITCH attempts to ring the B-leg.
-   * Only handles push notifications — call state is not involved yet.
+   * Updates call state to "ringing" and sends push notifications.
+   *
+   * In FreeSWITCH:
+   *   Unique-ID            = B-leg UUID (the new outgoing channel)
+   *   Other-Leg-Unique-ID  = A-leg UUID (the Verto channel = fsCallId stored in DB)
    */
   private async handleOriginate(h: Record<string, string>) {
-    const uuid     = h["Unique-ID"];
-    const destExt  = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
+    const bLegUuid  = h["Unique-ID"] ?? "";
+    const aLegUuid  = h["Other-Leg-Unique-ID"] ?? h["variable_origination_uuid"] ?? "";
+    const destExt   = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
     const callerExt = h["Caller-Caller-ID-Number"] ?? h["Channel-Caller-ID-Number"] ?? "Unknown";
 
-    if (!uuid || !destExt) return;
+    // Update call DB to "ringing" state using A-leg UUID (= fsCallId)
+    if (aLegUuid || bLegUuid) {
+      const effectiveALeg = aLegUuid || bLegUuid;
+      enqueueEslEvent(
+        effectiveALeg,
+        "CHANNEL_ORIGINATE",
+        () => ringingCall(effectiveALeg, bLegUuid),
+      );
+    }
+
+    if (!bLegUuid || !destExt) return;
     if (!/^[1-9]\d{3}$/.test(destExt)) return;
 
-    this.originateDestMap.set(uuid, destExt);
-    logger.info({ uuid, destExt, callerExt }, "[ESL] CHANNEL_ORIGINATE — checking push token");
+    this.originateDestMap.set(bLegUuid, destExt);
+    logger.info({ bLegUuid, aLegUuid, destExt, callerExt }, "[ESL] CHANNEL_ORIGINATE — checking push token");
 
     await connectDB();
     const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
@@ -429,7 +467,7 @@ class FreeSwitchESL {
       type: "incoming_call",
       fromExtension: callerExt,
       toExtension: destExt,
-      callUuid: uuid,
+      callUuid: bLegUuid,
     };
 
     if (destUser.fcmToken) {
