@@ -371,19 +371,29 @@ class FreeSwitchESL {
           logger.error({ err: e }, "[ESL] handleOriginate error"));
 
       } else if (evtName === "CHANNEL_ANSWER") {
-        // FreeSWITCH fires CHANNEL_ANSWER on both A-leg and B-leg.
-        // The A-leg UUID matches the fsCallId stored in the DB (= Verto callID).
-        // The B-leg UUID won't match, but its Other-Leg-Unique-ID points to the A-leg.
-        // We enqueue on BOTH UUIDs so whichever hits first wins; the second will be
-        // a no-op because answerCall checks for already-answered status.
+        // FreeSWITCH fires CHANNEL_ANSWER on both A-leg and B-leg when a call
+        // is truly bridged to a callee.
+        //
+        // IMPORTANT: When the dialplan `answer`s the A-leg to play an error
+        // announcement (e.g. "number does not exist"), CHANNEL_ANSWER fires but
+        // Other-Leg-Unique-ID is absent — there is no real bridge partner.
+        // We must skip answerCall() in that case so the DB stays "ringing"
+        // and only transitions to "failed" via CHANNEL_HANGUP_COMPLETE.
         const uuid         = body["Unique-ID"] ?? "";
         const otherLegUuid = body["Other-Leg-Unique-ID"] ?? "";
 
-        if (uuid) {
+        if (uuid && otherLegUuid) {
+          // Real bridge: enqueue on this leg's UUID; whichever leg fires first
+          // wins and the second is a no-op (already "answered").
           enqueueEslEvent(
             uuid,
             "CHANNEL_ANSWER",
-            () => answerCall(uuid, otherLegUuid || undefined),
+            () => answerCall(uuid, otherLegUuid),
+          );
+        } else if (uuid) {
+          logger.debug(
+            { uuid },
+            "[ESL] CHANNEL_ANSWER with no Other-Leg — announcement playback, skipping answerCall",
           );
         }
 
