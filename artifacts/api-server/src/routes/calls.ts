@@ -3,6 +3,17 @@ import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { isInternalNumber } from "../lib/extension";
 import { endCallById, webhookUpdate } from "../lib/callOrchestrator";
+import {
+  isValidFsCallId,
+  countActiveCallsForUser,
+  sumExternalCoinsSpentTodayUtc,
+  maxConcurrentCallsPerUser,
+  maxCoinsSpendPerDay,
+  requireFsCallIdForExternal,
+} from "../lib/callLimits";
+import { userRateLimit } from "../lib/userRateLimit";
+import { logger } from "../lib/logger";
+import { parsePageLimit } from "../lib/pagination";
 
 const router: IRouter = Router();
 
@@ -13,9 +24,7 @@ router.get("/calls", async (req, res) => {
   }
   await connectDB();
   const userId = (req as any).user.id;
-  const page  = Math.max(1, parseInt(String(req.query.page  ?? "1")));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"))));
-  const skip  = (page - 1) * limit;
+  const { page, limit, skip } = parsePageLimit(req.query);
 
   const [callDocs, total] = await Promise.all([
     CallModel.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -31,7 +40,7 @@ router.get("/calls", async (req, res) => {
   });
 });
 
-router.post("/calls", async (req, res) => {
+router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -57,6 +66,44 @@ router.post("/calls", async (req, res) => {
   }
 
   if (callType === "external") {
+    const hasFs = fsCallId != null && String(fsCallId).trim() !== "";
+    if (hasFs && !isValidFsCallId(fsCallId)) {
+      res.status(400).json({
+        error:   "Invalid fsCallId",
+        message: "fsCallId must be a UUID string when provided.",
+      });
+      return;
+    }
+    if (requireFsCallIdForExternal() && !isValidFsCallId(fsCallId)) {
+      res.status(400).json({
+        error:   "fsCallId required",
+        message:
+          "Set REQUIRE_FS_CALL_ID_EXTERNAL=false for legacy SIP clients, or pass the Verto/FS channel UUID.",
+      });
+      return;
+    }
+    const maxConc = maxConcurrentCallsPerUser();
+    if (maxConc > 0) {
+      const active = await countActiveCallsForUser(userId);
+      if (active >= maxConc) {
+        res.status(429).json({
+          error:   "Too many active calls",
+          message: `You may have at most ${maxConc} active call(s). End a call before starting another.`,
+        });
+        return;
+      }
+    }
+    const dailyCap = maxCoinsSpendPerDay();
+    if (dailyCap > 0) {
+      const spentToday = await sumExternalCoinsSpentTodayUtc(userId);
+      if (spentToday >= dailyCap) {
+        res.status(400).json({
+          error:   "Daily external spend limit",
+          message: `External calls are limited to ${dailyCap} coins per UTC day (recorded spend).`,
+        });
+        return;
+      }
+    }
     if (user.subscriptionStatus !== "active") {
       res.status(400).json({
         error:   "No active subscription",
@@ -133,9 +180,28 @@ router.post("/calls/:callId/end", async (req, res) => {
 });
 
 router.post("/calls/webhook/freeswitch", async (req, res) => {
+  const hookSecret = process.env.FREESWITCH_WEBHOOK_SECRET;
+  if (
+    hookSecret &&
+    String(req.get("x-fs-webhook-secret") ?? "") !== hookSecret
+  ) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   const { event, callId, userId, duration, status } = req.body;
 
-  if (!callId || !userId) {
+  if (
+    typeof callId !== "string" ||
+    typeof userId !== "string" ||
+    !callId.trim() ||
+    !userId.trim()
+  ) {
+    res.sendStatus(200);
+    return;
+  }
+
+  if (event != null && typeof event !== "string") {
     res.sendStatus(200);
     return;
   }
@@ -143,9 +209,18 @@ router.post("/calls/webhook/freeswitch", async (req, res) => {
   const durationSecs = typeof duration === "number" ? Math.max(0, duration) : 0;
 
   try {
-    await webhookUpdate(event, callId, userId, durationSecs, status);
+    await webhookUpdate(
+      typeof event === "string" ? event : "",
+      callId,
+      userId,
+      durationSecs,
+      typeof status === "string" ? status : undefined,
+    );
   } catch (err) {
-    // Webhook must always return 200 so FreeSWITCH doesn't retry indefinitely
+    logger.error(
+      { err, event, callId, userId },
+      "[calls] webhookUpdate failed — returning 200 to avoid FS retry storm",
+    );
   }
 
   res.sendStatus(200);

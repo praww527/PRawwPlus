@@ -20,7 +20,8 @@ interface CallRecord {
   callerNumber?:   string;
   recipientNumber: string;
   callType:        "internal" | "external";
-  status:          "initiated" | "in-progress" | "completed" | "missed" | "failed" | "no-answer";
+  /** Server uses answered, ringing, cancelled, etc.; legacy clients may send in-progress / no-answer */
+  status:          string;
   duration:        number;
   direction?:      "inbound" | "outbound";
   createdAt:       string;
@@ -49,9 +50,19 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function isMissedOrFailedStatus(status: string): boolean {
+  return (
+    status === "missed" ||
+    status === "no-answer" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
+}
+
 function callIcon(call: CallRecord): { name: string; color: string } {
-  const missed = call.status === "missed" || call.status === "no-answer" || call.status === "failed";
-  if (missed) return { name: "phone-missed", color: "#FF3B30" };
+  if (isMissedOrFailedStatus(call.status)) {
+    return { name: "phone-missed", color: "#FF3B30" };
+  }
   if (call.direction === "inbound") return { name: "phone-incoming", color: "#30D158" };
   return { name: "phone-outgoing", color: "#0A84FF" };
 }
@@ -84,7 +95,10 @@ function CallRow({
       </View>
       <TouchableOpacity
         style={styles.rowCallBtn}
-        onPress={() => onCallBack(call.recipientNumber)}
+        onPress={() => {
+          if (number === "Unknown") return;
+          onCallBack(number);
+        }}
         activeOpacity={0.7}
       >
         <Feather name="phone" size={18} color="#0A84FF" />
@@ -116,8 +130,13 @@ export default function RecentsScreen() {
 
   const fetchCalls = useCallback(async () => {
     try {
-      const res  = await apiRequest("/calls?limit=50");
-      const data = await res.json();
+      const res = await apiRequest("/calls?limit=50");
+      let data: { calls?: CallRecord[]; error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Invalid response from server");
+      }
       if (!res.ok) throw new Error(data.error ?? "Failed to load call history");
       setCalls(data.calls ?? []);
       setError(null);

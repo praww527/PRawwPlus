@@ -3,6 +3,7 @@ import { connectDB, PaymentModel, UserModel, PhoneNumberModel } from "@workspace
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/appUrl";
+import { getTrustedClientIp } from "../lib/clientIp";
 
 const router: IRouter = Router();
 
@@ -110,12 +111,6 @@ const PAYFAST_VALID_IPS = [
   "197.97.145.147",
 ];
 
-function getClientIp(req: any): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (forwarded) return String(forwarded).split(",")[0].trim();
-  return req.socket?.remoteAddress ?? "";
-}
-
 router.post("/payments/subscribe", async (req, res) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -168,7 +163,12 @@ router.post("/payments/webhook", async (req, res) => {
   const body: Record<string, string> = req.body;
   const { m_payment_id, payment_status, custom_str1: userId, custom_str2 } = body;
 
-  if (!m_payment_id || !payment_status) {
+  if (
+    typeof m_payment_id !== "string" ||
+    typeof payment_status !== "string" ||
+    !m_payment_id ||
+    !payment_status
+  ) {
     res.status(400).send("Invalid webhook");
     return;
   }
@@ -176,7 +176,7 @@ router.post("/payments/webhook", async (req, res) => {
   const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
 
   if (!isSandbox) {
-    const clientIp = getClientIp(req);
+    const clientIp = getTrustedClientIp(req);
     if (!PAYFAST_VALID_IPS.includes(clientIp)) {
       res.status(403).send("Forbidden");
       return;

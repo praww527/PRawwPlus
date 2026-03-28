@@ -86,13 +86,12 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
   const appUrl = getAppUrl();
   if (!appUrl) return { success: false, steps: [], error: "APP_URL not set — configure https://rtc.PRaww.co.za in environment" };
 
-  // In development, APP_URL points to the production domain which may not route
-  // to this dev server. Use the PRaww dev domain so FreeSWITCH can reach the
-  // directory endpoint on the currently running instance.
-  const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+  // In development, APP_URL may point at production; override with a reachable URL
+  // (e.g. ngrok / Cloudflare Tunnel) via DEV_DIRECTORY_BASE_URL=https://your-tunnel.example
+  const devDirectoryBase = process.env.DEV_DIRECTORY_BASE_URL?.replace(/\/$/, "");
   const directoryBaseUrl =
-    process.env.NODE_ENV !== "production" && replitDevDomain
-      ? `https://${replitDevDomain}`
+    process.env.NODE_ENV !== "production" && devDirectoryBase
+      ? devDirectoryBase
       : appUrl;
 
   const steps: string[] = [];
@@ -108,7 +107,9 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     try {
       const alt = await execCommand(conn, "[ -d /usr/local/freeswitch/conf ] && echo /usr/local/freeswitch/conf || echo /etc/freeswitch");
       if (alt) confDir = alt.trim();
-    } catch {}
+    } catch (err) {
+      logger.debug({ err }, "[FSH] conf dir probe failed — using default");
+    }
     steps.push(`Config dir: ${confDir}`);
 
     // Write xml_curl.conf — use directoryBaseUrl so FreeSWITCH reaches THIS instance

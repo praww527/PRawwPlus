@@ -26,6 +26,7 @@ import React, {
 } from "react";
 import { router } from "expo-router";
 import { Alert } from "react-native";
+import { v4 as uuidv4 } from "uuid";
 import type { RTCSession } from "jssip/lib/RTCSession";
 import {
   voipEngine,
@@ -113,7 +114,9 @@ export function CallProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const cleanup = startCallEndQueueListeners();
     // Flush any requests that were queued during the previous session
-    flushEndCallQueue().catch(() => {});
+    flushEndCallQueue().catch((err) => {
+      console.warn("[CallContext] flushEndCallQueue on mount failed:", err);
+    });
     return cleanup;
   }, []);
 
@@ -176,17 +179,30 @@ export function CallProvider({ children }: PropsWithChildren) {
   // ── Helper: create a call DB record ───────────────────────────────────────
 
   const createCallRecord = useCallback(
-    async (recipientNumber: string, direction: "inbound" | "outbound"): Promise<string | null> => {
+    async (
+      recipientNumber: string,
+      direction: "inbound" | "outbound",
+      fsCallId?: string,
+    ): Promise<string | null> => {
       try {
         const res = await apiRequest("/calls", {
           method: "POST",
-          body: JSON.stringify({ recipientNumber, direction }),
+          body: JSON.stringify({
+            recipientNumber,
+            direction,
+            ...(fsCallId ? { fsCallId } : {}),
+          }),
         });
 
         if (res.ok) {
           setApiStatus("ok");
-          const record = await res.json();
-          return record?.id ?? null;
+          try {
+            const record = await res.json();
+            return record?.id ?? null;
+          } catch {
+            setApiStatus("unavailable");
+            return null;
+          }
         }
 
         setApiStatus("unavailable");
@@ -368,7 +384,9 @@ export function CallProvider({ children }: PropsWithChildren) {
       await voipEngine.register(creds);
 
       // Flush any queued end-call requests now that we have an auth session
-      flushEndCallQueue().catch(() => {});
+      flushEndCallQueue().catch((e) => {
+        console.warn("[CallContext] flushEndCallQueue after register failed:", e);
+      });
     } catch (err: any) {
       if (err?.name === "TimeoutError") {
         setApiStatus("timeout");
@@ -398,12 +416,12 @@ export function CallProvider({ children }: PropsWithChildren) {
     pendingDirectionRef.current = "outbound";
 
     try {
-      // Create the outbound DB record before placing the call so the ID is
-      // available if the call fails instantly or the app is killed.
-      const callId = await createCallRecord(destination, "outbound");
+      // Align with web Verto: one UUID for CallKit, POST /calls fsCallId, and (when FS is configured) ESL.
+      const fsCallId = uuidv4();
+      const callId   = await createCallRecord(destination, "outbound", fsCallId);
       dbCallIdRef.current = callId;
 
-      await voipEngine.makeCall(destination);
+      await voipEngine.makeCall(destination, fsCallId, callId);
     } catch (err: any) {
       // SIP precondition failure (not registered, etc.) — finalize immediately
       if (dbCallIdRef.current) {

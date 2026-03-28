@@ -1,0 +1,41 @@
+# Manual Android builds on EAS. Add repo secret EXPO_TOKEN:
+# https://expo.dev/accounts/[account]/settings/access-tokens
+name: EAS Build (mobile)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS profile (artifacts/call-manager-mobile/eas.json)"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+          - development
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: EAS build (Android)
+        working-directory: artifacts/call-manager-mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx --yes eas-cli@18 build --platform android --profile ${{ inputs.profile }} --non-interactive --no-wait

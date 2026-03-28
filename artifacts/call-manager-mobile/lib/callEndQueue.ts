@@ -49,7 +49,9 @@ async function writeQueue(items: QueuedEndCall[]): Promise<void> {
     } else {
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(items));
     }
-  } catch {}
+  } catch (err) {
+    console.warn("[callEndQueue] writeQueue failed:", err);
+  }
 }
 
 // ─── Queue operations ──────────────────────────────────────────────────────
@@ -141,7 +143,9 @@ export function startCallEndQueueListeners(): () => void {
     "change",
     (state: AppStateStatus) => {
       if (state === "active") {
-        flushEndCallQueue().catch(() => {});
+        flushEndCallQueue().catch((err) => {
+          console.warn("[callEndQueue] foreground flush failed:", err);
+        });
       }
     },
   );
@@ -149,7 +153,9 @@ export function startCallEndQueueListeners(): () => void {
   // Flush when network reconnects
   networkUnsubscribe = networkMonitor.addListener((state) => {
     if (state === "online") {
-      flushEndCallQueue().catch(() => {});
+      flushEndCallQueue().catch((err) => {
+        console.warn("[callEndQueue] network flush failed:", err);
+      });
     }
   });
 

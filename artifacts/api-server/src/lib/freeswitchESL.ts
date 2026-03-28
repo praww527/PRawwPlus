@@ -21,10 +21,12 @@ import { logger } from "./logger";
 import { connectDB, UserModel } from "@workspace/db";
 import { enqueueEslEvent } from "./eslEventBuffer";
 import { ringingCall, answerCall, finalizeCall, setEslCommandFn, clearAllHangupTimers } from "./callOrchestrator";
+import { linkCallRecordToFsALeg } from "./mobileCallLink";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
 const ESL_PASSWORD = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
+const isProduction = process.env.NODE_ENV === "production";
 const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "root";
 const SSH_PORT     = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
 
@@ -55,7 +57,12 @@ async function sendExpoPush(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ to: pushToken, title, body, data, sound: "default", priority: "high" }),
+      signal: AbortSignal.timeout(15_000),
     });
+    if (!resp.ok) {
+      logger.warn({ status: resp.status }, "[Push] Expo gateway HTTP error");
+      return;
+    }
     const result = await resp.json() as { data?: { status: string; message?: string } };
     if (result?.data?.status === "error") {
       logger.warn({ result }, "[Push] Expo gateway returned error");
@@ -105,7 +112,12 @@ async function sendFcmDataMessage(
         grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
         assertion: jwt,
       }),
+      signal: AbortSignal.timeout(15_000),
     });
+    if (!tokenResp.ok) {
+      logger.warn({ status: tokenResp.status }, "[FCM] OAuth token HTTP error");
+      return;
+    }
     const tokenData = await tokenResp.json() as { access_token?: string };
     const accessToken = tokenData.access_token;
     if (!accessToken) throw new Error("Failed to obtain FCM access token");
@@ -125,6 +137,7 @@ async function sendFcmDataMessage(
             android: { priority: "HIGH", ttl: "30s" },
           },
         }),
+        signal: AbortSignal.timeout(15_000),
       },
     );
 
@@ -389,6 +402,7 @@ class FreeSwitchESL {
             uuid,
             "CHANNEL_ANSWER",
             () => answerCall(uuid, otherLegUuid),
+            { otherLegId: otherLegUuid },
           );
         } else if (uuid) {
           logger.debug(
@@ -403,9 +417,11 @@ class FreeSwitchESL {
 
         // FreeSWITCH stores call duration in variable_billsec (channel variable).
         // The top-level "billsec" field may not exist in all versions.
-        const billsec = parseInt(
+        const billsecRaw = parseInt(
           body["variable_billsec"] ?? body["billsec"] ?? "0",
+          10,
         );
+        const billsec = Number.isFinite(billsecRaw) ? billsecRaw : 0;
         const hangupCause = body["Hangup-Cause"] ?? body["variable_hangup_cause"] ?? "";
 
         if (uuid) {
@@ -425,6 +441,11 @@ class FreeSwitchESL {
             uuid,
             "CHANNEL_HANGUP_COMPLETE",
             () => finalizeCall(uuid, billsec, hangupCause, otherLegUuid || undefined),
+            {
+              billsec,
+              hangupCause,
+              otherLegId: otherLegUuid || undefined,
+            },
           );
         }
       }
@@ -445,6 +466,15 @@ class FreeSwitchESL {
     const destExt   = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
     const callerExt = h["Caller-Caller-ID-Number"] ?? h["Channel-Caller-ID-Number"] ?? "Unknown";
 
+    // Mobile JsSIP: align Mongo fsCallId with FS A-leg UUID before orchestration.
+    if (aLegUuid) {
+      try {
+        await linkCallRecordToFsALeg(h, aLegUuid);
+      } catch (err) {
+        logger.warn({ err }, "[ESL] linkCallRecordToFsALeg failed — continuing");
+      }
+    }
+
     // Update call DB to "ringing" state using A-leg UUID (= fsCallId)
     if (aLegUuid || bLegUuid) {
       const effectiveALeg = aLegUuid || bLegUuid;
@@ -452,6 +482,7 @@ class FreeSwitchESL {
         effectiveALeg,
         "CHANNEL_ORIGINATE",
         () => ringingCall(effectiveALeg, bLegUuid),
+        { aLegUuid: effectiveALeg, bLegUuid },
       );
     }
 
@@ -516,6 +547,15 @@ class FreeSwitchESL {
 
 export function startESL() {
   if (!ESL_HOST) return;
+  if (
+    isProduction &&
+    (!process.env.FREESWITCH_ESL_PASSWORD || ESL_PASSWORD === "ClueCon")
+  ) {
+    logger.error(
+      "[ESL] Production requires a strong FREESWITCH_ESL_PASSWORD (not default ClueCon); ESL disabled",
+    );
+    return;
+  }
   eslEnabled = true;
   eslClient  = new FreeSwitchESL();
   eslClient.connect();

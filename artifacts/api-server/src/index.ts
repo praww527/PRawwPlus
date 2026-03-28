@@ -5,6 +5,13 @@ import { runStartup } from "./lib/startup";
 import { createVertoProxy, attachVertoProxy } from "./lib/vertoProxy";
 import { createSipProxy, attachSipProxy } from "./lib/sipProxy";
 
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error(
+    { err: reason, promise: String(promise) },
+    "Unhandled promise rejection",
+  );
+});
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {

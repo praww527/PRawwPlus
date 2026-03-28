@@ -23,6 +23,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCall } from "@/context/CallContext";
 import { useAuth } from "@/context/AuthContext";
+import { isVoipMediaSupported } from "@/lib/voipEngine";
 
 const DIALPAD_KEYS: [string, string][] = [
   ["1", ""],    ["2", "ABC"],  ["3", "DEF"],
@@ -176,6 +177,14 @@ export default function DialpadScreen() {
           <View style={styles.warnBanner}>
             <Feather name="clock" size={14} color="#FF9F0A" />
             <Text style={styles.warnBannerText}>Connection timeout — check your network</Text>
+          </View>
+        )}
+        {!isVoipMediaSupported() && (
+          <View style={styles.warnBanner}>
+            <Feather name="smartphone" size={14} color="#FF9F0A" />
+            <Text style={styles.warnBannerText}>
+              VoIP needs a development or release build (Expo Go does not include WebRTC)
+            </Text>
           </View>
         )}
 

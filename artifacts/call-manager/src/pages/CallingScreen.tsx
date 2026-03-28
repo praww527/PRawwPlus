@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X, PhoneMissed, PhoneCall, WifiOff, Voicemail } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
-import { useEndCall, getGetMeQueryKey } from "@workspace/api-client-react";
+import { useEndCall, getGetMeQueryKey, type EndCallRequestStatus } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 
 const DTMF_KEYS = [
@@ -139,19 +139,21 @@ export default function CallingScreen() {
   };
 
   /** Map a FreeSWITCH hangup cause to the status enum the REST API accepts */
-  function causeToEndStatus(cause: string | undefined): "completed" | "failed" | "missed" | "cancelled" {
+  function causeToEndStatus(cause: string | undefined): EndCallRequestStatus {
     switch (cause) {
       case "USER_BUSY":
+        return "busy";
       case "ORIGINATOR_CANCEL":
-      case "CALL_REJECTED":                 return "cancelled";
+      case "CALL_REJECTED":
+        return "failed";
       case "NO_ANSWER":
-      case "RECOVERY_ON_TIMER_EXPIRE":      return "missed";
+      case "RECOVERY_ON_TIMER_EXPIRE":
+        return "no-answer";
       case "NORMAL_CLEARING":
-      case "ALLOTTED_TIMEOUT":              return "completed";
-      // Undefined cause = Verto WebSocket dropped with no hangup event.
-      // Previously this mapped to "completed" which was incorrect — a call that
-      // drops due to network loss should be recorded as "failed", not "completed".
-      default:                              return "failed";
+      case "ALLOTTED_TIMEOUT":
+        return "completed";
+      default:
+        return "failed";
     }
   }
 

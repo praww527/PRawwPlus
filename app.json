@@ -5,8 +5,11 @@
         "projectId": "fea8431a-dee4-4427-a44f-ff4a2c822498"
       }
     },
+    "ios": {
+      "bundleIdentifier": "com.praww.prawwplus"
+    },
     "android": {
-      "package": "com.prawwplus.mobile"
+      "package": "com.praww.prawwplus"
     }
   }
 }

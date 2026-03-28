@@ -47,7 +47,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
           AsyncStorage.getItem(PUSH_ENABLED_KEY),
         ]);
         if (stored && token) {
-          setUser(JSON.parse(stored));
+          try {
+            setUser(JSON.parse(stored));
+          } catch {
+            await AsyncStorage.removeItem(AUTH_USER_KEY);
+          }
         }
         setPushEnabled(pushVal === "true");
       } finally {
@@ -61,8 +65,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.message || "Login failed");
+    const data = await res.json().catch(() => ({} as Record<string, unknown>));
+    if (!res.ok) {
+      const message =
+        typeof data.message === "string" ? data.message.trim() : "";
+      const errCode = typeof data.error === "string" ? data.error : "";
+      const msg =
+        message ||
+        (errCode === "email_not_verified"
+          ? "Please verify your email before logging in."
+          : errCode || "Login failed");
+      throw new Error(msg);
+    }
 
     await setToken(data.token);
     await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
@@ -75,7 +89,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     ]).then(async () => {
       await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
       setPushEnabled(true);
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn("[Auth] Push registration after login failed:", err);
+    });
   }, []);
 
   const logout = useCallback(async () => {

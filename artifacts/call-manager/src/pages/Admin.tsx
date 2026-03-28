@@ -33,7 +33,7 @@ function AdminStats() {
     { title: "Total Users", value: stats.totalUsers, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
     { title: "Active Subs", value: stats.activeSubscriptions, icon: TrendingUp, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
     { title: "Revenue", value: formatCurrency(stats.totalRevenue), icon: DollarSign, color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
-    { title: "Calls Today", value: stats.callsToday, icon: PhoneCall, color: "text-primary", bg: "bg-primary/10 border-primary/20" },
+    { title: "Total Calls", value: stats.totalCalls, icon: PhoneCall, color: "text-primary", bg: "bg-primary/10 border-primary/20" },
   ];
 
   return (
@@ -67,7 +67,7 @@ export default function Admin() {
     try {
       await adjustCredit({
         userId: selectedUser.id,
-        data: { amount: parseFloat(adjustAmount), reason: adjustReason || "Admin adjustment" },
+        data: { delta: parseFloat(adjustAmount), reason: adjustReason || "Admin adjustment" },
       });
       toast({ title: "Credit adjusted successfully" });
       queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });

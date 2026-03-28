@@ -12,6 +12,9 @@ services:
         value: production
       - key: PORT
         value: 10000
+      # Render terminates TLS; trust X-Forwarded-* for PayFast IP checks and req.ip
+      - key: TRUST_PROXY
+        value: "1"
       - key: MONGODB_URI
         sync: false
       - key: SESSION_SECRET

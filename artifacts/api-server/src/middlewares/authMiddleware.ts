@@ -1,5 +1,6 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { clearSession, getSessionId, getSession, type SessionUser } from "../lib/auth";
+import { logger } from "../lib/logger";
 
 declare global {
   namespace Express {
@@ -34,7 +35,11 @@ export async function authMiddleware(
   try {
     const session = await getSession(sid);
     if (!session?.user?.id) {
-      try { await clearSession(res, sid); } catch {}
+      try {
+        await clearSession(res, sid);
+      } catch (err) {
+        logger.warn({ err }, "[auth] clearSession failed for invalid session");
+      }
       next();
       return;
     }

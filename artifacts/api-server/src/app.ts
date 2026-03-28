@@ -6,8 +6,16 @@ import path from "path";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { getTrustedClientIp } from "./lib/clientIp";
 
 const app: Express = express();
+
+// When behind Render/nginx, set TRUST_PROXY=1 so req.ip / X-Forwarded-For are trusted
+// for PayFast IP checks. Leave unset in direct-exposed dev to prevent header spoofing.
+app.set(
+  "trust proxy",
+  process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true",
+);
 
 // In production, serve the pre-built frontend from the same process.
 // STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
@@ -42,7 +50,9 @@ if (appUrlRaw) {
     try {
       const u = new URL(fsWsUrl);
       fsWsOrigins.push(`${u.protocol}//${u.host}`);
-    } catch {}
+    } catch {
+      logger.warn({ fsWsUrl }, "[CSP] Invalid FREESWITCH_WS_URL — skipping wss connect-src");
+    }
   }
 }
 const fsWsOrigin = fsWsOrigins.join(" ");
@@ -98,10 +108,7 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function rateLimit(maxRequests: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip =
-      (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ??
-      req.socket?.remoteAddress ??
-      "unknown";
+    const ip = getTrustedClientIp(req) || "unknown";
     const now = Date.now();
     const entry = rateLimitMap.get(ip);
 

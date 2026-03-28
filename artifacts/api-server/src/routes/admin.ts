@@ -4,6 +4,7 @@ import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf } from "../lib/freeswitchConfig";
 import { eslStatus } from "../lib/freeswitchESL";
 import { getAppUrl } from "../lib/appUrl";
+import { parsePageLimit } from "../lib/pagination";
 
 const router: IRouter = Router();
 
@@ -62,9 +63,7 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
 
 router.get("/admin/users", requireAdmin, async (req, res) => {
   await connectDB();
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1")));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"))));
-  const skip = (page - 1) * limit;
+  const { page, limit, skip } = parsePageLimit(req.query);
 
   const [users, total] = await Promise.all([
     UserModel.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -194,7 +193,7 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
     "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl),
     "autoload_configs/verto.conf.xml":        vertoConf(fsHost),
     "autoload_configs/event_socket.conf.xml": eventSocketConf(),
-    "dialplan/default/call_manager.xml":      dialplanXml(fsHost),
+    "dialplan/call_manager.xml":              dialplanXml(fsHost),
   });
 });
 

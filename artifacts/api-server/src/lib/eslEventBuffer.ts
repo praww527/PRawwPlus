@@ -1,25 +1,10 @@
 /**
- * ESL event buffer — zero event loss system.
- *
- * Problem: FreeSWITCH fires ESL events (CHANNEL_ANSWER, CHANNEL_HANGUP_COMPLETE,
- * CHANNEL_ORIGINATE) keyed by the Unique-ID (fsCallId). The matching DB call record
- * is created by the client via POST /calls just before dialling. In rare cases the
- * ESL event arrives on the socket before Mongoose has persisted the record, so
- * `CallModel.findOne({ fsCallId })` returns null and the event is silently dropped.
- *
- * Solution: when a handler returns `EventResult.RETRY` (record not found yet), the
- * event is queued and replayed with exponential back-off. After MAX_RETRIES the
- * event is logged and discarded so the queue never grows unbounded.
- *
- * Usage:
- *   eslEventBuffer.enqueue(fsCallId, async () => {
- *     const call = await CallModel.findOne({ fsCallId });
- *     if (!call) return EventResult.RETRY;       // not in DB yet — come back later
- *     await doSomething(call);
- *     return EventResult.DONE;
- *   });
+ * ESL event buffer — ordered processing with retry. Durable persistence hooks
+ * into MongoDB when retries exhaust or the handler throws (see PendingEslEvent).
  */
 
+import { randomUUID } from "crypto";
+import { connectDB, PendingEslEventModel } from "@workspace/db";
 import { logger } from "./logger";
 
 export const enum EventResult {
@@ -29,18 +14,28 @@ export const enum EventResult {
 
 type EventHandler = () => Promise<EventResult>;
 
+/** Data required to replay a dropped event from the worker */
+export type DurableEslPayload = {
+  billsec?: number;
+  hangupCause?: string;
+  otherLegId?: string;
+  /** CHANNEL_ORIGINATE */
+  bLegUuid?: string;
+  aLegUuid?: string;
+};
+
 interface QueuedEvent {
   fsCallId:    string;
   handler:     EventHandler;
   label:       string;
   attempt:     number;
   retryTimer?: ReturnType<typeof setTimeout>;
+  durable?:    DurableEslPayload;
 }
 
 const MAX_RETRIES   = 5;
 const BASE_DELAY_MS = 200;
 
-/** In-memory queue: fsCallId → ordered list of pending events */
 const queue = new Map<string, QueuedEvent[]>();
 
 function dequeue(fsCallId: string) {
@@ -54,9 +49,37 @@ function dequeue(fsCallId: string) {
     clearTimeout(ev.retryTimer);
     ev.retryTimer = undefined;
   }
-  // Remove from front, process next
   events.shift();
   if (events.length === 0) queue.delete(fsCallId);
+}
+
+async function persistDurable(ev: QueuedEvent, reason: string): Promise<void> {
+  if (!ev.durable) return;
+  try {
+    await connectDB();
+    const label = ev.label as "CHANNEL_HANGUP_COMPLETE" | "CHANNEL_ANSWER" | "CHANNEL_ORIGINATE";
+    if (
+      label !== "CHANNEL_HANGUP_COMPLETE" &&
+      label !== "CHANNEL_ANSWER" &&
+      label !== "CHANNEL_ORIGINATE"
+    ) {
+      return;
+    }
+    await PendingEslEventModel.create({
+      _id:      randomUUID(),
+      fsCallId: ev.fsCallId,
+      label,
+      payload:  { ...ev.durable, _persistReason: reason },
+      status:   "pending",
+      attempts: 0,
+    });
+    logger.info({ fsCallId: ev.fsCallId, label }, "[ESLBuffer] Persisted dropped event for reconciliation");
+  } catch (err) {
+    logger.error(
+      { err, fsCallId: ev.fsCallId, label: ev.label },
+      "[ESLBuffer] CRITICAL: failed to persist durable ESL event",
+    );
+  }
 }
 
 async function processEvent(ev: QueuedEvent): Promise<void> {
@@ -65,7 +88,8 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
     result = await ev.handler();
   } catch (err) {
     logger.error({ err, fsCallId: ev.fsCallId, label: ev.label, attempt: ev.attempt },
-      "[ESLBuffer] Handler threw — treating as final failure");
+      "[ESLBuffer] Handler threw — persisting durable payload if any");
+    await persistDurable(ev, `handler_throw:${String(err)}`);
     dequeue(ev.fsCallId);
     return;
   }
@@ -75,7 +99,6 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
       "[ESLBuffer] Event processed OK");
     dequeue(ev.fsCallId);
 
-    // Process next queued event for this fsCallId (ordered processing)
     const remaining = queue.get(ev.fsCallId);
     if (remaining && remaining.length > 0) {
       setImmediate(() => processEvent(remaining[0]));
@@ -83,14 +106,21 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
     return;
   }
 
-  // RETRY — DB record not found yet (race between ESL event and client POST /calls)
   ev.attempt++;
   if (ev.attempt > MAX_RETRIES) {
-    // This is a real problem: the ESL event arrived for a call that was never
-    // recorded in the DB (mobile call without fsCallId link, or record creation
-    // failed). Log at warn so it shows up in production monitoring.
-    logger.warn({ fsCallId: ev.fsCallId, label: ev.label, maxRetries: MAX_RETRIES },
-      "[ESLBuffer] Max retries exceeded — ESL event dropped (no matching DB record)");
+    const billingRisk = ev.label === "CHANNEL_HANGUP_COMPLETE";
+    logger.warn(
+      {
+        fsCallId: ev.fsCallId,
+        label:    ev.label,
+        maxRetries: MAX_RETRIES,
+        billingRisk,
+      },
+      billingRisk
+        ? "[ESLBuffer] CRITICAL: hangup max retries — persisting for reconciliation"
+        : "[ESLBuffer] Max retries exceeded — persisting / dropping ESL event",
+    );
+    await persistDurable(ev, "max_retries");
     dequeue(ev.fsCallId);
     return;
   }
@@ -103,20 +133,19 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
 }
 
 /**
- * Enqueue an ESL event handler for `fsCallId`.
- * Events for the same fsCallId are processed in FIFO order.
- * `label` is used only for logging.
+ * Enqueue an ESL event. Pass `durable` for payloads that must survive process
+ * restarts (recommended for all production call legs).
  */
 export function enqueueEslEvent(
   fsCallId: string,
   label: string,
   handler: EventHandler,
+  durable?: DurableEslPayload,
 ): void {
-  const ev: QueuedEvent = { fsCallId, handler, label, attempt: 1 };
+  const ev: QueuedEvent = { fsCallId, handler, label, attempt: 1, durable };
 
   const existing = queue.get(fsCallId);
   if (existing && existing.length > 0) {
-    // Another event for this call is already in-flight — queue behind it
     existing.push(ev);
     logger.debug({ fsCallId, label, queueDepth: existing.length },
       "[ESLBuffer] Event queued behind in-flight event");
@@ -124,11 +153,9 @@ export function enqueueEslEvent(
   }
 
   queue.set(fsCallId, [ev]);
-  // Start immediately
   setImmediate(() => processEvent(ev));
 }
 
-/** How many calls currently have buffered/retrying events (for health checks) */
 export function eslBufferDepth(): number {
   let total = 0;
   for (const events of queue.values()) total += events.length;

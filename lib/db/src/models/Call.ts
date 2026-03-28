@@ -30,7 +30,7 @@ const CallSchema = new Schema<ICall>(
     status: { type: String, default: "initiated" },
     duration: { type: Number, default: 0 },
     cost: { type: Number, default: 0 },
-    fsCallId: { type: String },
+    fsCallId: { type: String, index: true, sparse: true },
     notes: { type: String },
     failReason: { type: String },
     startedAt: { type: Date },

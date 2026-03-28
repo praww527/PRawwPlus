@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a React Native bare-workflow VoIP app using JsSIP + WebRTC + CallKeep + Firebase FCM.
+This is a React Native VoIP app (Expo with native modules and prebuild) using JsSIP + WebRTC + CallKeep + Firebase FCM.
 
 ---
 
@@ -25,7 +25,7 @@ This is a React Native bare-workflow VoIP app using JsSIP + WebRTC + CallKeep + 
 
 ### Android
 
-1. Click **Add app → Android**; set the package name to `com.prawwplus.mobile`
+1. Click **Add app → Android**; set the package name to **`com.praww.prawwplus`** (must match `expo.android.package` in `app.json`)
 2. Download **`google-services.json`** and replace the placeholder at:
    ```
    artifacts/call-manager-mobile/google-services.json
@@ -33,11 +33,12 @@ This is a React Native bare-workflow VoIP app using JsSIP + WebRTC + CallKeep + 
 
 ### iOS
 
-1. Click **Add app → iOS**; set the bundle ID to `com.prawwplus.mobile`
-2. Download **`GoogleService-Info.plist`** and replace the placeholder at:
+1. Click **Add app → iOS**; set the bundle ID to **`com.praww.prawwplus`** (must match `expo.ios.bundleIdentifier` in `app.json`)
+2. Download **`GoogleService-Info.plist`** and add it to the iOS project after prebuild, for example:
    ```
    artifacts/call-manager-mobile/ios/PRawwPlus/GoogleService-Info.plist
    ```
+   (Exact folder name follows the Xcode target Expo generates from `expo.name`, usually `PRawwPlus`.)
 
 ### Backend environment variables
 
@@ -57,7 +58,7 @@ Generate a service account key: Firebase Console → Project Settings → Servic
 
 For `react-native-callkeep` to trigger CallKit via VoIP push:
 
-1. In Apple Developer Portal, create a **VoIP Services Certificate** for bundle ID `com.prawwplus.mobile`
+1. In Apple Developer Portal, create a **VoIP Services Certificate** for bundle ID **`com.praww.prawwplus`**
 2. Export as `.p12` and upload to Firebase Console → Project Settings → Cloud Messaging → iOS app → VoIP Certificate
 
 ---
@@ -141,6 +142,8 @@ eas build --platform ios --profile preview
 ```
 
 The `preview` profile produces a distributable APK (Android) or IPA (iOS) that can be installed directly on devices. Use the `production` profile for App Store / Play Store submissions.
+
+`preview` and `production` in `eas.json` set **`EXPO_PUBLIC_DOMAIN`** (e.g. `rtc.PRaww.co.za`) so the app calls **`https://<that-host>/api/...`**. Override in a custom profile if your API hostname differs. For local `expo run:*`, export the same variable in your shell if you are not using localhost.
 
 ---
 

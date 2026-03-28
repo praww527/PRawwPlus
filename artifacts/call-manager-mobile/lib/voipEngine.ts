@@ -34,6 +34,12 @@ function getRNWebRTC(): any {
   return _rnWebRTC;
 }
 
+/** False in Expo Go and other environments without native WebRTC. */
+export function isWebRtcAvailable(): boolean {
+  const { mediaDevices, RTCPeerConnection } = getRNWebRTC();
+  return Boolean(mediaDevices?.getUserMedia && RTCPeerConnection);
+}
+
 // Polyfill globals for JsSIP (expects browser environment)
 // Only runs when react-native-webrtc is available (i.e. development build)
 try {
@@ -319,7 +325,12 @@ class VoipEngine {
 
   // ── Outgoing call ──
 
-  async makeCall(destination: string): Promise<void> {
+  /**
+   * @param channelUuid Optional stable UUID for CallKit + POST /calls fsCallId.
+   *                    When omitted, a new uuid is generated (legacy).
+   * @param callRecordId Mongo Call._id — sent as SIP header so ESL can link fsCallId to FS A-leg.
+   */
+  async makeCall(destination: string, channelUuid?: string, callRecordId?: string | null): Promise<void> {
     if (!this.ua || this.state !== "registered") {
       throw new Error("Not registered — cannot make call");
     }
@@ -330,9 +341,15 @@ class VoipEngine {
     const localStream = await this.getLocalAudioStream();
     this.localStream  = localStream;
 
+    const extraHeaders: string[] = [];
+    if (callRecordId?.trim()) {
+      extraHeaders.push(`X-PRaww-Call-Record-Id: ${callRecordId.trim()}`);
+    }
+
     const callOptions = {
       mediaStream:       localStream,
       mediaConstraints:  { audio: true, video: false },
+      extraHeaders,
       pcConfig: {
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
@@ -347,7 +364,7 @@ class VoipEngine {
     ) as RTCSession;
 
     this.session = session;
-    const uuid   = uuidv4();
+    const uuid   = channelUuid ?? uuidv4();
 
     // No-answer timeout — only fires if still in calling/ringing state.
     // Use uppercase "NO_ANSWER" to match the FreeSWITCH cause convention so
@@ -626,3 +643,15 @@ class VoipEngine {
 }
 
 export const voipEngine = new VoipEngine();
+
+/** False in Expo Go — `react-native-webrtc` is not bundled. Use a dev or production native build. */
+export function isVoipMediaSupported(): boolean {
+  try {
+    const w = require("react-native-webrtc") as {
+      mediaDevices?: { getUserMedia?: unknown };
+    };
+    return typeof w?.mediaDevices?.getUserMedia === "function";
+  } catch {
+    return false;
+  }
+}

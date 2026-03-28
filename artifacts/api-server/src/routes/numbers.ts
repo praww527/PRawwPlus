@@ -110,9 +110,20 @@ router.get("/numbers/search", async (req, res) => {
     return;
   }
 
-  // Return unassigned numbers from the local pool
-  const country = String(req.query.country_code ?? "ZA");
-  const available = await PhoneNumberModel.find({ userId: null }).lean();
+  // Return unassigned numbers from the local pool (filter by country when set)
+  const countryCode = String(req.query.country_code ?? "ZA").trim() || "ZA";
+  const poolFilter =
+    countryCode === "ZA"
+      ? {
+          userId: null,
+          $or: [
+            { country: "ZA" },
+            { country: { $in: [null, ""] } },
+            { country: { $exists: false } },
+          ],
+        }
+      : { userId: null, country: countryCode };
+  const available = await PhoneNumberModel.find(poolFilter).lean();
 
   const numbers = available.map((n) => ({
     phone_number: n.number,

@@ -52,3 +52,4 @@ export * from "./models/Call";
 export * from "./models/Payment";
 export * from "./models/PhoneNumber";
 export * from "./models/Contact";
+export * from "./models/PendingEslEvent";

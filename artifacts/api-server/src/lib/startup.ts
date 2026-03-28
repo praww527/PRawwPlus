@@ -13,6 +13,7 @@ import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { logger } from "./logger";
 import { startESL } from "./freeswitchESL";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
+import { startReconciliationWorker } from "./reconciliationWorker";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -38,6 +39,7 @@ export async function runStartup(): Promise<void> {
   try {
     await connectDB();
     logger.info("MongoDB connected");
+    startReconciliationWorker();
   } catch (err) {
     logger.error({ err }, "MongoDB connection failed — server will still start but DB features won't work");
     return;
@@ -45,28 +47,22 @@ export async function runStartup(): Promise<void> {
 
   // ── 2. Clean up stale calls left over from previous server sessions ──────
   //
-  // Two distinct cases require different treatment:
+  // Distinct cases:
   //
   //  "initiated"   — client created the DB record but CHANNEL_ANSWER never arrived,
   //                  meaning the SIP leg never connected. Safe to mark failed after
   //                  a short threshold (15 min). Real calls cannot stay "initiated"
   //                  for that long — FreeSWITCH's own no-answer timeout fires first.
   //
-  //  "in-progress" — the call was answered and the server tracked it as active. On
-  //                  restart all in-memory state (hangup timers, ESL auth) is gone.
-  //                  FreeSWITCH will have already cleared the call on its side, so
-  //                  we MUST finalize ALL in-progress records immediately regardless
-  //                  of age. Using createdAt here would be wrong: a 20-minute call
-  //                  restarted at minute 16 would be incorrectly marked "failed" by
-  //                  the threshold, and when ESL sends CHANNEL_HANGUP_COMPLETE the
-  //                  state machine rejects the transition (terminal state) — leaving
-  //                  a permanently wrong record.
+  //  "in-progress" / "answered" — active call in DB while server had timers + ESL.
+  //                  On restart that state is gone, so we mark failed immediately
+  //                  (same rationale as in-progress: no createdAt threshold).
   try {
     const now = new Date();
     const STALE_INITIATED_MS = 15 * 60 * 1000; // 15 minutes
     const initiatedCutoff = new Date(Date.now() - STALE_INITIATED_MS);
 
-    const [initiatedResult, inProgressResult] = await Promise.all([
+    const [initiatedResult, inProgressResult, answeredResult] = await Promise.all([
       // "initiated" calls older than 15 min → failed (never connected)
       CallModel.updateMany(
         { status: "initiated", createdAt: { $lt: initiatedCutoff } },
@@ -77,12 +73,24 @@ export async function runStartup(): Promise<void> {
         { status: "in-progress" },
         { status: "failed", failReason: "Call ended unexpectedly (server restart)", endedAt: now },
       ),
+      // "answered" — orchestrator uses this; same as in-progress after restart (timers/ESL reset)
+      CallModel.updateMany(
+        { status: "answered", endedAt: null },
+        { status: "failed", failReason: "Call ended unexpectedly (server restart)", endedAt: now },
+      ),
     ]);
 
-    const total = initiatedResult.modifiedCount + inProgressResult.modifiedCount;
+    const total =
+      initiatedResult.modifiedCount +
+      inProgressResult.modifiedCount +
+      answeredResult.modifiedCount;
     if (total > 0) {
       logger.info(
-        { initiated: initiatedResult.modifiedCount, inProgress: inProgressResult.modifiedCount },
+        {
+          initiated: initiatedResult.modifiedCount,
+          inProgress: inProgressResult.modifiedCount,
+          answered: answeredResult.modifiedCount,
+        },
         "Cleaned up stale calls from previous session",
       );
     }

@@ -9,29 +9,52 @@
  * Reliability:
  *  - Every request has a 10-second AbortController timeout
  *  - Production builds throw at startup if EXPO_PUBLIC_DOMAIN is not set
+ *
+ * Development:
+ *  - If EXPO_PUBLIC_DOMAIN is unset, uses Metro’s LAN host (expo-constants) so a physical
+ *    device can reach the API on your PC. Override with EXPO_PUBLIC_DEV_API_HOST / PORT.
  */
 
+import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 
 const TOKEN_KEY       = "prawwplus_auth_token";
 const REQUEST_TIMEOUT = 10_000; // 10 seconds
 
-export function getBaseUrl(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+function devApiBaseUrl(): string {
+  const port = process.env.EXPO_PUBLIC_DEV_API_PORT?.trim() || "8080";
+  const explicit = process.env.EXPO_PUBLIC_DEV_API_HOST?.trim();
+  if (explicit) {
+    return `http://${explicit}:${port}`;
+  }
+  const hostUri =
+    Constants.expoConfig?.hostUri
+    ?? (Constants.manifest2 as { extra?: { expoClient?: { hostUri?: string } } })?.extra
+      ?.expoClient?.hostUri;
+  if (hostUri && typeof hostUri === "string") {
+    const host = hostUri.split(":")[0] ?? "";
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      return `http://${host}:${port}`;
+    }
+  }
+  return `http://localhost:${port}`;
+}
 
-  if (!domain) {
-    // Allow localhost fallback only during development
-    if (__DEV__) return "http://localhost:8080";
-    // In production, a missing domain means the app was built without environment
-    // configuration. Throwing here surfaces the misconfiguration immediately
-    // rather than silently failing on every network call.
-    throw new Error(
-      "EXPO_PUBLIC_DOMAIN is not configured. " +
-      "Set this environment variable in your production build."
-    );
+export function getBaseUrl(): string {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+
+  if (domain) {
+    return `https://${domain}`;
   }
 
-  return `https://${domain}`;
+  if (__DEV__) {
+    return devApiBaseUrl();
+  }
+
+  throw new Error(
+    "EXPO_PUBLIC_DOMAIN is not configured. " +
+      "Set this environment variable in your production build.",
+  );
 }
 
 export async function getToken(): Promise<string | null> {

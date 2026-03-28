@@ -10,18 +10,32 @@
  *   ringingCall(fsCallId)                    — CHANNEL_ORIGINATE
  *   answerCall(fsCallId)                     — CHANNEL_ANSWER
  *   finalizeCall(fsCallId, billsec, cause)   — CHANNEL_HANGUP_COMPLETE (ESL)
- *   endCallById(callId, userId, duration)    — REST /calls/:id/end (client-reported)
+ *   endCallById(callId, userId, duration)    — REST /end: internal UX only; external = ESL-only
  *   cancelHangupTimer(fsCallId)              — call ended early; cancel balance timer
  */
 
+import mongoose, { type ClientSession } from "mongoose";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { logger } from "./logger";
-import { isTransitionAllowed, causeToStatus, causeToLabel, type CallStatus } from "./callStateMachine";
+import {
+  isTransitionAllowed,
+  causeToStatus,
+  causeToLabel,
+  TERMINAL_CALL_STATUSES,
+  type CallStatus,
+} from "./callStateMachine";
 import { EventResult } from "./eslEventBuffer";
 
 const COINS_PER_MINUTE = 1;
 const MIN_COINS_SAFETY = 0.1;
 const INSUFFICIENT_BALANCE_VOICE_DELAY = 9_000;
+const BILLING_FS_PROJECTION = "status callType userId endedAt _id" as const;
+
+function getMaxBillsecPerCall(): number {
+  const raw = parseInt(process.env.MAX_BILLSEC_PER_CALL ?? "86400", 10);
+  const n   = Number.isFinite(raw) ? raw : 86_400;
+  return Math.min(86_400, Math.max(60, n));
+}
 
 /** Injected at startup so the orchestrator can issue FreeSWITCH commands
  *  without a circular import with freeswitchESL.ts */
@@ -57,46 +71,69 @@ export function clearAllHangupTimers() {
 
 // ─── Billing helpers ───────────────────────────────────────────────────────
 
+function clampBillsec(raw: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  const n = Math.max(0, Math.floor(raw));
+  return Math.min(n, getMaxBillsecPerCall());
+}
+
 function calcCoins(billsec: number): number {
-  return billsec > 0 ? Math.ceil((billsec / 60) * COINS_PER_MINUTE) : 0;
+  const s = clampBillsec(billsec);
+  return s > 0 ? Math.ceil((s / 60) * COINS_PER_MINUTE) : 0;
 }
 
 async function deductCoinsAndUpdateStats(
   userId: string,
   coinsUsed: number,
   callId: string,
+  session?: ClientSession | null,
 ): Promise<void> {
-  if (coinsUsed > 0) {
-    await UserModel.updateOne({ _id: userId }, [
-      {
-        $set: {
-          coins:          { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
-          totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
-          totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
-        },
-      },
-    ]);
-  } else {
-    await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } });
+  const opts = session ? { session } : {};
+  try {
+    if (coinsUsed > 0) {
+      await UserModel.updateOne(
+        { _id: userId },
+        [
+          {
+            $set: {
+              coins:          { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
+              totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
+              totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
+            },
+          },
+        ],
+        opts,
+      );
+    } else {
+      await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } }, opts);
+    }
+    logger.info({ callId, userId, coinsUsed }, "[Orchestrator] Billing applied");
+  } catch (err) {
+    logger.error(
+      { err, callId, userId, coinsUsed },
+      "[Orchestrator] CRITICAL: Billing DB update failed after call was finalised — reconcile wallet vs Call.cost",
+    );
+    if (session) throw err;
   }
-  logger.info({ callId, userId, coinsUsed }, "[Orchestrator] Billing applied");
 }
 
 // ─── State-gated DB write ─────────────────────────────────────────────────
 
+type TransitionOutcome =
+  | { applied: true; callId: string; userId: string; callType: string }
+  | { applied: false; callId: string; userId: string; callType: string };
 
 /**
- * Atomically transition a call's status field in MongoDB.
- * Returns the updated document metadata, or null if the transition is not allowed
- * (already in a terminal state — silently idempotent).
- * Throws if the transition is explicitly invalid.
+ * Transition a call's status in MongoDB when permitted by the state machine.
+ * `applied: false` means the write was skipped (already terminal / idempotent)
+ * — callers must not bill or treat it as a fresh transition.
  */
 async function transitionCallStatus(
   fsCallId: string,
   to: CallStatus,
   update: Record<string, unknown>,
   otherLegId?: string,
-): Promise<{ callId: string; userId: string; callType: string } | null> {
+): Promise<TransitionOutcome | null> {
   await connectDB();
   let call = await CallModel.findOne({ fsCallId });
   if (!call && otherLegId && otherLegId !== fsCallId) {
@@ -107,24 +144,46 @@ async function transitionCallStatus(
   }
   if (!call) return null;
 
+  const meta = {
+    callId: String(call._id),
+    userId: String(call.userId),
+    callType: call.callType,
+  };
+
   let allowed: boolean;
   try {
     allowed = isTransitionAllowed(call.status, to);
   } catch (err: unknown) {
     logger.warn({ fsCallId, from: call.status, to, err: (err as Error).message },
       "[Orchestrator] Invalid state transition — skipping");
-    return { callId: String(call._id), userId: String(call.userId), callType: call.callType };
+    return { applied: false, ...meta };
   }
 
   if (!allowed) {
     logger.warn({ fsCallId, from: call.status, to },
       "[Orchestrator] Skipping state transition — call already in terminal state");
-    return { callId: String(call._id), userId: String(call.userId), callType: call.callType };
+    return { applied: false, ...meta };
   }
 
-  await CallModel.updateOne({ _id: call._id }, { status: to, ...update });
-  logger.info({ fsCallId, from: call.status, to }, "[Orchestrator] State transition applied");
-  return { callId: String(call._id), userId: String(call.userId), callType: call.callType };
+  // Compare-and-set on current status so concurrent finalize / duplicate ESL legs
+  // cannot resurrect a terminal row or double-apply side effects (e.g. balance timers).
+  const fromStatus = call.status;
+  const updated = await CallModel.findOneAndUpdate(
+    { _id: call._id, status: fromStatus },
+    { $set: { status: to, ...update } },
+    { new: true },
+  ).lean();
+
+  if (!updated) {
+    logger.debug(
+      { fsCallId, from: fromStatus, to },
+      "[Orchestrator] State transition lost race — skipping",
+    );
+    return { applied: false, ...meta };
+  }
+
+  logger.info({ fsCallId, from: fromStatus, to }, "[Orchestrator] State transition applied");
+  return { applied: true, ...meta };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
@@ -164,7 +223,7 @@ export async function ringingCall(
   const result = await transitionCallStatus(aLegUuid, "ringing", {}, bLegUuid);
   if (!result) return EventResult.RETRY;
 
-  logger.info({ aLegUuid, bLegUuid }, "[Orchestrator] Call marked ringing");
+  logger.info({ aLegUuid, bLegUuid, applied: result.applied }, "[Orchestrator] ringingCall done");
   return EventResult.DONE;
 }
 
@@ -209,6 +268,7 @@ export async function answerCall(
 
   const result = await transitionCallStatus(fsCallId, "answered", { startedAt: new Date() });
   if (!result) return EventResult.RETRY;
+  if (!result.applied) return EventResult.DONE;
 
   // Mid-call balance enforcement for external calls
   if (call.callType === "external") {
@@ -264,13 +324,13 @@ export async function finalizeCall(
   await connectDB();
 
   let call = await CallModel.findOne({ fsCallId })
-    .select("status callType userId endedAt _id")
+    .select(BILLING_FS_PROJECTION)
     .lean();
 
   // Try other leg if primary not found
   if (!call && otherLegId && otherLegId !== fsCallId) {
     call = await CallModel.findOne({ fsCallId: otherLegId })
-      .select("status callType userId endedAt _id")
+      .select(BILLING_FS_PROJECTION)
       .lean();
     if (call) {
       logger.debug({ fsCallId, otherLegId }, "[Orchestrator] finalizeCall resolved via Other-Leg-Unique-ID");
@@ -287,10 +347,30 @@ export async function finalizeCall(
   }
 
   const finalStatus = causeToStatus(hangupCause);
-  const coinsUsed = call.callType === "external" ? calcCoins(billsec) : 0;
+  let allowed: boolean;
+  try {
+    allowed = isTransitionAllowed(call.status, finalStatus);
+  } catch (err: unknown) {
+    logger.warn(
+      { fsCallId, from: call.status, to: finalStatus, err: (err as Error).message },
+      "[Orchestrator] finalizeCall — invalid transition, retrying (state may catch up)",
+    );
+    return EventResult.RETRY;
+  }
+  if (!allowed) {
+    logger.warn(
+      { fsCallId, from: call.status, to: finalStatus },
+      "[Orchestrator] finalizeCall — transition not allowed (terminal/corrupt), skipping",
+    );
+    return EventResult.DONE;
+  }
+
+  const safeBillsec = clampBillsec(billsec);
+  const coinsUsed   = call.callType === "external" ? calcCoins(safeBillsec) : 0;
 
   const update: Record<string, unknown> = {
-    duration: billsec,
+    status:   finalStatus,
+    duration: safeBillsec,
     cost:     coinsUsed,
     endedAt:  new Date(),
   };
@@ -298,21 +378,67 @@ export async function finalizeCall(
     update.failReason = causeToLabel(hangupCause);
   }
 
-  const result = await transitionCallStatus(fsCallId, finalStatus, update);
+  const terminalSet = TERMINAL_CALL_STATUSES as unknown as string[];
+  const filter = {
+    _id:     call._id,
+    endedAt: null,
+    status:  { $nin: terminalSet },
+  };
 
-  if (!result) return EventResult.RETRY;
+  const useTxn = process.env.MONGODB_USE_TRANSACTIONS === "true";
 
-  await deductCoinsAndUpdateStats(result.userId, coinsUsed, result.callId);
+  if (useTxn) {
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+      const resDocTxn = await CallModel.findOneAndUpdate(filter, { $set: update }, { new: true, session })
+        .lean();
+      if (resDocTxn) {
+        await deductCoinsAndUpdateStats(String(resDocTxn.userId), coinsUsed, String(resDocTxn._id), session);
+      }
+      await session.commitTransaction();
+      logger.info(
+        { fsCallId, finalStatus, billsec: safeBillsec, coinsUsed, hangupCause },
+        "[Orchestrator] Call finalised via ESL (transaction)",
+      );
+      return EventResult.DONE;
+    } catch (err) {
+      await session.abortTransaction().catch((abortErr) => {
+        logger.warn({ abortErr }, "[Orchestrator] finalizeCall abortTransaction failed");
+      });
+      logger.warn(
+        { err },
+        "[Orchestrator] finalizeCall transaction failed — falling back to non-transactional path",
+      );
+    } finally {
+      session.endSession();
+    }
+  }
 
-  logger.info({ fsCallId, finalStatus, billsec, coinsUsed, hangupCause },
-    "[Orchestrator] Call finalised via ESL");
+  const resDoc = await CallModel.findOneAndUpdate(filter, { $set: update }, { new: true }).lean();
+
+  if (!resDoc) {
+    logger.debug({ fsCallId }, "[Orchestrator] finalizeCall — concurrent finalization won, idempotent skip");
+    return EventResult.DONE;
+  }
+
+  await deductCoinsAndUpdateStats(String(resDoc.userId), coinsUsed, String(resDoc._id));
+
+  logger.info(
+    { fsCallId, finalStatus, billsec: safeBillsec, coinsUsed, hangupCause },
+    "[Orchestrator] Call finalised via ESL",
+  );
   return EventResult.DONE;
 }
 
 /**
  * Handle REST POST /calls/:callId/end (client-reported duration).
- * Returns the updated call document, or throws on invalid transition.
- * Idempotent: if already ended, returns the existing record immediately.
+ *
+ * **External calls:** FreeSWITCH ESL + `finalizeCall` is the only billing authority
+ * (`variable_billsec`). This endpoint does not mutate external calls so client
+ * timestamps cannot block ESL finalization or enable wallet fraud.
+ *
+ * **Internal calls:** No coin billing; REST may finalize for UX when ESL is absent.
  */
 export async function endCallById(
   callId: string,
@@ -325,14 +451,22 @@ export async function endCallById(
   const call = await CallModel.findOne({ _id: callId, userId });
   if (!call) throw Object.assign(new Error("Call not found"), { statusCode: 404 });
 
-  // Idempotent — already ended (ESL may have got there first)
+  if (call.callType === "external") {
+    const existing = await CallModel.findById(callId).lean();
+    logger.info(
+      { callId, durationSecs, requestedStatus },
+      "[Orchestrator] endCallById — external call ignored (ESL/billsec authoritative)",
+    );
+    return { ...existing, id: existing!._id } as Record<string, unknown>;
+  }
+
+  // Idempotent — already ended
   if (call.endedAt) {
     const existing = await CallModel.findById(callId).lean();
     logger.debug({ callId }, "[Orchestrator] endCallById — already ended, returning existing");
     return { ...existing, id: existing!._id } as Record<string, unknown>;
   }
 
-  // Normalise incoming status: accept both legacy "in-progress"/"completed" and new "answered"
   const rawStatus = requestedStatus ?? "completed";
   const to = (rawStatus === "in-progress" ? "answered" : rawStatus) as CallStatus;
 
@@ -348,12 +482,12 @@ export async function endCallById(
     return { ...existing, id: existing!._id } as Record<string, unknown>;
   }
 
-  const coinsUsed = call.callType === "external" ? calcCoins(durationSecs) : 0;
+  const safeDuration = clampBillsec(durationSecs);
 
   const restUpdate: Record<string, unknown> = {
     status:   to,
-    duration: durationSecs,
-    cost:     coinsUsed,
+    duration: safeDuration,
+    cost:     0,
     endedAt:  new Date(),
   };
 
@@ -366,13 +500,28 @@ export async function endCallById(
     restUpdate.failReason = reasonMap[to] ?? "Call ended";
   }
 
-  await CallModel.updateOne({ _id: callId }, restUpdate);
+  const terminalSet = TERMINAL_CALL_STATUSES as unknown as string[];
+  const updated = await CallModel.findOneAndUpdate(
+    {
+      _id:     callId,
+      userId,
+      endedAt: null,
+      status:  { $nin: terminalSet },
+    },
+    { $set: restUpdate },
+    { new: true },
+  ).lean();
 
-  await deductCoinsAndUpdateStats(String(call.userId), coinsUsed, callId);
+  if (!updated) {
+    const existing = await CallModel.findById(callId).lean();
+    logger.debug({ callId }, "[Orchestrator] endCallById — concurrent finalize, returning current");
+    return { ...existing, id: existing!._id } as Record<string, unknown>;
+  }
 
-  const updated = await CallModel.findById(callId).lean();
-  logger.info({ callId, to, durationSecs, coinsUsed }, "[Orchestrator] Call ended via REST");
-  return { ...updated, id: updated!._id } as Record<string, unknown>;
+  await deductCoinsAndUpdateStats(String(call.userId), 0, callId);
+
+  logger.info({ callId, to, durationSecs: safeDuration }, "[Orchestrator] Internal call ended via REST");
+  return { ...updated, id: updated._id } as Record<string, unknown>;
 }
 
 /**
@@ -391,15 +540,34 @@ export async function webhookUpdate(
   if (!call) return;
 
   if (event === "CHANNEL_ANSWER") {
+    let allowed = false;
     try {
-      if (isTransitionAllowed(call.status, "answered")) {
-        await CallModel.updateOne({ _id: callId }, { status: "answered", startedAt: new Date() });
-      }
-    } catch { /* invalid transition — ignore */ }
+      allowed = isTransitionAllowed(call.status, "answered");
+    } catch {
+      /* invalid transition */
+    }
+    if (!allowed) return;
+
+    const fromStatus = call.status;
+    const updated = await CallModel.findOneAndUpdate(
+      { _id: callId, userId, endedAt: null, status: fromStatus },
+      { $set: { status: "answered", startedAt: new Date() } },
+      { new: true },
+    ).lean();
+    if (!updated) {
+      logger.debug(
+        { callId },
+        "[Orchestrator] webhook CHANNEL_ANSWER — lost race or stale state",
+      );
+    }
     return;
   }
 
   if (event === "CHANNEL_HANGUP" || event === "CHANNEL_HANGUP_COMPLETE") {
+    if (call.callType === "external") {
+      logger.debug({ callId }, "[Orchestrator] webhook hangup ignored for external (ESL path bills)");
+      return;
+    }
     if (call.endedAt) return;
 
     const rawStatus = status ?? "completed";
@@ -409,12 +577,27 @@ export async function webhookUpdate(
     try { allowed = isTransitionAllowed(call.status, to); } catch { /* invalid */ }
     if (!allowed) return;
 
-    const coinsUsed = call.callType === "external" ? calcCoins(durationSecs) : 0;
+    const safeDuration = clampBillsec(durationSecs);
+    const terminalSet  = TERMINAL_CALL_STATUSES as unknown as string[];
+    const updated = await CallModel.findOneAndUpdate(
+      {
+        _id:     callId,
+        endedAt: null,
+        status:  { $nin: terminalSet },
+      },
+      {
+        $set: {
+          status:   to,
+          duration: safeDuration,
+          cost:     0,
+          endedAt:  new Date(),
+        },
+      },
+      { new: true },
+    ).lean();
 
-    await CallModel.updateOne(
-      { _id: callId },
-      { status: to, duration: durationSecs, cost: coinsUsed, endedAt: new Date() },
-    );
-    await deductCoinsAndUpdateStats(userId, coinsUsed, callId);
+    if (updated) {
+      await deductCoinsAndUpdateStats(userId, 0, callId);
+    }
   }
 }

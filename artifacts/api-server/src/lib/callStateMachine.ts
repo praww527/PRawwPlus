@@ -44,6 +44,14 @@ const TRANSITIONS: Record<CallStatus, ReadonlyArray<CallStatus>> = {
   "cancelled": [],
 };
 
+/** Terminal statuses — used for Mongo guards and $nin filters */
+export const TERMINAL_CALL_STATUSES: ReadonlyArray<CallStatus> = [
+  "completed",
+  "failed",
+  "missed",
+  "cancelled",
+];
+
 /** Map FreeSWITCH hangup causes to a final CallStatus */
 export function causeToStatus(cause: string): CallStatus {
   switch (cause) {
@@ -135,10 +143,12 @@ export function isTransitionAllowed(
   from: string,
   to: CallStatus,
 ): boolean {
-  const allowed = TRANSITIONS[from as CallStatus];
+  const normalizedFrom =
+    from === "in-progress" || from === "in_progress" ? "answered" : from;
+  const allowed = TRANSITIONS[normalizedFrom as CallStatus];
   if (!allowed) {
-    // Unknown state (e.g. legacy "in-progress" from old DB records) — be lenient
-    return true;
+    // Unknown / corrupt state — do not allow arbitrary transitions (billing safety)
+    return false;
   }
   if (allowed.length === 0) {
     // Terminal state — already done, silently skip
