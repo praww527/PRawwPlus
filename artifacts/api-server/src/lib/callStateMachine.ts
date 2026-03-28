@@ -3,12 +3,19 @@
  *
  * States and the only valid transitions between them:
  *
- *   initiated ──────┬──► in-progress ──► completed
- *                   ├──► missed              └──► failed
+ *   initiated ──────┬──► ringing ──► answered ──► completed
+ *                   │               └──────────── failed
+ *                   ├──► answered   (ESL CHANNEL_ANSWER without prior CHANNEL_ORIGINATE)
+ *                   ├──► missed
  *                   ├──► cancelled
  *                   └──► failed
  *
- *   in-progress ────┬──► completed
+ *   ringing ─────── ┬──► answered
+ *                   ├──► missed
+ *                   ├──► cancelled
+ *                   └──► failed
+ *
+ *   answered ───────┬──► completed
  *                   ├──► failed
  *                   ├──► missed     (dialplan answered A-leg for announcement, then NO_ANSWER)
  *                   └──► cancelled  (dialplan answered A-leg for announcement, then USER_BUSY/cancel)
@@ -19,7 +26,8 @@
 
 export type CallStatus =
   | "initiated"
-  | "in-progress"
+  | "ringing"
+  | "answered"
   | "completed"
   | "failed"
   | "missed"
@@ -27,12 +35,13 @@ export type CallStatus =
 
 /** Lookup: which states may a given state advance to */
 const TRANSITIONS: Record<CallStatus, ReadonlyArray<CallStatus>> = {
-  "initiated":   ["in-progress", "missed", "cancelled", "failed"],
-  "in-progress": ["completed", "failed", "missed", "cancelled"],
-  "completed":   [],
-  "failed":      [],
-  "missed":      [],
-  "cancelled":   [],
+  "initiated": ["ringing", "answered", "missed", "cancelled", "failed"],
+  "ringing":   ["answered", "missed", "cancelled", "failed"],
+  "answered":  ["completed", "failed", "missed", "cancelled"],
+  "completed": [],
+  "failed":    [],
+  "missed":    [],
+  "cancelled": [],
 };
 
 /** Map FreeSWITCH hangup causes to a final CallStatus */
@@ -40,15 +49,18 @@ export function causeToStatus(cause: string): CallStatus {
   switch (cause) {
     case "NO_ANSWER":
     case "RECOVERY_ON_TIMER_EXPIRE":
+    case "RECOVERY_ON_TIMER_EXPIRY":
       return "missed";
 
     case "ORIGINATOR_CANCEL":
     case "USER_BUSY":
     case "CALL_REJECTED":
+    case "LOSE_RACE":
       return "cancelled";
 
     case "NORMAL_CLEARING":
     case "ALLOTTED_TIMEOUT":
+    case "NORMAL_UNSPECIFIED":
       return "completed";
 
     case "UNREGISTERED":
@@ -57,6 +69,17 @@ export function causeToStatus(cause: string): CallStatus {
     case "DESTINATION_OUT_OF_ORDER":
     case "NO_ROUTE_DESTINATION":
     case "UNALLOCATED_NUMBER":
+    case "NETWORK_OUT_OF_ORDER":
+    case "SERVICE_UNAVAILABLE":
+    case "INCOMPATIBLE_DESTINATION":
+    case "MANDATORY_IE_MISSING":
+    case "BEARERCAPABILITY_NOTIMPL":
+    case "CHAN_NOT_IMPLEMENTED":
+    case "FACILITY_NOT_IMPLEMENTED":
+    case "INVALID_CALL_REFERENCE_VALUE":
+    case "MEDIA_TIMEOUT":
+    case "GATEWAY_DOWN":
+    case "NO_PICKUP":
       return "failed";
 
     default:
@@ -71,12 +94,16 @@ export function causeToLabel(cause: string): string {
       return "Busy";
     case "NO_ANSWER":
     case "RECOVERY_ON_TIMER_EXPIRE":
+    case "RECOVERY_ON_TIMER_EXPIRY":
+    case "NO_PICKUP":
       return "No answer";
     case "ORIGINATOR_CANCEL":
       return "Cancelled by caller";
     case "CALL_REJECTED":
+    case "LOSE_RACE":
       return "Call rejected";
     case "NORMAL_CLEARING":
+    case "NORMAL_UNSPECIFIED":
       return "Call ended normally";
     case "ALLOTTED_TIMEOUT":
       return "Balance exhausted";
@@ -85,10 +112,15 @@ export function causeToLabel(cause: string): string {
       return "Extension not registered";
     case "SUBSCRIBER_ABSENT":
     case "DESTINATION_OUT_OF_ORDER":
+    case "GATEWAY_DOWN":
       return "Destination unavailable";
     case "NO_ROUTE_DESTINATION":
     case "UNALLOCATED_NUMBER":
       return "Number does not exist";
+    case "NETWORK_OUT_OF_ORDER":
+    case "SERVICE_UNAVAILABLE":
+    case "MEDIA_TIMEOUT":
+      return "Network error";
     default:
       return `Call failed (${cause})`;
   }
@@ -105,7 +137,8 @@ export function isTransitionAllowed(
 ): boolean {
   const allowed = TRANSITIONS[from as CallStatus];
   if (!allowed) {
-    throw new Error(`Unknown call state "${from}"`);
+    // Unknown state (e.g. legacy "in-progress" from old DB records) — be lenient
+    return true;
   }
   if (allowed.length === 0) {
     // Terminal state — already done, silently skip
@@ -122,5 +155,5 @@ export function isTransitionAllowed(
 
 /** Return the set of valid next states for a given current state */
 export function allowedTransitions(from: CallStatus): ReadonlyArray<CallStatus> {
-  return TRANSITIONS[from] ?? [];
+  return TRANSITIONS[from as CallStatus] ?? [];
 }
