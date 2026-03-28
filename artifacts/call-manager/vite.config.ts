@@ -53,5 +53,14 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    // Same as dev — `vite preview` can exercise production build with local API
+    proxy: {
+      "/api": {
+        target: `http://localhost:${process.env.API_PORT ?? 8080}`,
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
+    },
   },
 });
