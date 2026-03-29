@@ -4,10 +4,12 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/db --filter @workspace/auth-web --filter @workspace/api-client-react run build && pnpm --filter @workspace/call-manager run build && pnpm --filter @workspace/api-server run build
+    buildCommand: corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile && pnpm --filter @workspace/db --filter @workspace/auth-web --filter @workspace/api-client-react run build && pnpm --filter @workspace/call-manager run build && pnpm --filter @workspace/api-server run build
     startCommand: node artifacts/api-server/dist/index.cjs
     healthCheckPath: /api/healthz
     envVars:
+      - key: NODE_VERSION
+        value: "22"
       - key: NODE_ENV
         value: production
       - key: PORT
