@@ -9,6 +9,11 @@ import adminRouter from "./admin";
 import contactsRouter from "./contacts";
 import vertoRouter from "./verto";
 import freeswitchRouter from "./freeswitch";
+import billingRouter from "./billing";
+import cdrRouter from "./cdr";
+import ratePlansRouter from "./ratePlans";
+import invoicesRouter from "./invoices";
+import adminBillingRouter from "./adminBilling";
 
 const router: IRouter = Router();
 
@@ -22,5 +27,10 @@ router.use(adminRouter);
 router.use(contactsRouter);
 router.use(vertoRouter);
 router.use(freeswitchRouter);
+router.use(billingRouter);
+router.use(cdrRouter);
+router.use(ratePlansRouter);
+router.use(invoicesRouter);
+router.use(adminBillingRouter);
 
 export default router;
