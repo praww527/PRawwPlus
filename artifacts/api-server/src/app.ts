@@ -51,6 +51,7 @@ function resolveStaticDir(): string {
 }
 
 const staticDir = resolveStaticDir();
+const staticIndexPath = path.join(staticDir, "index.html");
 
 // APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
 // ALLOWED_ORIGINS overrides everything — comma-separated list for multi-domain setups.
@@ -180,20 +181,22 @@ app.use("/api", router);
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(staticDir));
+
   // SPA fallback — return index.html for client-side routes, but never for
   // asset URLs (js/css/etc) and never for /api.
-  // Express 5 uses path-to-regexp v6; use the "/*" equivalent wildcard syntax.
-  app.get("/{*path}", (req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith("/api")) {
+  // Use a regex route to avoid Express 5 wildcard path-to-regexp edge-cases.
+  app.get(/^(?!\/api\/).*/, (req: Request, res: Response, next: NextFunction) => {
+    // If the request looks like an asset (has a file extension), do not serve index.
+    if (path.extname(req.path)) {
       next();
       return;
     }
-    // If the request looks like an asset (has a file extension), don't serve index.
-    if (path.extname(req.path)) {
-      res.status(404).end();
+    if (!fs.existsSync(staticIndexPath)) {
+      logger.error({ staticDir, staticIndexPath }, "Static index.html not found — frontend build missing");
+      res.status(503).json({ error: "Frontend not built", staticDir });
       return;
     }
-    res.sendFile(path.join(staticDir, "index.html"));
+    res.sendFile(staticIndexPath);
   });
 }
 
