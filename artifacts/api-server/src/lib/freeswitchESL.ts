@@ -398,7 +398,7 @@ class FreeSwitchESL {
         lastConnectedAt = Date.now();
         // Wire the orchestrator's ESL command function now that we are authenticated
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));
-        this.sendLine("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE");
+        this.sendLine("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE MESSAGE_WAITING");
       } else if (reply.startsWith("+OK")) {
         // Subscription/command ACK — ignore
       } else if (reply.startsWith("-ERR")) {
@@ -481,7 +481,45 @@ class FreeSwitchESL {
             },
           );
         }
+      } else if (evtName === "MESSAGE_WAITING") {
+        this.handleMessageWaiting(body).catch((e) =>
+          logger.error({ err: e }, "[ESL] handleMessageWaiting error"));
       }
+    }
+  }
+
+  private async handleMessageWaiting(h: Record<string, string>) {
+    // FreeSWITCH sends MWI events when mailbox state changes.
+    // We notify when messages-waiting indicates new voicemail.
+    const waiting = (h["MWI-Messages-Waiting"] ?? h["Messages-Waiting"] ?? "").toLowerCase();
+    if (waiting !== "yes" && waiting !== "true") return;
+
+    const account = h["MWI-Account"] ?? h["mwi-account"] ?? "";
+    // Typical format: 1000@domain
+    const m = account.match(/^([1-9]\d{3})@/);
+    if (!m) return;
+    const ext = m[1];
+
+    await connectDB();
+    const user = await UserModel.findOne({ extension: parseInt(ext, 10) })
+      .select("expoPushToken fcmToken notificationPrefs")
+      .lean();
+
+    if (!user?.expoPushToken && !user?.fcmToken) return;
+    if (user.notificationPrefs?.voicemail === false) return;
+
+    const data = { type: "voicemail", extension: ext };
+
+    if (user.fcmToken) {
+      await sendFcmDataMessage(user.fcmToken, data);
+    }
+    if (user.expoPushToken) {
+      await sendExpoPush(
+        user.expoPushToken,
+        "New voicemail",
+        "You have a new voicemail message",
+        data,
+      );
     }
   }
 

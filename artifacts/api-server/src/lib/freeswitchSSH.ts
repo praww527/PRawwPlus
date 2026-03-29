@@ -17,6 +17,7 @@ import { logger } from "./logger";
 import { getAppUrl } from "./appUrl";
 import {
   xmlCurlConf,
+  voicemailConf,
   vertoConf,
   dialplanXml,
   eventSocketConf,
@@ -137,6 +138,14 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     );
     steps.push("Wrote event_socket.conf.xml");
 
+    // Write voicemail.conf
+    await writeRemoteFile(
+      conn,
+      `${confDir}/autoload_configs/voicemail.conf.xml`,
+      voicemailConf(),
+    );
+    steps.push("Wrote voicemail.conf.xml");
+
     // Write SIP/WS profile for mobile JsSIP clients
     await writeRemoteFile(
       conn,
@@ -195,6 +204,14 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
         steps.push("reload mod_verto OK");
       } catch (e) {
         steps.push(`reload mod_verto failed: ${(e as Error).message}`);
+      }
+
+      // Reload mod_voicemail to pick up voicemail.conf
+      try {
+        await execCommand(conn, `${fsCli} -x 'reload mod_voicemail'`);
+        steps.push("reload mod_voicemail OK");
+      } catch (e) {
+        steps.push(`reload mod_voicemail failed (may not be critical): ${(e as Error).message}`);
       }
 
       // Reload/start the SIP/WS profile for mobile clients

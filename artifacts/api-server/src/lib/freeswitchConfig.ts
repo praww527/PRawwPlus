@@ -25,6 +25,23 @@ export function xmlCurlConf(appUrl: string): string {
 </configuration>`;
 }
 
+export function voicemailConf(): string {
+  // Keep this minimal; mailbox auth is handled via directory params/variables.
+  // Storage is under FreeSWITCH's standard storage root.
+  const FS_VAR = "${";
+  return `<configuration name="voicemail.conf" description="Voicemail">
+  <settings>
+    <param name="storage-dir" value="$${FS_VAR}recordings_dir}/voicemail"/>
+  </settings>
+  <profiles>
+    <profile name="default">
+      <param name="db-password-override" value=""/>
+      <param name="auto-playback-recordings" value="true"/>
+    </profile>
+  </profiles>
+</configuration>`;
+}
+
 export function vertoConf(fsIp: string): string {
   return `<configuration name="verto.conf" description="Verto Endpoint">
   <settings>
@@ -114,7 +131,7 @@ export function dialplanXml(fsDomain: string): string {
     registrations.  "user/N@domain" finds mobile (SIP/WS) registrations.
     The comma "," dials them SIMULTANEOUSLY — first to answer wins.
 
-    Failure handling does NOT depend on mod_voicemail (may not be loaded).
+    Failure handling may route to voicemail (requires mod_voicemail).
     Every failure path plays a TTS announcement then hangs up with the correct
     SIP cause code so the caller's UI shows the right reason.
   -->
@@ -226,6 +243,12 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
+        <action application="answer"/>
+        <action application="voicemail" data="default ${fsDomain} $1"/>
+        <action application="hangup" data="NORMAL_CLEARING"/>
+      </condition>
+
       <!-- Caller cancelled before answer — just hang up, no announcement needed -->
       <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
         <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
@@ -253,6 +276,12 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
+      </condition>
+
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
+        <action application="answer"/>
+        <action application="voicemail" data="default ${fsDomain} $1"/>
+        <action application="hangup" data="NORMAL_CLEARING"/>
       </condition>
 
       <!-- Unknown destination
