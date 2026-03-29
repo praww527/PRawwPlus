@@ -30,8 +30,16 @@ const isProduction = process.env.NODE_ENV === "production";
 const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "root";
 const SSH_PORT     = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
 
+const RECONNECT_BASE_MS = parseInt(process.env.ESL_RECONNECT_BASE_MS ?? "2000", 10);
+const RECONNECT_MAX_MS  = parseInt(process.env.ESL_RECONNECT_MAX_MS  ?? "60000", 10);
+
 let eslClient: FreeSwitchESL | null = null;
 let eslEnabled = false;
+
+let lastConnectedAt: number | null = null;
+let lastDisconnectedAt: number | null = null;
+let lastEventAt: number | null = null;
+let lastDisconnectReason: string | null = null;
 
 function cleanKey(raw: string): string {
   return raw
@@ -160,6 +168,7 @@ class FreeSwitchESL {
   private authenticated =  false;
   private destroyed =      false;
   private reconnectTimer:  ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
   /** Maps B-leg UUID → destination extension for missed-call push notifications */
   private originateDestMap = new Map<string, string>();
 
@@ -212,7 +221,7 @@ class FreeSwitchESL {
     conn.on("close", () => {
       logger.warn("[ESL] SSH connection closed");
       this.authenticated = false;
-      this.scheduleReconnect();
+      this.scheduleReconnect("ssh_close");
     });
 
     conn.connect({
@@ -240,7 +249,7 @@ class FreeSwitchESL {
     channel.on("close", () => {
       logger.warn("[ESL] SSH channel closed");
       this.authenticated = false;
-      this.scheduleReconnect();
+      this.scheduleReconnect("ssh_channel_close");
     });
 
     channel.on("error", (err: Error) => {
@@ -267,11 +276,13 @@ class FreeSwitchESL {
     sock.on("close", () => {
       logger.warn("[ESL] TCP connection closed");
       this.authenticated = false;
-      this.scheduleReconnect();
+      this.scheduleReconnect("tcp_close");
     });
 
     sock.on("error", (err) => {
       logger.error({ err: err.message }, "[ESL] TCP error");
+      // error is often followed by close, but schedule defensively
+      this.scheduleReconnect(`tcp_error:${err.message}`);
     });
   }
 
@@ -288,6 +299,10 @@ class FreeSwitchESL {
 
   isConnected() {
     return this.authenticated;
+  }
+
+  getReconnectAttempt(): number {
+    return this.reconnectAttempt;
   }
 
   private sendLine(cmd: string) {
@@ -308,14 +323,29 @@ class FreeSwitchESL {
     this.sendLine(`bgapi ${apiCmd}`);
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(reason?: string) {
     if (this.destroyed) return;
     this.socket  = null;
     this.sshConn?.end();
     this.sshConn = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    logger.info("[ESL] Reconnecting in 15s");
-    this.reconnectTimer = setTimeout(() => this.connect(), 15_000);
+
+    lastDisconnectedAt = Date.now();
+    lastDisconnectReason = reason ?? "unknown";
+
+    this.reconnectAttempt++;
+    const base = Number.isFinite(RECONNECT_BASE_MS) ? Math.max(250, RECONNECT_BASE_MS) : 2000;
+    const max  = Number.isFinite(RECONNECT_MAX_MS)  ? Math.max(base, RECONNECT_MAX_MS) : 60000;
+    const exp  = Math.min(max, base * Math.pow(2, Math.min(10, this.reconnectAttempt - 1)));
+    const jitter = Math.floor(exp * (0.25 * Math.random()));
+    const delay = exp + jitter;
+
+    logger.info(
+      { attempt: this.reconnectAttempt, delayMs: delay, reason },
+      "[ESL] Scheduling reconnect",
+    );
+
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
   private processBuffer() {
@@ -364,6 +394,8 @@ class FreeSwitchESL {
       if (reply.startsWith("+OK accepted")) {
         logger.info("[ESL] Authenticated — subscribing to call events");
         this.authenticated = true;
+        this.reconnectAttempt = 0;
+        lastConnectedAt = Date.now();
         // Wire the orchestrator's ESL command function now that we are authenticated
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));
         this.sendLine("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE");
@@ -376,6 +408,7 @@ class FreeSwitchESL {
     }
 
     if (ct === "text/event-plain") {
+      lastEventAt = Date.now();
       const body    = this.parseHeaders(event.body);
       const evtName = body["Event-Name"] ?? "";
 
@@ -567,12 +600,27 @@ export function stopESL() {
   eslEnabled = false;
 }
 
-export function eslStatus(): { enabled: boolean; connected: boolean; host: string; port: number } {
+export function eslStatus(): {
+  enabled: boolean;
+  connected: boolean;
+  host: string;
+  port: number;
+  lastConnectedAt: number | null;
+  lastDisconnectedAt: number | null;
+  lastEventAt: number | null;
+  lastDisconnectReason: string | null;
+  reconnectAttempt: number;
+} {
   return {
     enabled:   eslEnabled,
     connected: eslClient?.isConnected() ?? false,
     host:      ESL_HOST,
     port:      ESL_PORT,
+    lastConnectedAt,
+    lastDisconnectedAt,
+    lastEventAt,
+    lastDisconnectReason,
+    reconnectAttempt: eslClient?.getReconnectAttempt() ?? 0,
   };
 }
 
