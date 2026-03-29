@@ -128,7 +128,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   }
 
   const dbUser = await UserModel.findOne({ extension: extensionNum })
-    .select("extension fsPassword email username name")
+    .select("extension fsPassword email username name dnd")
     .lean();
 
   if (!dbUser || !dbUser.fsPassword) {
@@ -156,6 +156,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
 
   const displayName  = xmlEscape(rawName);
   const safePassword = xmlEscape(dbUser.fsPassword!);
+  const dndValue     = dbUser.dnd ? "true" : "false";
 
   res.send(
     `<?xml version="1.0" encoding="UTF-8"?>
@@ -175,6 +176,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
           <variable name="effective_caller_id_number" value="${extensionNum}"/>
           <variable name="outbound_caller_id_name" value="${displayName}"/>
           <variable name="outbound_caller_id_number" value="${extensionNum}"/>
+          <variable name="dnd" value="${dndValue}"/>
         </variables>
       </user>
     </domain>

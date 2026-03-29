@@ -100,6 +100,7 @@ export function vertoConf(fsIp: string): string {
 }
 
 export function dialplanXml(fsDomain: string): string {
+  const FS_VAR = "${";
   return `<include>
   <!--
     PRawwPlus Dialplan — domain: ${fsDomain}
@@ -119,6 +120,18 @@ export function dialplanXml(fsDomain: string): string {
   -->
   <context name="call_manager">
 
+    <extension name="dnd_reject" continue="true">
+      <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="never">
+        <action application="set" data="callee_dnd=${FS_VAR}user_data($1@${fsDomain} var dnd)}"/>
+      </condition>
+      <condition field="${FS_VAR}callee_dnd}" expression="^true$" break="on-true">
+        <action application="answer"/>
+        <action application="speak" data="flite|kal|The person you are calling is not available."/>
+        <action application="sleep" data="300"/>
+        <action application="hangup" data="CALL_REJECTED"/>
+      </condition>
+    </extension>
+
     <!--
       Internal extension-to-extension calls (1000–9999).
       hangup_after_bridge=false keeps the A-leg alive after the bridge ends
@@ -127,8 +140,8 @@ export function dialplanXml(fsDomain: string): string {
     -->
     <extension name="internal_extensions" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="on-false">
-        <action application="set" data="effective_caller_id_name=\${caller_id_name}"/>
-        <action application="set" data="effective_caller_id_number=\${caller_id_number}"/>
+        <action application="set" data="effective_caller_id_name=${FS_VAR}caller_id_name}"/>
+        <action application="set" data="effective_caller_id_number=${FS_VAR}caller_id_number}"/>
         <action application="set" data="call_timeout=30"/>
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="continue_on_fail=true"/>
@@ -147,7 +160,7 @@ export function dialplanXml(fsDomain: string): string {
            Busy tone: 480+620 Hz, 500ms on / 500ms off, 4 cycles (~4 s).
            tone_stream is always available regardless of mod_flite.
            speak is attempted after as a best-effort voice announcement.  -->
-      <condition field="\${bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(500,500,480,620);loops=4"/>
         <action application="speak" data="flite|kal|The number you are calling is currently busy. Please try again later."/>
@@ -157,7 +170,7 @@ export function dialplanXml(fsDomain: string): string {
 
       <!-- Callee did not answer in time (cause 19)
            Reorder / fast-busy tone: 480+620 Hz, 250ms on / 250ms off, 6 cycles (~3 s). -->
-      <condition field="\${bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(250,250,480,620);loops=6"/>
         <action application="speak" data="flite|kal|The person you are calling is not available. Please try again later."/>
@@ -166,13 +179,13 @@ export function dialplanXml(fsDomain: string): string {
       </condition>
 
       <!-- Caller cancelled before answer — just hang up, no announcement needed -->
-      <condition field="\${bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
-        <action application="hangup" data="\${bridge_hangup_cause}"/>
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
+        <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
       </condition>
 
       <!-- Callee offline / not registered (cause 20)
            SIT tone (Special Information Tone): 913→1370→1776 Hz, 274ms each, 2 repeats. -->
-      <condition field="\${bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
@@ -182,7 +195,7 @@ export function dialplanXml(fsDomain: string): string {
 
       <!-- Unknown destination
            SIT tone followed by announcement. -->
-      <condition field="\${bridge_hangup_cause}" expression="^(NO_ROUTE_DESTINATION|UNALLOCATED_NUMBER)$" break="on-true">
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ROUTE_DESTINATION|UNALLOCATED_NUMBER)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
@@ -191,12 +204,12 @@ export function dialplanXml(fsDomain: string): string {
       </condition>
 
       <!-- Catch-all for any other bridge failure -->
-      <condition field="\${bridge_hangup_cause}" expression="^(.+)$" break="on-true">
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(.+)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The call could not be completed. Please try again later."/>
         <action application="sleep" data="300"/>
-        <action application="hangup" data="\${bridge_hangup_cause}"/>
+        <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
       </condition>
     </extension>
 
