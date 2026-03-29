@@ -53,6 +53,7 @@
         "android.permission.CALL_PHONE",
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.INTERNET",
+        "android.permission.USE_SIP",
         "android.permission.WAKE_LOCK",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.FOREGROUND_SERVICE",

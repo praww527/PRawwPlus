@@ -20,14 +20,37 @@ app.set(
 
 // In production, serve the pre-built frontend from the same process.
 // STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
-const staticDirFromCwd = path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
-// When running the bundled server (dist/index.cjs), the working directory may
-// not be the repo root. Derive a fallback from the entry script location.
-const entryDir = process.argv[1] ? path.dirname(process.argv[1]) : process.cwd();
-const staticDirFromEntry = path.resolve(entryDir, "..", "..", "call-manager", "dist", "public");
-const staticDir =
-  process.env.STATIC_DIR ??
-  (fs.existsSync(staticDirFromCwd) ? staticDirFromCwd : staticDirFromEntry);
+function findStaticDirFromRoot(root: string): string {
+  return path.resolve(root, "artifacts", "call-manager", "dist", "public");
+}
+
+function resolveStaticDir(): string {
+  if (process.env.STATIC_DIR) return process.env.STATIC_DIR;
+
+  // Render and other production environments may start the server with a cwd
+  // that is *not* the repo root (e.g. artifacts/api-server). Try a few likely roots.
+  const cwd = process.cwd();
+  const candidates: string[] = [
+    findStaticDirFromRoot(cwd),
+    findStaticDirFromRoot(path.resolve(cwd, "..")),
+    findStaticDirFromRoot(path.resolve(cwd, "..", "..")),
+  ];
+
+  // When running the bundled server (dist/index.cjs), derive a repo-root-ish
+  // directory from the entry script location as another fallback.
+  const entryDir = process.argv[1] ? path.dirname(process.argv[1]) : cwd;
+  const entryRoot = path.resolve(entryDir, "..", "..", "..");
+  candidates.push(findStaticDirFromRoot(entryRoot));
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  // Last resort: keep the original cwd-based guess (even if missing) so errors are obvious.
+  return candidates[0];
+}
+
+const staticDir = resolveStaticDir();
 
 // APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
 // ALLOWED_ORIGINS overrides everything — comma-separated list for multi-domain setups.

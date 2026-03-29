@@ -49,3 +49,11 @@ Thumbs.db
 .local/
 attached_assets/Pasted--type-service-account-project-id-prawwplus-1324c-privat_1774554024152.txt
 attached_assets/*privat*
+
+# Secrets / env files
+.replit
+.replitignore
+replit.md
+.env
+.env.*
+*.pem
