@@ -5,6 +5,11 @@ const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
 let metroProcess = null;
+let isExiting = false;
+
+const METRO_HOST = "localhost";
+const METRO_PORT_START = 8081;
+let metroPort = METRO_PORT_START;
 
 const projectRoot = path.resolve(__dirname, "..");
 
@@ -24,17 +29,29 @@ const basePath = (process.env.BASE_PATH || "/").replace(/\/+$/, "");
 
 function exitWithError(message) {
   console.error(message);
+  isExiting = true;
   if (metroProcess) {
-    metroProcess.kill();
+    try {
+      // Try graceful first. On Windows this may be ignored, but it's safer when supported.
+      metroProcess.kill("SIGINT");
+    } catch {
+      try { metroProcess.kill(); } catch {}
+    }
   }
-  process.exit(1);
+  setTimeout(() => process.exit(1), 250);
 }
 
 function setupSignalHandlers() {
   const cleanup = () => {
+    if (isExiting) return;
+    isExiting = true;
     if (metroProcess) {
       console.log("Cleaning up Metro process...");
-      metroProcess.kill();
+      try {
+        metroProcess.kill("SIGINT");
+      } catch {
+        try { metroProcess.kill(); } catch {}
+      }
     }
     process.exit(0);
   };
@@ -109,13 +126,46 @@ function clearMetroCache() {
 
 async function checkMetroHealth() {
   try {
-    const response = await fetch("http://localhost:8081/status", {
+    const response = await fetch(`http://${METRO_HOST}:${metroPort}/status`, {
       signal: AbortSignal.timeout(5000),
     });
     return response.ok;
   } catch {
     return false;
   }
+}
+
+async function tryShutdownExistingMetro() {
+  try {
+    // Metro supports /shutdown in many setups; ignore failures.
+    await fetch(`http://${METRO_HOST}:${metroPort}/shutdown`, {
+      method: "POST",
+      signal: AbortSignal.timeout(1500),
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+async function isPortHealthy(port) {
+  const prev = metroPort;
+  metroPort = port;
+  try {
+    return await checkMetroHealth();
+  } finally {
+    metroPort = prev;
+  }
+}
+
+async function pickMetroPort() {
+  // Prefer default 8081; otherwise pick the first free-ish port.
+  for (let p = METRO_PORT_START; p < METRO_PORT_START + 10; p++) {
+    if (!(await isPortHealthy(p))) {
+      return p;
+    }
+  }
+  // Worst-case: just fall back.
+  return METRO_PORT_START + 1;
 }
 
 function getExpoPublicReplId() {
@@ -125,8 +175,18 @@ function getExpoPublicReplId() {
 async function startMetro(expoPublicDomain, expoPublicReplId) {
   const isRunning = await checkMetroHealth();
   if (isRunning) {
-    console.log("Metro already running");
-    return;
+    console.log("Metro already running — attempting shutdown so build can start clean");
+    await tryShutdownExistingMetro();
+    // Wait a moment and re-check.
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    if (await checkMetroHealth()) {
+      // If we can't shut it down, start our own Metro on a different port.
+      metroPort = await pickMetroPort();
+      console.warn(
+        `Existing Metro is still running on :${METRO_PORT_START}. ` +
+          `Starting a new Metro on :${metroPort} for this build.`,
+      );
+    }
   }
 
   console.log("Starting Metro...");
@@ -135,6 +195,9 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     ...process.env,
     EXPO_PUBLIC_DOMAIN: expoPublicDomain,
     EXPO_PUBLIC_REPL_ID: expoPublicReplId,
+    // Critical for monorepo: make Metro treat this project as the root.
+    // Expo CLI enables workspace-root Metro by default; disable it so entry resolution is correct.
+    EXPO_NO_METRO_WORKSPACE_ROOT: "1",
   };
 
   if (expoPublicReplId) {
@@ -145,7 +208,7 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
 
   if (isWin) {
     const cmd = process.env.ComSpec || "cmd.exe";
-    const cmdLine = "pnpm exec expo start --no-dev --minify --localhost";
+    const cmdLine = `pnpm exec expo start --no-dev --minify --localhost --port ${metroPort}`;
     metroProcess = spawn(
       cmd,
       ["/d", "/s", "/c", cmdLine],
@@ -166,6 +229,8 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
         "--no-dev",
         "--minify",
         "--localhost",
+        "--port",
+        String(metroPort),
       ],
       {
         stdio: ["ignore", "pipe", "pipe"],
@@ -217,7 +282,12 @@ async function downloadFile(url, outputPath) {
     const response = await fetch(url, { signal: controller.signal });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let body = "";
+      try {
+        body = await response.text();
+      } catch {}
+      const snippet = body ? `\n--- Metro response body (truncated) ---\n${body.slice(0, 4000)}\n--- end ---` : "";
+      throw new Error(`HTTP ${response.status}${snippet}`);
     }
 
     const file = fs.createWriteStream(outputPath);
@@ -244,14 +314,18 @@ async function downloadFile(url, outputPath) {
 }
 
 async function downloadBundle(platform, timestamp) {
-  const entryPath = path.resolve(projectRoot, "node_modules", "expo", "AppEntry");
-  const bundlePath = path.relative(workspaceRoot, entryPath);
-  const url = new URL(`http://localhost:8081/${bundlePath}.bundle`);
+  // Bundle from the project entrypoint rather than expo/AppEntry.
+  // Using expo/AppEntry breaks under pnpm hoisting because it imports ../../App.
+  // Metro derives the entry file from the URL path.
+  // With EXPO_NO_METRO_WORKSPACE_ROOT=1, Metro's project root is this app folder,
+  // so /index.bundle correctly resolves ./index(.js) here.
+  const url = new URL(`http://${METRO_HOST}:${metroPort}/index.bundle`);
   url.searchParams.set("platform", platform);
   url.searchParams.set("dev", "false");
+  url.searchParams.set("minify", "true");
   url.searchParams.set("hot", "false");
   url.searchParams.set("lazy", "false");
-  url.searchParams.set("minify", "true");
+  url.searchParams.set("runModule", "true");
 
   const output = path.join(
     "static-build",
@@ -274,13 +348,18 @@ async function downloadManifest(platform) {
 
   try {
     console.log(`Fetching ${platform} manifest...`);
-    const response = await fetch("http://localhost:8081/manifest", {
+    const response = await fetch(`http://${METRO_HOST}:${metroPort}/manifest`, {
       headers: { "expo-platform": platform },
       signal: controller.signal,
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let body = "";
+      try {
+        body = await response.text();
+      } catch {}
+      const snippet = body ? `\n--- Metro response body (truncated) ---\n${body.slice(0, 4000)}\n--- end ---` : "";
+      throw new Error(`HTTP ${response.status}${snippet}`);
     }
 
     const manifest = await response.json();
@@ -342,7 +421,7 @@ function extractAssets(timestamp) {
       const originalPath = match[1];
       const filename = match[3] + "." + match[4];
 
-      const tempUrl = new URL(`http://localhost:8081${originalPath}`);
+      const tempUrl = new URL(`http://${METRO_HOST}:${metroPort}${originalPath}`);
       const unstablePath = tempUrl.searchParams.get("unstable_path");
 
       if (!unstablePath) {
@@ -384,7 +463,7 @@ async function downloadAssets(assets, timestamp) {
   const failures = [];
 
   const downloadPromises = assets.map(async (asset) => {
-    const tempUrl = new URL(`http://localhost:8081${asset.originalPath}`);
+    const tempUrl = new URL(`http://${METRO_HOST}:${metroPort}${asset.originalPath}`);
     const unstablePath = tempUrl.searchParams.get("unstable_path");
 
     if (!unstablePath) {
@@ -457,7 +536,7 @@ function updateBundleUrls(timestamp, baseUrl) {
     bundle = bundle.replace(
       /httpServerLocation:"(\/[^"]+)"/g,
       (_match, capturedPath) => {
-        const tempUrl = new URL(`http://localhost:8081${capturedPath}`);
+        const tempUrl = new URL(`http://${METRO_HOST}:${metroPort}${capturedPath}`);
         const unstablePath = tempUrl.searchParams.get("unstable_path");
 
         if (!unstablePath) {

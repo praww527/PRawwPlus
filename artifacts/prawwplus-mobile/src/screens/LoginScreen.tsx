@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 
-const logoSource = require("@/assets/images/icon.png");
+const logoSource = require("../../assets/images/icon.png");
 
 export default function LoginScreen() {
   const { login } = useAuth();
