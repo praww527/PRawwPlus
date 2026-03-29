@@ -19,6 +19,9 @@ function safeCloseCode(code: number): number {
 }
 
 function getSipWsUrl(): string {
+  const explicit = process.env.FREESWITCH_SIP_WS_URL?.trim();
+  if (explicit) return explicit;
+
   const domain = process.env.FREESWITCH_DOMAIN ?? "";
   const port   = process.env.FREESWITCH_SIP_WS_PORT ?? "5066";
   if (!domain) return `ws://localhost:${port}/`;
@@ -30,7 +33,7 @@ export function createSipProxy(): WebSocketServer {
 
   wss.on("connection", (client: WebSocket, _req: IncomingMessage) => {
     const upstreamUrl = getSipWsUrl();
-    logger.info({ upstreamUrl }, "SIP proxy: mobile client connected, opening upstream");
+    logger.info({ upstreamUrl }, "SIP proxy: client connected, opening upstream");
 
     const upstream = new WebSocket(upstreamUrl, ["sip"]);
 
@@ -46,6 +49,7 @@ export function createSipProxy(): WebSocketServer {
 
     upstream.on("close", (code, reason) => {
       const safe = safeCloseCode(code);
+      logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: upstream closed");
       if (client.readyState === WebSocket.OPEN) client.close(safe, reason);
     });
 
@@ -62,6 +66,7 @@ export function createSipProxy(): WebSocketServer {
 
     client.on("close", (code, reason) => {
       const safe = safeCloseCode(code);
+      logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(safe, reason);
     });
 
