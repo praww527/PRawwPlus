@@ -29,6 +29,7 @@ export interface VertoConfig {
   password: string;
   coins: number;
   configured: boolean;
+  iceServers?: RTCIceServer[];
 }
 
 export interface HangupCause {
@@ -383,16 +384,26 @@ export class VertoClient {
   private async setupPeerConnection(): Promise<RTCPeerConnection> {
     this.cleanupMedia();
 
-    this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (err: unknown) {
+      const msg = (err as Error)?.message ?? "Microphone permission denied or device unavailable";
+      this.callbacks.onError(msg);
+      throw err;
+    }
+
+    const defaultIceServers: RTCIceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+    ];
 
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-      ],
+      iceServers: (this.config.iceServers && this.config.iceServers.length > 0)
+        ? this.config.iceServers
+        : defaultIceServers,
     });
     this.pc = pc;
 

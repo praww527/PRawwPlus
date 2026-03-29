@@ -739,6 +739,23 @@ components:
         configured:
           type: boolean
           description: Whether FreeSWITCH is configured on the server
+        iceServers:
+          type: array
+          description: Optional ICE servers (STUN/TURN) for WebRTC
+          items:
+            type: object
+            properties:
+              urls:
+                description: STUN/TURN URL(s)
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
+              username:
+                type: string
+              credential:
+                type: string
         settings:
           $ref: "#/components/schemas/UserSettings"
       required: [wsUrl, domain, extension, login, password, coins, configured]

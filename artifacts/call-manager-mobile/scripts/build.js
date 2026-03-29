@@ -62,10 +62,10 @@ function getDeploymentDomain() {
     return stripProtocol(process.env.DEPLOYMENT_DOMAIN);
   }
 
-  console.error(
-    "ERROR: No deployment domain found. Set EXPO_PUBLIC_DOMAIN or DEPLOYMENT_DOMAIN (public hostname for API/deep links).",
+  console.warn(
+    "WARNING: No deployment domain found. Set EXPO_PUBLIC_DOMAIN or DEPLOYMENT_DOMAIN (public hostname for API/deep links). Falling back to localhost.",
   );
-  process.exit(1);
+  return "localhost";
 }
 
 function prepareDirectories(timestamp) {
@@ -141,23 +141,44 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     console.log(`Setting EXPO_PUBLIC_REPL_ID=${expoPublicReplId}`);
   }
 
-  metroProcess = spawn(
-    "pnpm",
-    [
-      "exec",
-      "expo",
-      "start",
-      "--no-dev",
-      "--minify",
-      "--localhost",
-    ],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-      cwd: projectRoot,
-      env,
-    },
-  );
+  const isWin = process.platform === "win32";
+
+  if (isWin) {
+    const cmd = process.env.ComSpec || "cmd.exe";
+    const cmdLine = "pnpm exec expo start --no-dev --minify --localhost";
+    metroProcess = spawn(
+      cmd,
+      ["/d", "/s", "/c", cmdLine],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+        cwd: projectRoot,
+        env,
+      },
+    );
+  } else {
+    metroProcess = spawn(
+      "pnpm",
+      [
+        "exec",
+        "expo",
+        "start",
+        "--no-dev",
+        "--minify",
+        "--localhost",
+      ],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+        cwd: projectRoot,
+        env,
+      },
+    );
+  }
+
+  metroProcess.on("error", (err) => {
+    exitWithError(`Failed to start Metro: ${err.message}`);
+  });
 
   if (metroProcess.stdout) {
     metroProcess.stdout.on("data", (data) => {

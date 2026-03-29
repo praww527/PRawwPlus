@@ -40,6 +40,16 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   const fsHost = user?.freeswitchHost ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
   const fsPort = user?.freeswitchPort ?? 5060;
 
+  const iceServers = process.env.ICE_SERVERS
+    ? JSON.parse(process.env.ICE_SERVERS)
+    : [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+    ];
+
   res.json({
     wsUrl,
     domain,
@@ -48,6 +58,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     password: ext.fsPassword,
     coins,
     configured: Boolean(wsUrl),
+    iceServers,
     settings: {
       ringtone: user?.ringtone ?? "default",
       ringtoneDuration: user?.ringtoneDuration ?? 30,

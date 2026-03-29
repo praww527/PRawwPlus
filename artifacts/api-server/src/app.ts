@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import path from "path";
+import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
@@ -19,9 +20,14 @@ app.set(
 
 // In production, serve the pre-built frontend from the same process.
 // STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
+const staticDirFromCwd = path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
+// When running the bundled server (dist/index.cjs), the working directory may
+// not be the repo root. Derive a fallback from the entry script location.
+const entryDir = process.argv[1] ? path.dirname(process.argv[1]) : process.cwd();
+const staticDirFromEntry = path.resolve(entryDir, "..", "..", "call-manager", "dist", "public");
 const staticDir =
   process.env.STATIC_DIR ??
-  path.resolve(process.cwd(), "artifacts", "call-manager", "dist", "public");
+  (fs.existsSync(staticDirFromCwd) ? staticDirFromCwd : staticDirFromEntry);
 
 // APP_URL (e.g. https://rtc.PRaww.co.za) is the canonical production domain.
 // ALLOWED_ORIGINS overrides everything — comma-separated list for multi-domain setups.
@@ -151,8 +157,19 @@ app.use("/api", router);
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(staticDir));
-  // SPA fallback — send index.html for any non-API route (Express 5 wildcard syntax)
-  app.get("/{*path}", (_req: Request, res: Response) => {
+  // SPA fallback — return index.html for client-side routes, but never for
+  // asset URLs (js/css/etc) and never for /api.
+  // Express 5 uses path-to-regexp v6; use the "/*" equivalent wildcard syntax.
+  app.get("/{*path}", (req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith("/api")) {
+      next();
+      return;
+    }
+    // If the request looks like an asset (has a file extension), don't serve index.
+    if (path.extname(req.path)) {
+      res.status(404).end();
+      return;
+    }
     res.sendFile(path.join(staticDir, "index.html"));
   });
 }

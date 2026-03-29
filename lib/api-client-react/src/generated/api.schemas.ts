@@ -111,6 +111,13 @@ export interface VertoConfig {
   coins: number;
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
+  /** Optional ICE servers (STUN/TURN) for WebRTC */
+  iceServers?: {
+    /** STUN/TURN URL(s) */
+    urls: string | string[];
+    username?: string;
+    credential?: string;
+  }[];
   settings?: UserSettings;
 }
 

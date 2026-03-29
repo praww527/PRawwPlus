@@ -22,5 +22,7 @@ export interface VertoConfig {
   coins: number;
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
+  /** Optional ICE servers (STUN/TURN) for WebRTC */
+  iceServers?: unknown[];
   settings?: UserSettings;
 }

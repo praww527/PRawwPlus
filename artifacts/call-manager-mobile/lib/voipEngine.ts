@@ -13,6 +13,8 @@
  *  - WebRTC audio stream management
  */
 
+declare var global: typeof globalThis;
+
 import { UA, WebSocketInterface } from "jssip";
 import type { RTCSession } from "jssip/lib/RTCSession";
 import type { UAConfiguration } from "jssip/lib/UA";
