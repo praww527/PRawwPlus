@@ -125,6 +125,11 @@ export const callKeepService = {
     if (!RNCallKeep) return;
     // Ensure the next SIP INVITE reuses this UUID so UI + CallKeep align.
     voipEngine.setPendingIncomingCall(uuid, handle);
+    voipEngine.startIncomingGraceTimeout(45_000, (timedOutUuid) => {
+      try {
+        RNCallKeep.endCall(timedOutUuid);
+      } catch {}
+    });
     RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
   },
 

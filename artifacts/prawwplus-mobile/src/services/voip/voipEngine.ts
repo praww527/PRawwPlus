@@ -183,6 +183,7 @@ class VoipEngine {
     | { uuid: string; from?: string; ts: number }
     | null = null;
   private pendingAnswerUuid: string | null = null;
+  private pendingIncomingTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Event emitter ──
 
@@ -275,6 +276,8 @@ class VoipEngine {
     this.session = null;
     this.ua?.stop();
     this.ua = null;
+    this.clearPendingIncoming();
+    this.pendingAnswerUuid = null;
     this.stopLocalStream();
     toneService.stopCallAudio();
     toneService.stopRingback();
@@ -294,7 +297,7 @@ class VoipEngine {
         const matchFrom = this.pendingIncoming.from ? this.pendingIncoming.from === fromNum : true;
         if (matchFrom) {
           uuid = this.pendingIncoming.uuid;
-          this.pendingIncoming = null;
+          this.clearPendingIncoming();
         }
       }
 
@@ -348,7 +351,7 @@ class VoipEngine {
     }
   }
 
-  /** Called by CallKeep/FCM path so the next SIP INVITE reuses the same UUID. */
+  /** Called by CallKeep/FCM path so the next SIP INVITE reuses this UUID. */
   setPendingIncomingCall(uuid: string, from?: string) {
     if (!uuid?.trim()) return;
     this.pendingIncoming = { uuid: uuid.trim(), from: from?.trim(), ts: Date.now() };
@@ -358,6 +361,27 @@ class VoipEngine {
   queueAnswer(uuid: string) {
     if (!uuid?.trim()) return;
     this.pendingAnswerUuid = uuid.trim();
+  }
+
+  startIncomingGraceTimeout(ms: number, onTimeout: (uuid: string) => void) {
+    if (!this.pendingIncoming) return;
+    const { uuid } = this.pendingIncoming;
+    if (this.pendingIncomingTimer) clearTimeout(this.pendingIncomingTimer);
+    this.pendingIncomingTimer = setTimeout(() => {
+      const stillPending = this.pendingIncoming?.uuid === uuid;
+      if (!stillPending) return;
+      this.clearPendingIncoming();
+      if (this.pendingAnswerUuid === uuid) this.pendingAnswerUuid = null;
+      onTimeout(uuid);
+    }, ms);
+  }
+
+  private clearPendingIncoming() {
+    this.pendingIncoming = null;
+    if (this.pendingIncomingTimer) {
+      clearTimeout(this.pendingIncomingTimer);
+      this.pendingIncomingTimer = null;
+    }
   }
 
   // ── Outgoing call ──
@@ -388,10 +412,12 @@ class VoipEngine {
       mediaConstraints:  { audio: true, video: false },
       extraHeaders,
       pcConfig: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
+        iceServers: (this.credentials?.iceServers && this.credentials.iceServers.length > 0)
+          ? this.credentials.iceServers
+          : [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
       },
     };
 
@@ -475,10 +501,12 @@ class VoipEngine {
       mediaStream:      localStream as any,
       mediaConstraints: { audio: true, video: false },
       pcConfig: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
+        iceServers: (this.credentials?.iceServers && this.credentials.iceServers.length > 0)
+          ? this.credentials.iceServers
+          : [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
       },
     });
   }
