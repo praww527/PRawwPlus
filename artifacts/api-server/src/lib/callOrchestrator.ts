@@ -309,6 +309,12 @@ export async function answerCall(
     const user = await UserModel.findById(call.userId).select("coins").lean();
     const coins = user?.coins ?? 0;
 
+    const coinsPerMinute = await resolveCoinsPerMinuteForUser(
+      String(call.userId),
+      String((call as any).recipientNumber ?? ""),
+    );
+    const effectiveRate = Math.max(0.0001, Number.isFinite(coinsPerMinute) ? coinsPerMinute : COINS_PER_MINUTE);
+
     if (coins < MIN_COINS_SAFETY) {
       logger.warn({ fsCallId, coins }, "[Orchestrator] Zero balance on answer — disconnecting");
       sendEslCmd(
@@ -319,7 +325,7 @@ export async function answerCall(
       return EventResult.DONE;
     }
 
-    const allowedSecs = Math.floor((coins / COINS_PER_MINUTE) * 60);
+    const allowedSecs = Math.floor((coins / effectiveRate) * 60);
     const schedHangup = Math.max(5, allowedSecs - 5);
     logger.info({ fsCallId, coins, allowedSecs, schedHangup },
       "[Orchestrator] Scheduling balance-based hangup");
