@@ -53,3 +53,7 @@ export * from "./models/Payment";
 export * from "./models/PhoneNumber";
 export * from "./models/Contact";
 export * from "./models/PendingEslEvent";
+export * from "./models/RatePlan";
+export * from "./models/BillingLedger";
+export * from "./models/Cdr";
+export * from "./models/Invoice";

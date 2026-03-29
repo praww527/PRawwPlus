@@ -16,6 +16,7 @@
 
 import mongoose, { type ClientSession } from "mongoose";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
+import { BillingLedgerModel, CdrModel } from "@workspace/db";
 import { logger } from "./logger";
 import {
   isTransitionAllowed,
@@ -25,16 +26,49 @@ import {
   type CallStatus,
 } from "./callStateMachine";
 import { EventResult } from "./eslEventBuffer";
+import { resolveCoinsPerMinuteForUser, calcCoinsFromBillsec } from "./rating";
+import { sendExpoPush, sendFcmDataMessage } from "./push";
 
 const COINS_PER_MINUTE = 1;
 const MIN_COINS_SAFETY = 0.1;
 const INSUFFICIENT_BALANCE_VOICE_DELAY = 9_000;
-const BILLING_FS_PROJECTION = "status callType userId endedAt _id" as const;
+const BILLING_FS_PROJECTION = "status callType userId endedAt _id recipientNumber callerNumber direction startedAt fsCallId" as const;
 
 function getMaxBillsecPerCall(): number {
   const raw = parseInt(process.env.MAX_BILLSEC_PER_CALL ?? "86400", 10);
   const n   = Number.isFinite(raw) ? raw : 86_400;
   return Math.min(86_400, Math.max(60, n));
+}
+
+async function maybeSendLowBalanceAlert(userId: string): Promise<void> {
+  try {
+    const user = await UserModel.findById(userId)
+      .select("coins lowBalanceThresholdCoins expoPushToken fcmToken notificationPrefs")
+      .lean();
+    if (!user) return;
+
+    const threshold =
+      typeof user.lowBalanceThresholdCoins === "number"
+        ? user.lowBalanceThresholdCoins
+        : parseInt(process.env.LOW_BALANCE_THRESHOLD_COINS ?? "5", 10);
+
+    if (!Number.isFinite(threshold) || threshold <= 0) return;
+    if (user.coins > threshold) return;
+    if (user.notificationPrefs?.lowBalance === false) return;
+
+    const title = "Low balance";
+    const body = `Your balance is low (${user.coins} coins). Please top up.`;
+    const data = { type: "low_balance", coins: String(user.coins) };
+
+    if (user.expoPushToken) {
+      await sendExpoPush(user.expoPushToken, title, body, data);
+    }
+    if (user.fcmToken) {
+      await sendFcmDataMessage(user.fcmToken, data);
+    }
+  } catch (err) {
+    logger.warn({ err }, "[Billing] low balance alert failed");
+  }
 }
 
 /** Injected at startup so the orchestrator can issue FreeSWITCH commands
@@ -77,9 +111,9 @@ function clampBillsec(raw: number): number {
   return Math.min(n, getMaxBillsecPerCall());
 }
 
-function calcCoins(billsec: number): number {
+function calcCoins(billsec: number, coinsPerMinute: number): number {
   const s = clampBillsec(billsec);
-  return s > 0 ? Math.ceil((s / 60) * COINS_PER_MINUTE) : 0;
+  return calcCoinsFromBillsec(s, coinsPerMinute);
 }
 
 async function deductCoinsAndUpdateStats(
@@ -366,7 +400,10 @@ export async function finalizeCall(
   }
 
   const safeBillsec = clampBillsec(billsec);
-  const coinsUsed   = call.callType === "external" ? calcCoins(safeBillsec) : 0;
+  const coinsPerMinute = call.callType === "external"
+    ? await resolveCoinsPerMinuteForUser(String(call.userId), String(call.recipientNumber ?? ""))
+    : 0;
+  const coinsUsed   = call.callType === "external" ? calcCoins(safeBillsec, coinsPerMinute || COINS_PER_MINUTE) : 0;
 
   const update: Record<string, unknown> = {
     status:   finalStatus,
@@ -394,7 +431,52 @@ export async function finalizeCall(
       const resDocTxn = await CallModel.findOneAndUpdate(filter, { $set: update }, { new: true, session })
         .lean();
       if (resDocTxn) {
-        await deductCoinsAndUpdateStats(String(resDocTxn.userId), coinsUsed, String(resDocTxn._id), session);
+        const ledgerId = `call:${String(resDocTxn._id)}`;
+        let billed = false;
+        if (coinsUsed > 0) {
+          try {
+            await BillingLedgerModel.create([{
+              _id: ledgerId,
+              userId: String(resDocTxn.userId),
+              callId: String(resDocTxn._id),
+              type: "debit",
+              coins: coinsUsed,
+              reason: "call",
+              meta: { fsCallId, billsec: safeBillsec, coinsPerMinute },
+            }], { session });
+            billed = true;
+          } catch (e: any) {
+            if (e?.code !== 11000) throw e;
+          }
+        }
+        if (billed) {
+          await deductCoinsAndUpdateStats(String(resDocTxn.userId), coinsUsed, String(resDocTxn._id), session);
+        } else {
+          await deductCoinsAndUpdateStats(String(resDocTxn.userId), 0, String(resDocTxn._id), session);
+        }
+
+        const cdrId = `cdr:${String(resDocTxn._id)}`;
+        try {
+          await CdrModel.create([{
+            _id: cdrId,
+            callId: String(resDocTxn._id),
+            userId: String(resDocTxn.userId),
+            fsCallId,
+            otherLegId,
+            callerNumber: (resDocTxn as any).callerNumber,
+            recipientNumber: (resDocTxn as any).recipientNumber,
+            direction: (resDocTxn as any).direction,
+            callType: (resDocTxn as any).callType,
+            status: finalStatus,
+            hangupCause,
+            billsec: safeBillsec,
+            coinsUsed,
+            startedAt: (resDocTxn as any).startedAt,
+            endedAt: new Date(),
+          }], { session });
+        } catch (e: any) {
+          if (e?.code !== 11000) throw e;
+        }
       }
       await session.commitTransaction();
       logger.info(
@@ -422,7 +504,52 @@ export async function finalizeCall(
     return EventResult.DONE;
   }
 
-  await deductCoinsAndUpdateStats(String(resDoc.userId), coinsUsed, String(resDoc._id));
+  const ledgerId = `call:${String(resDoc._id)}`;
+  let billed = false;
+  if (coinsUsed > 0) {
+    try {
+      await BillingLedgerModel.create({
+        _id: ledgerId,
+        userId: String(resDoc.userId),
+        callId: String(resDoc._id),
+        type: "debit",
+        coins: coinsUsed,
+        reason: "call",
+        meta: { fsCallId, billsec: safeBillsec, coinsPerMinute },
+      });
+      billed = true;
+    } catch (e: any) {
+      if (e?.code !== 11000) throw e;
+    }
+  }
+  await deductCoinsAndUpdateStats(String(resDoc.userId), billed ? coinsUsed : 0, String(resDoc._id));
+
+  const cdrId = `cdr:${String(resDoc._id)}`;
+  try {
+    await CdrModel.create({
+      _id: cdrId,
+      callId: String(resDoc._id),
+      userId: String(resDoc.userId),
+      fsCallId,
+      otherLegId,
+      callerNumber: (resDoc as any).callerNumber,
+      recipientNumber: (resDoc as any).recipientNumber,
+      direction: (resDoc as any).direction,
+      callType: (resDoc as any).callType,
+      status: finalStatus,
+      hangupCause,
+      billsec: safeBillsec,
+      coinsUsed,
+      startedAt: (resDoc as any).startedAt,
+      endedAt: new Date(),
+    });
+  } catch (e: any) {
+    if (e?.code !== 11000) throw e;
+  }
+
+  if (billed && coinsUsed > 0) {
+    await maybeSendLowBalanceAlert(String(resDoc.userId));
+  }
 
   logger.info(
     { fsCallId, finalStatus, billsec: safeBillsec, coinsUsed, hangupCause },

@@ -27,6 +27,8 @@ export interface IUser extends Document<string> {
   resetPasswordToken?: string;
   resetPasswordTokenExpiry?: Date;
   coins: number;
+  ratePlanId?: string;
+  lowBalanceThresholdCoins?: number;
   subscriptionStatus: string;
   subscriptionPlan: "basic" | "pro";
   subscriptionExpiresAt?: Date;
@@ -63,6 +65,8 @@ const UserSchema = new Schema<IUser>(
     resetPasswordToken: { type: String },
     resetPasswordTokenExpiry: { type: Date },
     coins: { type: Number, default: 0 },
+    ratePlanId: { type: String, index: true },
+    lowBalanceThresholdCoins: { type: Number },
     subscriptionStatus: { type: String, default: "inactive" },
     subscriptionPlan: { type: String, default: "basic" },
     subscriptionExpiresAt: { type: Date },
