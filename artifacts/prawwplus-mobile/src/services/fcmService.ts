@@ -12,7 +12,7 @@
  */
 
 import { Platform } from "react-native";
-import { callKeepService } from "./callKeepService";
+import { callKeepService } from "./voip/callKeepService";
 import { apiRequest } from "./api";
 
 // Lazily resolve the Firebase messaging module

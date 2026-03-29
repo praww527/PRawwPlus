@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useCall } from "@/context/CallContext";
-import { apiRequest } from "@/lib/api";
+import { apiRequest } from "@/services/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

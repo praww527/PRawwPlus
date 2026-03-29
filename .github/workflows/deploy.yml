@@ -37,4 +37,4 @@ jobs:
         run: pnpm --filter @workspace/api-server run build
 
       - name: Mobile — typecheck
-        run: pnpm --filter @workspace/call-manager-mobile run typecheck
+        run: pnpm --filter @workspace/prawwplus-mobile run typecheck

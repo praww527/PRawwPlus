@@ -21,7 +21,7 @@ import type { UAConfiguration } from "jssip/lib/UA";
 import { DTMF_TRANSPORT } from "jssip/lib/Constants";
 import { v4 as uuidv4 } from "uuid";
 import { toneService } from "./toneService";
-import { getBaseUrl } from "./api";
+import { getBaseUrl } from "../api";
 
 // Lazily resolve react-native-webrtc (not available in Expo Go)
 let _rnWebRTC: any = null;

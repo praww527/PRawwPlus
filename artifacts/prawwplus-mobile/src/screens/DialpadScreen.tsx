@@ -23,7 +23,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCall } from "@/context/CallContext";
 import { useAuth } from "@/context/AuthContext";
-import { isVoipMediaSupported } from "@/lib/voipEngine";
+import { isWebRtcAvailable as isVoipMediaSupported } from "@/services/voip/voipEngine";
 
 const DIALPAD_KEYS: [string, string][] = [
   ["1", ""],    ["2", "ABC"],  ["3", "DEF"],

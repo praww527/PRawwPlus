@@ -24,7 +24,6 @@ import React, {
   useRef,
   type PropsWithChildren,
 } from "react";
-import { router } from "expo-router";
 import { Alert } from "react-native";
 import { v4 as uuidv4 } from "uuid";
 import type { RTCSession } from "jssip/lib/RTCSession";
@@ -34,15 +33,16 @@ import {
   type CallInfo,
   type VoipCredentials,
   type WaitingCall,
-} from "@/lib/voipEngine";
-import { callKeepService } from "@/lib/callKeepService";
-import { networkMonitor } from "@/lib/networkMonitor";
-import { apiRequest } from "@/lib/api";
+} from "@/services/voip/voipEngine";
+import { callKeepService } from "@/services/voip/callKeepService";
+import { networkMonitor } from "@/services/networkMonitor";
+import { apiRequest } from "@/services/api";
 import {
   enqueueEndCall,
   flushEndCallQueue,
   startCallEndQueueListeners,
-} from "@/lib/callEndQueue";
+} from "@/services/callEndQueue";
+import { navigationRef, navigate, resetTo } from "@/navigation/navigationRef";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       incomingFromRef.current = from;
       setLastFailureReason(null);
       callKeepService.displayIncomingCall(uuid, from, from);
-      router.push("/incoming-call");
+      navigate("IncomingCall");
     };
 
     const onWaiting = (info: WaitingCall) => {
@@ -258,7 +258,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       activeCallIdRef.current = info.uuid;
       callConnectedAtRef.current = Date.now();
       callKeepService.reportCallConnected(info.uuid);
-      router.push("/active-call");
+      navigate("ActiveCall");
 
       // For inbound calls: create the DB record now that the call is answered.
       // Outbound calls already have a record created in makeCall().
@@ -318,11 +318,7 @@ export function CallProvider({ children }: PropsWithChildren) {
         setLastFailureReason(friendlyMessage);
       }
 
-      if (router.canGoBack()) {
-        router.dismissAll();
-      } else {
-        router.replace("/(tabs)");
-      }
+      resetTo("MainTabs");
     };
 
     const onError = (message: string) => {
@@ -448,7 +444,9 @@ export function CallProvider({ children }: PropsWithChildren) {
     setIncomingFrom(null);
     setIncomingUuid(null);
     incomingFromRef.current = null;
-    if (router.canGoBack()) router.back();
+    if (navigationRef.isReady() && navigationRef.canGoBack()) {
+      navigationRef.goBack();
+    }
   }, [incomingUuid]);
 
   const hangup = useCallback(() => {

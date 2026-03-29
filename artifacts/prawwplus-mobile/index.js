@@ -28,4 +28,7 @@ try {
   console.warn("[PRaww+] Native modules (Firebase/CallKeep) not available in Expo Go.", e?.message ?? e);
 }
 
-import "expo-router/entry";
+import { registerRootComponent } from "expo";
+import App from "./src/App";
+
+registerRootComponent(App);

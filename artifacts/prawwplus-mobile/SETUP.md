@@ -28,7 +28,7 @@ This is a React Native VoIP app (Expo with native modules and prebuild) using Js
 1. Click **Add app → Android**; set the package name to **`com.praww.prawwplus`** (must match `expo.android.package` in `app.json`)
 2. Download **`google-services.json`** and replace the placeholder at:
    ```
-   artifacts/call-manager-mobile/google-services.json
+   artifacts/prawwplus-mobile/google-services.json
    ```
 
 ### iOS
@@ -36,7 +36,7 @@ This is a React Native VoIP app (Expo with native modules and prebuild) using Js
 1. Click **Add app → iOS**; set the bundle ID to **`com.praww.prawwplus`** (must match `expo.ios.bundleIdentifier` in `app.json`)
 2. Download **`GoogleService-Info.plist`** and add it to the iOS project after prebuild, for example:
    ```
-   artifacts/call-manager-mobile/ios/PRawwPlus/GoogleService-Info.plist
+   artifacts/prawwplus-mobile/ios/PRawwPlus/GoogleService-Info.plist
    ```
    (Exact folder name follows the Xcode target Expo generates from `expo.name`, usually `PRawwPlus`.)
 
@@ -68,7 +68,7 @@ For `react-native-callkeep` to trigger CallKit via VoIP push:
 ### Install dependencies
 
 ```bash
-cd artifacts/call-manager-mobile
+cd artifacts/prawwplus-mobile
 pnpm install
 ```
 

@@ -7,9 +7,9 @@ import React, {
   type PropsWithChildren,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { apiRequest, setToken, clearToken, getToken } from "@/lib/api";
-import { registerFcmToken, removeFcmToken } from "@/lib/fcmService";
-import { uploadPushToken, removePushToken, registerForPushNotificationsAsync } from "@/lib/pushNotifications";
+import { apiRequest, setToken, clearToken, getToken } from "@/services/api";
+import { registerFcmToken, removeFcmToken } from "@/services/fcmService";
+import { uploadPushToken, removePushToken, registerForPushNotificationsAsync } from "@/services/pushNotifications";
 
 export interface AuthUser {
   id: string;
@@ -85,7 +85,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // Register FCM + Expo push tokens in background
     Promise.all([
       registerFcmToken(),
-      registerForPushNotificationsAsync().then((t) => { if (t) return uploadPushToken(t); }),
+      registerForPushNotificationsAsync().then((t: string | null) => {
+        if (t) return uploadPushToken(t);
+      }),
     ]).then(async () => {
       await AsyncStorage.setItem(PUSH_ENABLED_KEY, "true");
       setPushEnabled(true);

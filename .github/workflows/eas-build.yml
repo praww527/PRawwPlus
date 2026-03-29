@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: "EAS profile (artifacts/call-manager-mobile/eas.json)"
+        description: "EAS profile (artifacts/prawwplus-mobile/eas.json)"
         required: true
         default: "preview"
         type: choice
@@ -35,7 +35,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: EAS build (Android)
-        working-directory: artifacts/call-manager-mobile
+        working-directory: artifacts/prawwplus-mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: npx --yes eas-cli@18 build --platform android --profile ${{ inputs.profile }} --non-interactive --no-wait
