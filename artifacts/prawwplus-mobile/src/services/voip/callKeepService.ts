@@ -71,6 +71,9 @@ export const callKeepService = {
 
     RNCallKeep.addEventListener("answerCall", ({ callUUID }: { callUUID: string }) => {
       console.log("[CallKeep] answerCall", callUUID);
+      // If SIP INVITE isn't here yet (app just woke up), queue the answer.
+      // VoipEngine will auto-answer as soon as the incoming session is created.
+      voipEngine.queueAnswer(callUUID);
       voipEngine.answerIncomingCall().catch(console.error);
       const event: CallKeepEvent = { type: "answerCall", uuid: callUUID };
       listeners.forEach((l) => l(event));
@@ -120,6 +123,8 @@ export const callKeepService = {
   displayIncomingCall(uuid: string, handle: string, displayName: string): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
+    // Ensure the next SIP INVITE reuses this UUID so UI + CallKeep align.
+    voipEngine.setPendingIncomingCall(uuid, handle);
     RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
   },
 

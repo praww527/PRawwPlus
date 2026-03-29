@@ -37,6 +37,15 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     wsUrl = process.env.FREESWITCH_WS_URL ?? "";
   }
 
+  // SIP/WS URL for mobile JsSIP clients (proxied through this API server).
+  // Prefer APP_URL so it matches the TLS-terminated public domain.
+  let sipWsUrl: string;
+  if (appUrl) {
+    sipWsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/sip/ws";
+  } else {
+    sipWsUrl = process.env.FREESWITCH_SIP_WS_URL ?? "";
+  }
+
   const fsHost = user?.freeswitchHost ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
   const fsPort = user?.freeswitchPort ?? 5060;
 
@@ -52,6 +61,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
 
   res.json({
     wsUrl,
+    sipWsUrl,
     domain,
     extension: ext.extension,
     login: `${ext.extension}@${domain}`,

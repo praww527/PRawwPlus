@@ -370,10 +370,14 @@ export function CallProvider({ children }: PropsWithChildren) {
       setApiStatus("ok");
       const config = await res.json();
       const domain = process.env.EXPO_PUBLIC_FREESWITCH_DOMAIN ?? config.domain ?? "";
+      const iceServers = Array.isArray(config.iceServers) ? config.iceServers : undefined;
+      const sipWsUrl = typeof config.sipWsUrl === "string" ? config.sipWsUrl : undefined;
       const creds: VoipCredentials = {
         extension: String(config.extension),
         password:  config.password,
         domain,
+        iceServers,
+        sipWsUrl,
       };
 
       credentialsRef.current = creds;

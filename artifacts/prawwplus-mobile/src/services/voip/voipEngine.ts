@@ -72,6 +72,8 @@ export interface VoipCredentials {
   extension: string;
   password:  string;
   domain:    string;
+  iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
+  sipWsUrl?: string;
 }
 
 export interface CallInfo {
@@ -176,6 +178,12 @@ class VoipEngine {
   private noAnswerTimer:   ReturnType<typeof setTimeout> | null = null;
   private isHeld:          boolean = false;
 
+  // CallKeep/FCM → SIP synchronization
+  private pendingIncoming:
+    | { uuid: string; from?: string; ts: number }
+    | null = null;
+  private pendingAnswerUuid: string | null = null;
+
   // ── Event emitter ──
 
   on<K extends keyof VoipEventMap>(event: K, listener: VoipEventMap[K]) {
@@ -217,10 +225,10 @@ class VoipEngine {
     this.credentials = creds;
     this.setState("registering");
 
-    const wsUrl  = deriveSipWsUrl();
+    const wsUrl  = creds.sipWsUrl?.trim() ? creds.sipWsUrl.trim() : deriveSipWsUrl();
     const socket = new WebSocketInterface(wsUrl);
 
-    const config: UAConfiguration & { pcConfig?: { iceServers: { urls: string }[] } } = {
+    const config: UAConfiguration & { pcConfig?: { iceServers: any[] } } = {
       sockets:          [socket],
       uri:              `sip:${creds.extension}@${creds.domain}`,
       password:         creds.password,
@@ -229,10 +237,12 @@ class VoipEngine {
       register_expires: 300,
       session_timers:   false,
       pcConfig: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
+        iceServers: (creds.iceServers && Array.isArray(creds.iceServers) && creds.iceServers.length > 0)
+          ? creds.iceServers
+          : [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
       },
     };
 
@@ -279,7 +289,14 @@ class VoipEngine {
       const fromNum = session.remote_identity?.uri?.user
         ?? session.remote_identity?.uri?.toString()
         ?? "Unknown";
-      const uuid = uuidv4();
+      let uuid = uuidv4();
+      if (this.pendingIncoming && Date.now() - this.pendingIncoming.ts < 45_000) {
+        const matchFrom = this.pendingIncoming.from ? this.pendingIncoming.from === fromNum : true;
+        if (matchFrom) {
+          uuid = this.pendingIncoming.uuid;
+          this.pendingIncoming = null;
+        }
+      }
 
       // If already in a call, emit as waiting call
       if (this.state === "in-call" || this.state === "on-hold") {
@@ -295,6 +312,12 @@ class VoipEngine {
       this.setState("ringing");
       toneService.startRingtone();
       this.emit("incomingCall", session, fromNum, uuid);
+
+      // If user answered from CallKeep before SIP INVITE arrived, auto-answer now.
+      if (this.pendingAnswerUuid && this.pendingAnswerUuid === uuid) {
+        this.pendingAnswerUuid = null;
+        this.answerIncomingCall().catch((e) => console.warn("[VoIP] auto-answer failed", e));
+      }
 
       session.on("accepted", () => {
         toneService.stopRingtone();
@@ -323,6 +346,18 @@ class VoipEngine {
         this.wireRemoteStream(data.peerconnection);
       });
     }
+  }
+
+  /** Called by CallKeep/FCM path so the next SIP INVITE reuses the same UUID. */
+  setPendingIncomingCall(uuid: string, from?: string) {
+    if (!uuid?.trim()) return;
+    this.pendingIncoming = { uuid: uuid.trim(), from: from?.trim(), ts: Date.now() };
+  }
+
+  /** Called when user answers in CallKeep before SIP INVITE is present. */
+  queueAnswer(uuid: string) {
+    if (!uuid?.trim()) return;
+    this.pendingAnswerUuid = uuid.trim();
   }
 
   // ── Outgoing call ──
