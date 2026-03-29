@@ -24,7 +24,7 @@ import React, {
   useRef,
   type PropsWithChildren,
 } from "react";
-import { Alert } from "react-native";
+import { Alert, AppState, type AppStateStatus } from "react-native";
 import { v4 as uuidv4 } from "uuid";
 import type { RTCSession } from "jssip/lib/RTCSession";
 import {
@@ -108,6 +108,7 @@ export function CallProvider({ children }: PropsWithChildren) {
   const pendingDirectionRef = useRef<"inbound" | "outbound" | null>(null);
   // Capture incomingFrom at call-answer time for the inbound DB record
   const incomingFromRef    = useRef<string | null>(null);
+  const registerInFlightRef = useRef<Promise<void> | null>(null);
 
   // ── Persistent end-call retry queue ──────────────────────────────────────
 
@@ -118,6 +119,34 @@ export function CallProvider({ children }: PropsWithChildren) {
       console.warn("[CallContext] flushEndCallQueue on mount failed:", err);
     });
     return cleanup;
+  }, []);
+
+  // ── App foreground re-register (iOS/Android) ─────────────────────────────
+
+  useEffect(() => {
+    const onAppState = (nextState: AppStateStatus) => {
+      if (nextState !== "active") return;
+      const creds = credentialsRef.current;
+      if (!creds) return;
+
+      const engineState = voipEngine.getState();
+      if (engineState !== "idle" && engineState !== "error") return;
+      if (!networkMonitor.isOnline()) return;
+
+      if (registerInFlightRef.current) return;
+      registerInFlightRef.current = voipEngine.register(creds)
+        .catch((err) => {
+          console.error("[VoIP] Re-register on app foreground failed:", err);
+        })
+        .finally(() => {
+          registerInFlightRef.current = null;
+        });
+    };
+
+    const sub = AppState.addEventListener("change", onAppState);
+    return () => {
+      sub.remove();
+    };
   }, []);
 
   // ── Network monitor + auto re-register on recovery ────────────────────────
