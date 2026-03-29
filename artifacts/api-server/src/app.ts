@@ -180,6 +180,15 @@ app.use("/api", router);
 
 // Serve static frontend in production
 if (process.env.NODE_ENV === "production") {
+  logger.info(
+    {
+      staticDir,
+      staticIndexPath,
+      indexExists: fs.existsSync(staticIndexPath),
+    },
+    "Static frontend configured",
+  );
+
   app.use(express.static(staticDir));
 
   // SPA fallback — return index.html for client-side routes, but never for
