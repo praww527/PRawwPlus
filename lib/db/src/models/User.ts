@@ -42,6 +42,14 @@ export interface IUser extends Document<string> {
   ringtone: string;
   ringtoneDuration: number;
   dnd: boolean;
+  callForwardAlwaysEnabled?: boolean;
+  callForwardAlwaysTo?: string;
+  callForwardBusyEnabled?: boolean;
+  callForwardBusyTo?: string;
+  callForwardNoAnswerEnabled?: boolean;
+  callForwardNoAnswerTo?: string;
+  callForwardUnavailableEnabled?: boolean;
+  callForwardUnavailableTo?: string;
   freeswitchHost?: string;
   freeswitchPort?: number;
   expoPushToken?: string;
@@ -80,6 +88,14 @@ const UserSchema = new Schema<IUser>(
     ringtone: { type: String, default: "default" },
     ringtoneDuration: { type: Number, default: 30 },
     dnd: { type: Boolean, default: false },
+    callForwardAlwaysEnabled: { type: Boolean, default: false },
+    callForwardAlwaysTo: { type: String },
+    callForwardBusyEnabled: { type: Boolean, default: false },
+    callForwardBusyTo: { type: String },
+    callForwardNoAnswerEnabled: { type: Boolean, default: false },
+    callForwardNoAnswerTo: { type: String },
+    callForwardUnavailableEnabled: { type: Boolean, default: false },
+    callForwardUnavailableTo: { type: String },
     freeswitchHost: { type: String },
     freeswitchPort: { type: Number },
     expoPushToken: { type: String },

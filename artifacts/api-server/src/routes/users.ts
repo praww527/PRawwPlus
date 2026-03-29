@@ -18,6 +18,120 @@ router.get("/users/me", async (req: Request, res: Response) => {
   res.json({ ...user, id: user._id });
 });
 
+router.get("/users/call-forwarding", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+
+  const user = await UserModel.findById(userId)
+    .select(
+      "callForwardAlwaysEnabled callForwardAlwaysTo " +
+      "callForwardBusyEnabled callForwardBusyTo " +
+      "callForwardNoAnswerEnabled callForwardNoAnswerTo " +
+      "callForwardUnavailableEnabled callForwardUnavailableTo",
+    )
+    .lean();
+
+  res.json({
+    callForwardAlwaysEnabled: user?.callForwardAlwaysEnabled ?? false,
+    callForwardAlwaysTo: user?.callForwardAlwaysTo ?? null,
+    callForwardBusyEnabled: user?.callForwardBusyEnabled ?? false,
+    callForwardBusyTo: user?.callForwardBusyTo ?? null,
+    callForwardNoAnswerEnabled: user?.callForwardNoAnswerEnabled ?? false,
+    callForwardNoAnswerTo: user?.callForwardNoAnswerTo ?? null,
+    callForwardUnavailableEnabled: user?.callForwardUnavailableEnabled ?? false,
+    callForwardUnavailableTo: user?.callForwardUnavailableTo ?? null,
+  });
+});
+
+router.patch("/users/call-forwarding", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const body = req.body as Record<string, unknown>;
+
+  const update: Record<string, unknown> = {};
+
+  const validateTarget = (v: unknown, field: string): string | null => {
+    if (v === null || v === undefined || v === "") return "";
+    if (typeof v !== "string") {
+      throw new Error(`${field} must be a string`);
+    }
+    const s = v.trim();
+    // Allow extension (1000-9999), E.164-ish numbers, or SIP URI.
+    if (/^[1-9]\d{3}$/.test(s)) return s;
+    if (/^\+?[1-9]\d{6,14}$/.test(s)) return s;
+    if (/^sip:/i.test(s)) return s;
+    throw new Error(`${field} must be an extension, phone number, or sip: URI`);
+  };
+
+  try {
+    if ("callForwardAlwaysEnabled" in body) update.callForwardAlwaysEnabled = Boolean(body.callForwardAlwaysEnabled);
+    if ("callForwardAlwaysTo" in body) {
+      const target = validateTarget(body.callForwardAlwaysTo, "callForwardAlwaysTo");
+      update.callForwardAlwaysTo = target || undefined;
+    }
+
+    if ("callForwardBusyEnabled" in body) update.callForwardBusyEnabled = Boolean(body.callForwardBusyEnabled);
+    if ("callForwardBusyTo" in body) {
+      const target = validateTarget(body.callForwardBusyTo, "callForwardBusyTo");
+      update.callForwardBusyTo = target || undefined;
+    }
+
+    if ("callForwardNoAnswerEnabled" in body) update.callForwardNoAnswerEnabled = Boolean(body.callForwardNoAnswerEnabled);
+    if ("callForwardNoAnswerTo" in body) {
+      const target = validateTarget(body.callForwardNoAnswerTo, "callForwardNoAnswerTo");
+      update.callForwardNoAnswerTo = target || undefined;
+    }
+
+    if ("callForwardUnavailableEnabled" in body) update.callForwardUnavailableEnabled = Boolean(body.callForwardUnavailableEnabled);
+    if ("callForwardUnavailableTo" in body) {
+      const target = validateTarget(body.callForwardUnavailableTo, "callForwardUnavailableTo");
+      update.callForwardUnavailableTo = target || undefined;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Invalid call forwarding settings";
+    res.status(400).json({ error: message });
+    return;
+  }
+
+  if (Object.keys(update).length === 0) {
+    res.status(400).json({ error: "No valid fields provided" });
+    return;
+  }
+
+  await UserModel.updateOne({ _id: userId }, { $set: update });
+
+  const updated = await UserModel.findById(userId)
+    .select(
+      "callForwardAlwaysEnabled callForwardAlwaysTo " +
+      "callForwardBusyEnabled callForwardBusyTo " +
+      "callForwardNoAnswerEnabled callForwardNoAnswerTo " +
+      "callForwardUnavailableEnabled callForwardUnavailableTo",
+    )
+    .lean();
+
+  res.json({
+    message: "Call forwarding updated",
+    callForwarding: {
+      callForwardAlwaysEnabled: updated?.callForwardAlwaysEnabled ?? false,
+      callForwardAlwaysTo: updated?.callForwardAlwaysTo ?? null,
+      callForwardBusyEnabled: updated?.callForwardBusyEnabled ?? false,
+      callForwardBusyTo: updated?.callForwardBusyTo ?? null,
+      callForwardNoAnswerEnabled: updated?.callForwardNoAnswerEnabled ?? false,
+      callForwardNoAnswerTo: updated?.callForwardNoAnswerTo ?? null,
+      callForwardUnavailableEnabled: updated?.callForwardUnavailableEnabled ?? false,
+      callForwardUnavailableTo: updated?.callForwardUnavailableTo ?? null,
+    },
+  });
+});
+
 const RINGTONES = ["default", "classic", "digital", "soft", "urgent", "none"] as const;
 
 router.patch("/users/settings", async (req: Request, res: Response) => {

@@ -128,7 +128,13 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   }
 
   const dbUser = await UserModel.findOne({ extension: extensionNum })
-    .select("extension fsPassword email username name dnd")
+    .select(
+      "extension fsPassword email username name dnd " +
+      "callForwardAlwaysEnabled callForwardAlwaysTo " +
+      "callForwardBusyEnabled callForwardBusyTo " +
+      "callForwardNoAnswerEnabled callForwardNoAnswerTo " +
+      "callForwardUnavailableEnabled callForwardUnavailableTo",
+    )
     .lean();
 
   if (!dbUser || !dbUser.fsPassword) {
@@ -157,6 +163,14 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   const displayName  = xmlEscape(rawName);
   const safePassword = xmlEscape(dbUser.fsPassword!);
   const dndValue     = dbUser.dnd ? "true" : "false";
+  const callForwardAlwaysEnabled = dbUser.callForwardAlwaysEnabled ? "true" : "false";
+  const callForwardAlwaysTo = xmlEscape(dbUser.callForwardAlwaysTo ?? "");
+  const callForwardBusyEnabled = dbUser.callForwardBusyEnabled ? "true" : "false";
+  const callForwardBusyTo = xmlEscape(dbUser.callForwardBusyTo ?? "");
+  const callForwardNoAnswerEnabled = dbUser.callForwardNoAnswerEnabled ? "true" : "false";
+  const callForwardNoAnswerTo = xmlEscape(dbUser.callForwardNoAnswerTo ?? "");
+  const callForwardUnavailableEnabled = dbUser.callForwardUnavailableEnabled ? "true" : "false";
+  const callForwardUnavailableTo = xmlEscape(dbUser.callForwardUnavailableTo ?? "");
 
   res.send(
     `<?xml version="1.0" encoding="UTF-8"?>
@@ -177,6 +191,14 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
           <variable name="outbound_caller_id_name" value="${displayName}"/>
           <variable name="outbound_caller_id_number" value="${extensionNum}"/>
           <variable name="dnd" value="${dndValue}"/>
+          <variable name="callForwardAlwaysEnabled" value="${callForwardAlwaysEnabled}"/>
+          <variable name="callForwardAlwaysTo" value="${callForwardAlwaysTo}"/>
+          <variable name="callForwardBusyEnabled" value="${callForwardBusyEnabled}"/>
+          <variable name="callForwardBusyTo" value="${callForwardBusyTo}"/>
+          <variable name="callForwardNoAnswerEnabled" value="${callForwardNoAnswerEnabled}"/>
+          <variable name="callForwardNoAnswerTo" value="${callForwardNoAnswerTo}"/>
+          <variable name="callForwardUnavailableEnabled" value="${callForwardUnavailableEnabled}"/>
+          <variable name="callForwardUnavailableTo" value="${callForwardUnavailableTo}"/>
         </variables>
       </user>
     </domain>

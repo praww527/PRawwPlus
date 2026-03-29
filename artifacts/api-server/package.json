@@ -7,7 +7,7 @@
     "dev": "NODE_ENV=development tsx ./src/index.ts",
     "start": "tsx ./src/index.ts",
     "build": "tsx ./build.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm --filter @workspace/db run build && tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/lib/callStateMachine.test.ts src/lib/callLimits.test.ts"
   },
   "dependencies": {
