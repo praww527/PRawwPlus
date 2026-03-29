@@ -5,11 +5,25 @@ import { countPendingEslEvents } from "../lib/reconciliationWorker";
 
 const router: IRouter = Router();
 
+router.get("/healthz-lite", async (_req, res) => {
+  const esl = eslStatus();
+  res.json({
+    status: "ok",
+    esl: {
+      enabled:   esl.enabled,
+      connected: esl.connected,
+    },
+  });
+});
+
 router.get("/healthz", async (_req, res) => {
   const esl = eslStatus();
   let pendingEslEvents = 0;
   try {
-    pendingEslEvents = await countPendingEslEvents();
+    pendingEslEvents = await Promise.race([
+      countPendingEslEvents(),
+      new Promise<number>((resolve) => setTimeout(() => resolve(0), 750)),
+    ]);
   } catch {
     /* DB optional on health scrape */
   }

@@ -26,6 +26,33 @@ if (Number.isNaN(port) || port <= 0) {
 
 const server = http.createServer(app);
 
+let shuttingDown = false;
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.warn({ signal }, "Shutdown signal received — closing server");
+
+  // Stop accepting new connections
+  server.close((err?: Error) => {
+    if (err) {
+      logger.error({ err }, "HTTP server close error");
+      process.exit(1);
+      return;
+    }
+    logger.info("HTTP server closed");
+    process.exit(0);
+  });
+
+  // Force-exit if stuck (e.g. keep-alive sockets)
+  setTimeout(() => {
+    logger.error("Force exiting after shutdown timeout");
+    process.exit(1);
+  }, 15_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
 // Attach the Verto WebSocket proxy (browser → /api/verto/ws → FreeSWITCH:8081)
 const vertoWss = createVertoProxy();
 attachVertoProxy(server, vertoWss);
