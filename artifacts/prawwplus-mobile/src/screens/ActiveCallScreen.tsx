@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useCall } from "@/context/CallContext";
+import { apiRequest } from "@/services/api";
 
 // ─── Call timer ───────────────────────────────────────────────────────────────
 
@@ -28,7 +29,25 @@ function useCallTimer(startedAt: Date | null) {
 
   const mins = Math.floor(elapsed / 60).toString().padStart(2, "0");
   const secs = (elapsed % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
+  return { label: `${mins}:${secs}`, elapsedSecs: elapsed };
+}
+
+function resolveRateForNumber(number: string, plan: any): number {
+  const defaultRate = Number(plan?.defaultCoinsPerMinute) || 1;
+  const digits = String(number ?? "").replace(/\D/g, "");
+  const rates = Array.isArray(plan?.rates) ? plan.rates : [];
+  if (!digits || rates.length === 0) return defaultRate;
+  let best = defaultRate;
+  let bestLen = 0;
+  for (const r of rates) {
+    const prefix = String(r?.prefix ?? "").replace(/\D/g, "");
+    if (!prefix) continue;
+    if (digits.startsWith(prefix) && prefix.length > bestLen) {
+      best = Number(r?.coinsPerMinute) || defaultRate;
+      bestLen = prefix.length;
+    }
+  }
+  return best;
 }
 
 // ─── DTMF Keypad ──────────────────────────────────────────────────────────────
@@ -163,9 +182,48 @@ export default function ActiveCallScreen() {
 
   const [dtmfVisible, setDtmfVisible] = useState(false);
 
-  const duration    = useCallTimer(activeCall?.startedAt ?? null);
+  const { label: duration, elapsedSecs } = useCallTimer(activeCall?.startedAt ?? null);
   const remoteLabel = activeCall?.remoteNumber ?? "Unknown";
   const isOutbound  = activeCall?.direction === "outbound";
+
+  const [coinsPerMinute, setCoinsPerMinute] = useState<number | null>(null);
+  const [walletCoins, setWalletCoins] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!activeCall) {
+      setCoinsPerMinute(null);
+      setWalletCoins(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const [rateRes, billingRes] = await Promise.all([
+          apiRequest("/rate-plans/current"),
+          apiRequest("/billing/summary"),
+        ]);
+        if (!cancelled && rateRes.ok) {
+          const plan = await rateRes.json().catch(() => ({} as any));
+          const rate = resolveRateForNumber(activeCall.remoteNumber, plan);
+          setCoinsPerMinute(rate);
+        }
+        if (!cancelled && billingRes.ok) {
+          const billing = await billingRes.json().catch(() => ({} as any));
+          const c = typeof billing?.coins === "number" ? billing.coins : null;
+          setWalletCoins(c);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeCall?.uuid]);
+
+  const estCoins =
+    isOutbound && typeof coinsPerMinute === "number"
+      ? Math.ceil((elapsedSecs / 60) * coinsPerMinute)
+      : null;
 
   const statusText = isOnHold
     ? "On Hold"
@@ -192,6 +250,12 @@ export default function ActiveCallScreen() {
           <Avatar name={remoteLabel} />
           <Text style={styles.callerName}>{remoteLabel}</Text>
           {!isOnHold && <Text style={styles.duration}>{duration}</Text>}
+          {estCoins != null && (
+            <Text style={styles.costLine}>
+              Est. {estCoins} coins
+              {typeof walletCoins === "number" ? ` · Balance ${walletCoins}` : ""}
+            </Text>
+          )}
           {isOnHold && <Text style={styles.holdNote}>Call is on hold</Text>}
         </View>
 
@@ -274,6 +338,7 @@ const styles = StyleSheet.create({
   avatarText:     { fontSize: 30, fontWeight: "700", color: "#fff" },
   callerName:     { fontSize: 26, fontWeight: "700", color: "#fff" },
   duration:       { fontSize: 20, color: "#30D158", fontWeight: "600", letterSpacing: 2, fontVariant: ["tabular-nums"] },
+  costLine:       { fontSize: 13, color: "#30D158", fontWeight: "700" },
   holdNote:       { fontSize: 14, color: "#FF9F0A", fontWeight: "500" },
   waitingBanner:  { backgroundColor: "#1C1C1E", borderRadius: 16, padding: 16, borderWidth: 1, borderColor: "#0A84FF" },
   waitingText:    { fontSize: 14, color: "#fff", textAlign: "center", marginBottom: 12 },

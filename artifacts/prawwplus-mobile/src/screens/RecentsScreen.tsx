@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useCall } from "@/context/CallContext";
 import { apiRequest } from "@/services/api";
+import { useFocusEffect } from "@react-navigation/native";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ interface CallRecord {
   /** Server uses answered, ringing, cancelled, etc.; legacy clients may send in-progress / no-answer */
   status:          string;
   duration:        number;
+  cost?:           number;
   direction?:      "inbound" | "outbound";
   createdAt:       string;
 }
@@ -90,7 +92,9 @@ function CallRow({
         <Text style={styles.rowNumber} numberOfLines={1}>{number}</Text>
         <Text style={styles.rowMeta}>
           {call.callType === "external" ? "External" : "Internal"} ·{" "}
-          {formatDuration(call.duration)} · {formatTime(call.createdAt)}
+          {formatDuration(call.duration)}
+          {call.callType === "external" && typeof call.cost === "number" ? ` · ${call.cost} coins` : ""}
+          {" "}· {formatTime(call.createdAt)}
         </Text>
       </View>
       <TouchableOpacity
@@ -122,7 +126,7 @@ function EmptyState() {
 // ─── Recents screen ───────────────────────────────────────────────────────────
 
 export default function RecentsScreen() {
-  const { makeCall, callState } = useCall();
+  const { makeCall, callState, clearMissedBadges } = useCall();
   const [calls,      setCalls]      = useState<CallRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -148,6 +152,12 @@ export default function RecentsScreen() {
   useEffect(() => {
     fetchCalls().finally(() => setLoading(false));
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      clearMissedBadges();
+    }, [clearMissedBadges]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

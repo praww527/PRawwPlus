@@ -24,6 +24,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCall } from "@/context/CallContext";
 import { useAuth } from "@/context/AuthContext";
 import { isWebRtcAvailable as isVoipMediaSupported } from "@/services/voip/voipEngine";
+import { apiRequest } from "@/services/api";
 
 const DIALPAD_KEYS: [string, string][] = [
   ["1", ""],    ["2", "ABC"],  ["3", "DEF"],
@@ -77,6 +78,7 @@ export default function DialpadScreen() {
   const [fwdEnabled,  setFwdEnabled]  = useState(false);
   const [fwdNumber,   setFwdNumber]   = useState("");
   const [dndEnabled,  setDndEnabled]  = useState(false);
+  const [coins,       setCoins]       = useState<number | null>(null);
 
   // Auto-register on user login
   useEffect(() => {
@@ -98,6 +100,24 @@ export default function DialpadScreen() {
       setDndEnabled(dnd === "true");
     })();
   }, []);
+
+  // Load wallet balance
+  useEffect(() => {
+    if (!user) { setCoins(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiRequest("/billing/summary");
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({} as any));
+        const c = typeof data?.coins === "number" ? data.coins : null;
+        if (!cancelled) setCoins(c);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
 
   function pressKey(key: string) {
     Vibration.vibrate(5);
@@ -142,6 +162,12 @@ export default function DialpadScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Dialpad</Text>
+          {typeof coins === "number" && (
+            <View style={styles.balancePill}>
+              <Feather name="credit-card" size={14} color="#30D158" />
+              <Text style={styles.balanceText}>{coins} coins</Text>
+            </View>
+          )}
           {registering ? (
             <View style={styles.statusRow}>
               <ActivityIndicator size="small" color="#FF9F0A" />
@@ -248,6 +274,8 @@ const styles = StyleSheet.create({
   safe:            { flex: 1, backgroundColor: "#0A0A0A" },
   container:       { flex: 1, paddingHorizontal: 24, paddingTop: 12 },
   header:          { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  balancePill:     { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: "#0F1A12", borderWidth: 1, borderColor: "#14301E" },
+  balanceText:     { color: "#30D158", fontSize: 12, fontWeight: "700" },
   title:           { fontSize: 28, fontWeight: "700", color: "#fff" },
   statusRow:       { flexDirection: "row", alignItems: "center", gap: 6 },
   statusDot:       { width: 8, height: 8, borderRadius: 4 },

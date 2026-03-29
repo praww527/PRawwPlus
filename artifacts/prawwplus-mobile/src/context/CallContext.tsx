@@ -60,6 +60,7 @@ interface CallContextValue {
   incomingFrom:         string | null;
   incomingUuid:         string | null;
   waitingCall:          WaitingCall | null;
+  missedBadgeCount:     number;
   isMuted:              boolean;
   isSpeakerOn:          boolean;
   isOnHold:             boolean;
@@ -77,6 +78,7 @@ interface CallContextValue {
   sendDTMF:             (digit: string) => void;
   answerWaitingCall:    () => Promise<void>;
   dismissWaitingCall:   () => void;
+  clearMissedBadges:    () => void;
   toggleMute:           () => void;
   toggleSpeaker:        () => void;
 }
@@ -92,6 +94,7 @@ export function CallProvider({ children }: PropsWithChildren) {
   const [incomingFrom,      setIncomingFrom]      = useState<string | null>(null);
   const [incomingUuid,      setIncomingUuid]      = useState<string | null>(null);
   const [waitingCall,       setWaitingCall]       = useState<WaitingCall | null>(null);
+  const [missedBadgeCount,  setMissedBadgeCount]  = useState(0);
   const [isMuted,           setIsMuted]           = useState(false);
   const [isSpeakerOn,       setIsSpeakerOn]       = useState(false);
   const [isOnHold,          setIsOnHold]          = useState(false);
@@ -303,6 +306,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       const prevCall    = activeCallIdRef.current;
       const dbCallId    = dbCallIdRef.current;
       const connectedAt = callConnectedAtRef.current;
+      const endedDirection = activeCall?.direction ?? pendingDirectionRef.current;
 
       setActiveCall(null);
       setIncomingSession(null);
@@ -335,6 +339,10 @@ export function CallProvider({ children }: PropsWithChildren) {
         } else if (_rawReason && _rawReason !== "ended") {
           finalStatus = durationSecs > 0 ? "completed" : "failed";
         }
+      }
+
+      if (finalStatus === "missed" && endedDirection === "inbound") {
+        setMissedBadgeCount((c) => c + 1);
       }
 
       // Finalize the call record (with retry queue fallback)
@@ -510,6 +518,10 @@ export function CallProvider({ children }: PropsWithChildren) {
     setWaitingCall(null);
   }, []);
 
+  const clearMissedBadges = useCallback(() => {
+    setMissedBadgeCount(0);
+  }, []);
+
   // ── Mute / Speaker ────────────────────────────────────────────────────────
 
   const toggleMute = useCallback(() => {
@@ -533,6 +545,7 @@ export function CallProvider({ children }: PropsWithChildren) {
         incomingFrom,
         incomingUuid,
         waitingCall,
+        missedBadgeCount,
         isMuted,
         isSpeakerOn,
         isOnHold,
@@ -550,6 +563,7 @@ export function CallProvider({ children }: PropsWithChildren) {
         sendDTMF,
         answerWaitingCall,
         dismissWaitingCall,
+        clearMissedBadges,
         toggleMute,
         toggleSpeaker,
       }}
