@@ -8,6 +8,7 @@ import {
   ReactNode,
 } from "react";
 import { VertoClient, type VertoConfig, type HangupCause } from "@/lib/verto";
+import { useMakeCall } from "@workspace/api-client-react";
 
 export type CallState = "idle" | "outgoing" | "incoming" | "active";
 export type CallPhase = "calling" | "ringing" | "connected" | "ended";
@@ -105,6 +106,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const clientRef      = useRef<VertoClient | null>(null);
   const incomingSdpRef = useRef<string>("");
+  const pendingIncomingNumberRef = useRef<string | null>(null);
+  const inboundRecordCreatedRef  = useRef<boolean>(false);
+
+  const { mutateAsync: createCallRecord } = useMakeCall();
 
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
     setVertoConfigState((prev) => {
@@ -127,6 +132,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       onIncoming: (callId, callerNumber, sdp) => {
         incomingSdpRef.current = sdp;
+        pendingIncomingNumberRef.current = callerNumber;
+        inboundRecordCreatedRef.current  = false;
         setHangupInfo(null);
         setCallInfo({
           number: callerNumber,
@@ -137,10 +144,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallState("incoming");
       },
 
-      onAnswer: (_callId, _sdp) => {
+      onAnswer: async (callId, _sdp) => {
         setHangupInfo(null);
         setCallPhase("connected");
         setCallState("active");
+
+        // Create an inbound call record for the callee so their Call History is complete.
+        // Use the FreeSWITCH Unique-ID (verto callID) as fsCallId so ESL can correlate.
+        if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
+          inboundRecordCreatedRef.current = true;
+          try {
+            await createCallRecord({
+              data: {
+                recipientNumber: pendingIncomingNumberRef.current,
+                direction: "inbound",
+                fsCallId: callId,
+              },
+            } as any);
+          } catch (e) {
+            console.warn("[Call] inbound record create failed", e);
+          }
+        }
       },
 
       onHangup: (_callId, hc) => {
