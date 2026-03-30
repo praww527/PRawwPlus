@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Phone, Clock, Users, User } from "lucide-react";
+import { Phone, Clock, User, Voicemail, Star } from "lucide-react";
 import { VertoInit } from "@/components/VertoInit";
 
 interface LayoutProps {
@@ -9,10 +9,11 @@ interface LayoutProps {
 export const NAV_H = 80;
 
 const navItems = [
-  { href: "/dashboard", label: "Keypad", icon: Phone },
-  { href: "/calls", label: "Calls", icon: Clock },
-  { href: "/contacts", label: "Contacts", icon: Users },
-  { href: "/profile", label: "Profile", icon: User },
+  { href: "/dashboard",  label: "Keypad",    icon: Phone },
+  { href: "/calls",      label: "Calls",      icon: Clock },
+  { href: "/voicemail",  label: "Voicemail",  icon: Voicemail },
+  { href: "/favorites",  label: "Favorites",  icon: Star },
+  { href: "/profile",    label: "Profile",    icon: User },
 ];
 
 export function Layout({ children }: LayoutProps) {
@@ -55,6 +56,7 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
+      {/* Fixed bottom navbar */}
       <div
         style={{
           position: "fixed",
@@ -100,11 +102,11 @@ export function Layout({ children }: LayoutProps) {
                     alignItems: "center",
                     justifyContent: "center",
                     gap: 4,
-                    padding: "6px 20px",
+                    padding: "6px 14px",
                     borderRadius: 28,
                     cursor: "pointer",
                     userSelect: "none",
-                    minWidth: 64,
+                    minWidth: 52,
                     background: active ? "rgba(255,255,255,0.28)" : "transparent",
                     boxShadow: active
                       ? "inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 4px rgba(0,0,0,0.08)"
@@ -114,8 +116,8 @@ export function Layout({ children }: LayoutProps) {
                 >
                   <item.icon
                     style={{
-                      width: 21,
-                      height: 21,
+                      width: 20,
+                      height: 20,
                       color: active ? "#3b82f6" : "rgba(255,255,255,0.5)",
                       strokeWidth: active ? 2.2 : 1.6,
                       transition: "all 0.2s ease",
@@ -123,7 +125,7 @@ export function Layout({ children }: LayoutProps) {
                   />
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 9,
                       fontWeight: 600,
                       color: active ? "#3b82f6" : "rgba(255,255,255,0.5)",
                       lineHeight: 1,
