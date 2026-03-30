@@ -42,7 +42,9 @@ let lastEventAt: number | null = null;
 let lastDisconnectReason: string | null = null;
 
 function cleanKey(raw: string): string {
-  return raw
+  // Handle keys stored with literal \n escape sequences (common in env vars / secrets panels)
+  const expanded = raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
+  return expanded
     .split("\n")
     .map((l) => l.trimStart())
     .join("\n")
