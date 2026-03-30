@@ -60,6 +60,9 @@ function getPayFastCredentials() {
   const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "46f0cd694581a";
   const passphrase = process.env.PAYFAST_PASSPHRASE;
   const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+  if (isSandbox) {
+    console.warn("[PayFast] PAYFAST_MERCHANT_ID is not set — using sandbox credentials. Set PAYFAST_MERCHANT_ID in production.");
+  }
   const paymentUrl = isSandbox
     ? "https://sandbox.payfast.co.za/eng/process"
     : "https://www.payfast.co.za/eng/process";

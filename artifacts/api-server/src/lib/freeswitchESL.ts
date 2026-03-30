@@ -30,6 +30,19 @@ const isProduction = process.env.NODE_ENV === "production";
 const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "root";
 const SSH_PORT     = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
 
+/** Strip protocol (wss://, ws://, https://, http://) and path/port from a host string
+ *  so it can be used as a bare hostname for SSH/TCP connections. */
+function bareHost(raw: string): string {
+  try {
+    // If it looks like a URL, parse it
+    if (/^[a-z]+:\/\//i.test(raw)) {
+      return new URL(raw).hostname;
+    }
+  } catch { /* fall through */ }
+  // Otherwise strip trailing port (:NNN) if present
+  return raw.split(":")[0].replace(/\/$/, "");
+}
+
 const RECONNECT_BASE_MS = parseInt(process.env.ESL_RECONNECT_BASE_MS ?? "2000", 10);
 const RECONNECT_MAX_MS  = parseInt(process.env.ESL_RECONNECT_MAX_MS  ?? "60000", 10);
 
@@ -42,9 +55,30 @@ let lastEventAt: number | null = null;
 let lastDisconnectReason: string | null = null;
 
 function cleanKey(raw: string): string {
-  // Handle keys stored with literal \n escape sequences (common in env vars / secrets panels)
-  const expanded = raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
-  return expanded
+  let s = raw.trim();
+
+  // Handle literal \n escape sequences (e.g. stored as single-line in some secret panels)
+  if (s.includes("\\n")) {
+    s = s.replace(/\\n/g, "\n");
+  }
+
+  // Handle keys stored as a single line with spaces replacing newlines.
+  // e.g. "-----BEGIN OPENSSH PRIVATE KEY-----   base64...   -----END OPENSSH PRIVATE KEY-----"
+  // We extract header/footer separately so their internal spaces are preserved.
+  if (!s.includes("\n") && s.includes("-----BEGIN") && s.includes("-----END")) {
+    const headerMatch = s.match(/(-----BEGIN [^-]+-----)/);
+    const footerMatch = s.match(/(-----END [^-]+-----)/);
+    if (headerMatch && footerMatch) {
+      const header = headerMatch[1];
+      const footer = footerMatch[1];
+      const contentStart = s.indexOf(header) + header.length;
+      const contentEnd = s.indexOf(footer);
+      const body = s.slice(contentStart, contentEnd).trim().replace(/\s+/g, "\n");
+      s = `${header}\n${body}\n${footer}`;
+    }
+  }
+
+  return s
     .split("\n")
     .map((l) => l.trimStart())
     .join("\n")
@@ -226,13 +260,27 @@ class FreeSwitchESL {
       this.scheduleReconnect("ssh_close");
     });
 
-    conn.connect({
-      host:         ESL_HOST,
-      port:         SSH_PORT,
-      username:     SSH_USER,
-      privateKey:   cleanKey(rawKey),
-      readyTimeout: 15_000,
-    });
+    const cleaned = cleanKey(rawKey);
+    const keyHeader = cleaned.split("\n")[0] ?? "(empty)";
+    logger.info({ keyHeader }, "[ESL] Parsed SSH key header");
+
+    try {
+      conn.connect({
+        host:         bareHost(ESL_HOST),
+        port:         SSH_PORT,
+        username:     SSH_USER,
+        privateKey:   cleaned,
+        readyTimeout: 15_000,
+      });
+    } catch (err) {
+      logger.error(
+        { err: (err as Error).message, keyHeader },
+        "[ESL] SSH key parse failed — check FREESWITCH_SSH_KEY format. " +
+        "Key must be a PEM or OpenSSH private key (RSA, ECDSA, or Ed25519). " +
+        "If stored with literal \\n, re-paste the key with real newlines.",
+      );
+      this.sshConn = null;
+    }
   }
 
   private attachChannel(channel: ClientChannel) {

@@ -24,13 +24,45 @@ import {
   sipProfileXml,
 } from "./freeswitchConfig";
 
-const FS_HOST     = process.env.FREESWITCH_DOMAIN ?? "";
+const FS_DOMAIN   = process.env.FREESWITCH_DOMAIN ?? "";
 const FS_SSH_PORT = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
 const FS_SSH_USER = process.env.FREESWITCH_SSH_USER ?? "root";
 const FS_CONF_DIR = process.env.FREESWITCH_CONF_DIR ?? "/usr/local/freeswitch/conf";
 
+/** Strip protocol (wss://, ws://, https://, http://) and path/port for SSH/TCP use. */
+function bareHost(raw: string): string {
+  try {
+    if (/^[a-z]+:\/\//i.test(raw)) return new URL(raw).hostname;
+  } catch { /* fall through */ }
+  return raw.split(":")[0].replace(/\/$/, "");
+}
+
+const FS_HOST = bareHost(FS_DOMAIN);
+
 function cleanKey(raw: string): string {
-  return raw
+  let s = raw.trim();
+
+  // Handle literal \n escape sequences
+  if (s.includes("\\n")) {
+    s = s.replace(/\\n/g, "\n");
+  }
+
+  // Handle keys stored as a single line with spaces replacing newlines.
+  // We extract header/footer separately so their internal spaces are preserved.
+  if (!s.includes("\n") && s.includes("-----BEGIN") && s.includes("-----END")) {
+    const headerMatch = s.match(/(-----BEGIN [^-]+-----)/);
+    const footerMatch = s.match(/(-----END [^-]+-----)/);
+    if (headerMatch && footerMatch) {
+      const header = headerMatch[1];
+      const footer = footerMatch[1];
+      const contentStart = s.indexOf(header) + header.length;
+      const contentEnd = s.indexOf(footer);
+      const body = s.slice(contentStart, contentEnd).trim().replace(/\s+/g, "\n");
+      s = `${header}\n${body}\n${footer}`;
+    }
+  }
+
+  return s
     .split("\n")
     .map((l) => l.trimStart())
     .join("\n")

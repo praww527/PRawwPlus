@@ -23,7 +23,7 @@ export interface ICdr extends Document<string> {
 const CdrSchema = new Schema<ICdr>(
   {
     _id: { type: String, required: true },
-    callId: { type: String, required: true, index: true },
+    callId: { type: String, required: true },
     userId: { type: String, required: true, index: true },
     fsCallId: { type: String, index: true, sparse: true },
     otherLegId: { type: String },

@@ -13,7 +13,7 @@ export interface IPhoneNumber extends Document<string> {
 const PhoneNumberSchema = new Schema<IPhoneNumber>(
   {
     _id: { type: String, required: true },
-    number: { type: String, required: true, unique: true, index: true },
+    number: { type: String, required: true, unique: true },
     userId: { type: String, default: null, index: true },
     country: { type: String },
     region: { type: String },
