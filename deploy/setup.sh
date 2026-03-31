@@ -10,7 +10,7 @@
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
-DOMAIN="${DOMAIN:-your-domain.com}"
+DOMAIN="${DOMAIN:-rtc.praww.co.za}"
 NODE_VERSION="22"
 PNPM_VERSION="10.26.1"
 APP_PORT="3000"

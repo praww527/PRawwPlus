@@ -7,7 +7,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
+        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
       }
     },
     "preview": {
@@ -16,13 +16,13 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
+        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
+        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
       }
     },
     "production-aab": {
@@ -31,7 +31,7 @@
         "buildType": "aab"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
+        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
       }
     }
   },
