@@ -25,8 +25,10 @@ module.exports = {
       kill_timeout: 20000,
       wait_ready: false,
 
-      // Secrets are read from the .env file on the server via dotenv or
-      // injected by the deploy/setup.sh before pm2 start.
+      // Node 22 native --env-file: loads .env before app code runs.
+      // This means secrets survive server reboots and PM2 resurrections.
+      node_args: `--env-file=${path.join(__dirname, ".env")}`,
+
       env_production: {
         NODE_ENV: "production",
         PORT: "3000",
