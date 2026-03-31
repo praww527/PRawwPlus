@@ -1,0 +1,160 @@
+{
+  "id": "90d32b25-d027-48dd-a13c-671e2945eb59",
+  "createdAt": "2026-03-29T16:52:11.757Z",
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle-1774803131757-11668",
+    "contentType": "application/javascript",
+    "url": "https://localhost/1774803131757-11668/_expo/static/js/ios/bundle.js"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "eas": {
+      "projectId": "d70cf263-144d-4218-862c-98cfbaa8cfb2"
+    },
+    "expoClient": {
+      "name": "PRawwPlus",
+      "slug": "prawwplus-mobile",
+      "owner": "praww",
+      "version": "1.0.0",
+      "orientation": "portrait",
+      "icon": "./assets/images/icon.png",
+      "scheme": "prawwplus",
+      "userInterfaceStyle": "automatic",
+      "newArchEnabled": false,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
+      "updates": {
+        "url": "https://u.expo.dev/d70cf263-144d-4218-862c-98cfbaa8cfb2",
+        "enabled": true,
+        "fallbackToCacheTimeout": 0,
+        "checkAutomatically": "ON_LOAD"
+      },
+      "splash": {
+        "image": "./assets/images/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0A84FF",
+        "imageUrl": "http://127.0.0.1:8081/assets/./assets/images/splash-icon.png"
+      },
+      "ios": {
+        "supportsTablet": false,
+        "bundleIdentifier": "com.praww.prawwplus",
+        "buildNumber": "1",
+        "infoPlist": {
+          "NSMicrophoneUsageDescription": "PRawwPlus needs microphone access for phone calls.",
+          "NSCameraUsageDescription": "PRawwPlus needs camera access for video calls.",
+          "UIBackgroundModes": [
+            "voip",
+            "fetch",
+            "remote-notification",
+            "audio"
+          ]
+        },
+        "entitlements": {
+          "com.apple.developer.pushkit.unrestricted-voip": true,
+          "aps-environment": "production"
+        }
+      },
+      "android": {
+        "package": "com.praww.prawwplus",
+        "versionCode": 1,
+        "googleServicesFile": "{\r\n  \"project_info\": {\r\n    \"project_number\": \"767597729013\",\r\n    \"project_id\": \"prawwplus-1324c\",\r\n    \"storage_bucket\": \"prawwplus-1324c.firebasestorage.app\"\r\n  },\r\n  \"client\": [\r\n    {\r\n      \"client_info\": {\r\n        \"mobilesdk_app_id\": \"1:767597729013:android:aefbbd7f9ad35aab22a1bc\",\r\n        \"android_client_info\": {\r\n          \"package_name\": \"com.praww.prawwplus\"\r\n        }\r\n      },\r\n      \"oauth_client\": [],\r\n      \"api_key\": [\r\n        {\r\n          \"current_key\": \"AIzaSyBFu_cu67fJMjQ4iu1IfvkcKqXg2wHcrUM\"\r\n        }\r\n      ],\r\n      \"services\": {\r\n        \"appinvite_service\": {\r\n          \"other_platform_oauth_client\": []\r\n        }\r\n      }\r\n    }\r\n  ],\r\n  \"configuration_version\": \"1\"\r\n}\r\n",
+        "permissions": [
+          "android.permission.RECORD_AUDIO",
+          "android.permission.MODIFY_AUDIO_SETTINGS",
+          "android.permission.READ_PHONE_STATE",
+          "android.permission.CALL_PHONE",
+          "android.permission.MANAGE_OWN_CALLS",
+          "android.permission.INTERNET",
+          "android.permission.USE_SIP",
+          "android.permission.WAKE_LOCK",
+          "android.permission.RECEIVE_BOOT_COMPLETED",
+          "android.permission.FOREGROUND_SERVICE",
+          "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+          "android.permission.USE_FULL_SCREEN_INTENT",
+          "android.permission.VIBRATE",
+          "android.permission.POST_NOTIFICATIONS"
+        ],
+        "softwareKeyboardLayoutMode": "pan"
+      },
+      "web": {
+        "favicon": "./assets/images/icon.png"
+      },
+      "plugins": [
+        "expo-font",
+        "expo-web-browser",
+        "expo-updates",
+        [
+          "@react-native-firebase/app",
+          {}
+        ],
+        [
+          "@react-native-firebase/messaging",
+          {
+            "backgroundMessageHandlerEnabled": true
+          }
+        ]
+      ],
+      "experiments": {
+        "typedRoutes": true,
+        "reactCompiler": true
+      },
+      "extra": {
+        "eas": {
+          "projectId": "d70cf263-144d-4218-862c-98cfbaa8cfb2"
+        }
+      },
+      "_internal": {
+        "isDebug": false,
+        "projectRoot": "D:\\PRawwPlus\\PRawwPlus\\artifacts\\prawwplus-mobile",
+        "dynamicConfigPath": {},
+        "staticConfigPath": "D:\\PRawwPlus\\PRawwPlus\\artifacts\\prawwplus-mobile\\app.json",
+        "packageJsonPath": "D:\\PRawwPlus\\PRawwPlus\\artifacts\\prawwplus-mobile\\package.json",
+        "pluginHistory": {
+          "expo-font": {
+            "name": "expo-font",
+            "version": "14.0.11"
+          },
+          "expo-web-browser": {
+            "name": "expo-web-browser",
+            "version": "15.0.10"
+          },
+          "expo-updates": {
+            "name": "expo-updates",
+            "version": "29.0.16"
+          },
+          "@react-native-firebase/app": {
+            "name": "@react-native-firebase/app",
+            "version": "23.8.8"
+          },
+          "@react-native-firebase/messaging": {
+            "name": "@react-native-firebase/messaging",
+            "version": "23.8.8"
+          }
+        }
+      },
+      "sdkVersion": "54.0.0",
+      "platforms": [
+        "ios",
+        "android",
+        "web"
+      ],
+      "iconUrl": "http://127.0.0.1:8081/assets/./assets/images/icon.png",
+      "hostUri": "localhost/ios"
+    },
+    "expoGo": {
+      "debuggerHost": "localhost/ios",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "D:\\PRawwPlus\\PRawwPlus\\artifacts\\prawwplus-mobile"
+      },
+      "packagerOpts": {
+        "dev": false
+      },
+      "mainModuleName": "index"
+    },
+    "scopeKey": "@anonymous/prawwplus-mobile-9042b610-7527-4d51-87b4-e42d9adc2ad5"
+  }
+}
