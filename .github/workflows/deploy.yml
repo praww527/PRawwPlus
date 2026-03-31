@@ -39,7 +39,7 @@ jobs:
 
       - name: Mobile — typecheck
         continue-on-error: true
-        run: pnpm --filter @workspace/prawwplus-mobile run typecheck
+        run: pnpm --filter @workspace/call-manager-mobile run typecheck
 
   # ─── 2. Deploy to Oracle VPS (main/master only, after verify passes) ────────
   #

@@ -37,5 +37,5 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Run EAS build
-        working-directory: artifacts/prawwplus-mobile
+        working-directory: artifacts/call-manager-mobile
         run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive

@@ -13,12 +13,18 @@
       },
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
       }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
       }
     },
     "production": {
@@ -29,6 +35,9 @@
       },
       "ios": {
         "credentialsSource": "remote"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
       }
     },
     "production-aab": {
@@ -36,6 +45,9 @@
       "android": {
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "https://your-vps-domain.com"
       }
     }
   },
