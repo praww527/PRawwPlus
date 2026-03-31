@@ -5,9 +5,16 @@
 #   ssh ubuntu@YOUR_VPS_IP
 #   git clone https://github.com/praww527/PRawwPlus.git ~/PRawwPlus
 #   cd ~/PRawwPlus
-#   cp .env.example .env && nano .env   # fill in all secrets first
+#   cp artifacts/api-server/.env.example .env && nano .env   # fill in all secrets first
 #   bash deploy/setup.sh
 set -euo pipefail
+
+# Abort early if .env does not exist — the app cannot start without secrets.
+if [ ! -f ".env" ]; then
+  echo "ERROR: .env not found. Run:"
+  echo "  cp artifacts/api-server/.env.example .env && nano .env"
+  exit 1
+fi
 
 DEPLOY_DIR="${DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
 DOMAIN="${DOMAIN:-rtc.praww.co.za}"
