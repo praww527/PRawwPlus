@@ -1,0 +1,16 @@
+# Normalise line endings to LF on commit (prevents false diffs on Windows)
+* text=auto eol=lf
+
+# Binary — no text processing
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.zip  binary
+*.apk  binary
+*.aab  binary
+*.keystore binary
+*.p12  binary
+*.pem  binary

@@ -1,0 +1,91 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── 1. Verify (every push + PR) ────────────────────────────────────────────
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: API server — tests
+        run: pnpm --filter @workspace/api-server test
+
+      - name: API server — typecheck
+        run: pnpm --filter @workspace/api-server run typecheck
+
+      - name: API server — build
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Mobile — typecheck
+        run: pnpm --filter @workspace/prawwplus-mobile run typecheck
+
+  # ─── 2. Deploy to Oracle VPS (main/master only, after verify passes) ────────
+  #
+  # Required GitHub Secrets:
+  #   VPS_HOST        — public IP or hostname of the Oracle VPS
+  #   VPS_USER        — SSH user (e.g. "ubuntu")
+  #   VPS_SSH_KEY     — full PEM private key  (-----BEGIN ... -----END ...)
+  #   VPS_PORT        — SSH port (default 22)
+  #   VPS_DEPLOY_DIR  — absolute path on server (e.g. /home/ubuntu/PRawwPlus)
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH deploy to Oracle VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            cd ${{ secrets.VPS_DEPLOY_DIR }}
+
+            echo "── Pull latest ──────────────────────────────"
+            git pull origin $(git rev-parse --abbrev-ref HEAD)
+
+            echo "── pnpm install ─────────────────────────────"
+            corepack enable
+            corepack prepare pnpm@10.26.1 --activate
+            pnpm install --frozen-lockfile
+
+            echo "── Build libs ───────────────────────────────"
+            pnpm --filter @workspace/db \
+                 --filter @workspace/auth-web \
+                 --filter @workspace/api-client-react \
+                 run build
+
+            echo "── Build web app ────────────────────────────"
+            pnpm --filter @workspace/call-manager run build
+
+            echo "── Build API server ─────────────────────────"
+            pnpm --filter @workspace/api-server run build
+
+            echo "── Reload PM2 ───────────────────────────────"
+            pm2 reload ecosystem.config.cjs --update-env \
+              || pm2 start ecosystem.config.cjs --env production
+
+            echo "── Done $(date) ─────────────────────────────"
