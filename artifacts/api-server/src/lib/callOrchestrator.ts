@@ -17,7 +17,7 @@
  *   cancelHangupTimer(fsCallId)              — call ended early; cancel balance timer
  */
 
-import { connectDB, CallModel, UserModel } from "@workspace/db";
+import { connectDB, CallModel, UserModel, BillingLedgerModel } from "@workspace/db";
 import { logger } from "./logger";
 import { isTransitionAllowed, causeToStatus, causeToLabel, type CallStatus } from "./callStateMachine";
 import { EventResult } from "./eslEventBuffer";
@@ -70,6 +70,25 @@ async function deductCoinsAndUpdateStats(
   callId: string,
 ): Promise<void> {
   if (coinsUsed > 0) {
+    // Write ledger entry first — the unique index on (userId, callId) acts as an
+    // idempotency guard: if this function is called twice for the same call the
+    // second insert will be silently ignored (duplicate key), preventing double-charging.
+    try {
+      await BillingLedgerModel.create({
+        userId,
+        callId,
+        type:   "debit",
+        coins:  coinsUsed,
+        reason: "call_end",
+      });
+    } catch (err: any) {
+      if (err?.code === 11000) {
+        logger.warn({ callId, userId }, "[Orchestrator] Duplicate billing ledger entry — skipping coin deduction");
+        return;
+      }
+      throw err;
+    }
+
     await UserModel.updateOne({ _id: userId }, [
       {
         $set: {
