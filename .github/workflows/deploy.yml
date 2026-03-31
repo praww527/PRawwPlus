@@ -1,4 +1,4 @@
-name: CI
+name: CI / Deploy
 
 on:
   push:
@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─── 1. Verify (runs on every push + PR) ────────────────────────────────────
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -17,7 +18,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -38,3 +39,55 @@ jobs:
 
       - name: Mobile — typecheck
         run: pnpm --filter @workspace/prawwplus-mobile run typecheck
+
+  # ─── 2. Deploy to Oracle VPS (main/master branch only) ──────────────────────
+  #
+  # Required GitHub Secrets:
+  #   VPS_HOST        — public IP or hostname of the Oracle VPS
+  #   VPS_USER        — SSH user  (e.g. "ubuntu" or "opc")
+  #   VPS_SSH_KEY     — full PEM private key (starts with -----BEGIN ...)
+  #   VPS_PORT        — SSH port  (default 22)
+  #   VPS_DEPLOY_DIR  — absolute path where the repo lives on the server
+  #                     (e.g. /home/ubuntu/PRawwPlus)
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            cd ${{ secrets.VPS_DEPLOY_DIR }}
+
+            echo "==> Pulling latest code"
+            git pull origin $(git rev-parse --abbrev-ref HEAD)
+
+            echo "==> Enabling corepack / pnpm"
+            corepack enable
+            corepack prepare pnpm@10.26.1 --activate
+
+            echo "==> Installing dependencies"
+            pnpm install --frozen-lockfile
+
+            echo "==> Building libraries"
+            pnpm --filter @workspace/db \
+                 --filter @workspace/auth-web \
+                 --filter @workspace/api-client-react \
+                 run build
+
+            echo "==> Building web app"
+            pnpm --filter @workspace/call-manager run build
+
+            echo "==> Building API server"
+            pnpm --filter @workspace/api-server run build
+
+            echo "==> Restarting API server with PM2"
+            pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+
+            echo "==> Done — $(date)"
