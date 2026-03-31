@@ -40,6 +40,16 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   const fsHost = user?.freeswitchHost ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
   const fsPort = user?.freeswitchPort ?? 5060;
 
+  const defaultIceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+  let iceServers = defaultIceServers;
+  if (process.env.ICE_SERVERS) {
+    try {
+      iceServers = JSON.parse(process.env.ICE_SERVERS);
+    } catch {
+      console.warn("[verto/config] ICE_SERVERS env var contains invalid JSON — using default STUN");
+    }
+  }
+
   res.json({
     wsUrl,
     domain,
@@ -48,6 +58,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     password: ext.fsPassword,
     coins,
     configured: Boolean(wsUrl),
+    iceServers,
     settings: {
       ringtone: user?.ringtone ?? "default",
       ringtoneDuration: user?.ringtoneDuration ?? 30,

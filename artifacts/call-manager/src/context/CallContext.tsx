@@ -105,6 +105,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const clientRef      = useRef<VertoClient | null>(null);
   const incomingSdpRef = useRef<string>("");
+  const callStateRef   = useRef<CallState>("idle");
+
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
 
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
     setVertoConfigState((prev) => {
@@ -139,8 +142,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       onAnswer: (_callId, _sdp) => {
         setHangupInfo(null);
-        setCallPhase("connected");
-        setCallState("active");
+        // For outbound calls the Verto closure captures stale callState;
+        // use callStateRef.current which is always current.
+        if (callStateRef.current === "outgoing") {
+          // Remote party answered — transition to connected immediately.
+          setCallPhase("connected");
+          setCallState("active");
+        } else {
+          // Inbound: already handled by acceptCall, but guard here too.
+          setCallPhase("connected");
+          setCallState("active");
+        }
       },
 
       onHangup: (_callId, hc) => {
