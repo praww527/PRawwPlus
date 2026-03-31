@@ -648,19 +648,26 @@ class FreeSwitchESL {
   private async sendMissedCallPush(fsCallId: string, destExt: string, callerExt: string) {
     await connectDB();
     const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
-      .select("expoPushToken notificationPrefs")
+      .select("expoPushToken fcmToken notificationPrefs")
       .lean();
 
-    if (!destUser?.expoPushToken) return;
+    if (!destUser?.expoPushToken && !destUser?.fcmToken) return;
     if (destUser.notificationPrefs?.missedCalls === false) return;
 
     logger.info({ fsCallId, destExt, callerExt }, "[Push] Sending missed call notification");
-    await sendExpoPush(
-      destUser.expoPushToken,
-      "📵 Missed Call",
-      `You missed a call from extension ${callerExt}`,
-      { type: "missed_call", fromExtension: callerExt, toExtension: destExt },
-    );
+    const pushData = { type: "missed_call", fromExtension: callerExt, toExtension: destExt };
+
+    if (destUser.fcmToken) {
+      await sendFcmDataMessage(destUser.fcmToken, pushData);
+    }
+    if (destUser.expoPushToken) {
+      await sendExpoPush(
+        destUser.expoPushToken,
+        "📵 Missed Call",
+        `You missed a call from extension ${callerExt}`,
+        pushData,
+      );
+    }
   }
 }
 

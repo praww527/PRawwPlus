@@ -219,8 +219,35 @@ export function dialplanXml(fsDomain: string): string {
         <action application="hangup" data="USER_BUSY"/>
       </condition>
 
-      <!-- Callee did not answer in time (cause 19)
-           Reorder / fast-busy tone: 480+620 Hz, 250ms on / 250ms off, 6 cycles (~3 s). -->
+      <!--
+        Callee did not answer in time (cause 19).
+        Order matters: forwarding and voicemail run first (break="never" so
+        they always execute). The terminal announcement only fires last
+        (break="on-true") — if we reach it, neither forwarding nor voicemail
+        handled the call.
+      -->
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
+        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
+        <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardNoAnswerTo)}"/>
+        <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardNoAnswerEnabled)}"/>
+        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
+        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
+        <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
+        <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
+        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
+      </condition>
+
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
+        <action application="answer"/>
+        <action application="voicemail" data="default ${fsDomain} $1"/>
+        <action application="hangup" data="NORMAL_CLEARING"/>
+      </condition>
+
+      <!-- Reorder / fast-busy tone: 480+620 Hz, 250ms on / 250ms off, 6 cycles (~3 s).
+           Only reached if neither forwarding nor voicemail handled the call. -->
       <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(250,250,480,620);loops=6"/>
@@ -229,12 +256,22 @@ export function dialplanXml(fsDomain: string): string {
         <action application="hangup" data="NO_ANSWER"/>
       </condition>
 
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
-        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)"/>
-        <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardNoAnswerTo)}"/>
-        <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardNoAnswerEnabled)}"/>
+      <!-- Caller cancelled before answer — just hang up, no announcement needed -->
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
+        <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
+      </condition>
+
+      <!--
+        Callee offline / not registered (cause 20).
+        Same ordering rule as NO_ANSWER: forwarding and voicemail first
+        (break="never"), terminal SIT announcement last (break="on-true").
+      -->
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
+        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
+        <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardUnavailableTo)}"/>
+        <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardUnavailableEnabled)}"/>
         <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
-        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
+        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
@@ -243,45 +280,20 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
         <action application="answer"/>
         <action application="voicemail" data="default ${fsDomain} $1"/>
         <action application="hangup" data="NORMAL_CLEARING"/>
       </condition>
 
-      <!-- Caller cancelled before answer — just hang up, no announcement needed -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
-        <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
-      </condition>
-
-      <!-- Callee offline / not registered (cause 20)
-           SIT tone (Special Information Tone): 913→1370→1776 Hz, 274ms each, 2 repeats. -->
+      <!-- SIT tone (Special Information Tone): 913→1370→1776 Hz, 274ms each, 2 repeats.
+           Only reached if neither forwarding nor voicemail handled the call. -->
       <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
         <action application="sleep" data="300"/>
         <action application="hangup" data="UNREGISTERED"/>
-      </condition>
-
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
-        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)"/>
-        <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardUnavailableTo)}"/>
-        <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardUnavailableEnabled)}"/>
-        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
-        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
-        <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
-        <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
-        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
-      </condition>
-
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
-        <action application="answer"/>
-        <action application="voicemail" data="default ${fsDomain} $1"/>
-        <action application="hangup" data="NORMAL_CLEARING"/>
       </condition>
 
       <!-- Unknown destination

@@ -23,7 +23,7 @@ function statusColors(status: string) {
 
 function isInternalNum(num: string): boolean {
   const d = num.replace(/\D/g, "");
-  return d.length >= 3 && d.length <= 4;
+  return d.length === 4;
 }
 
 export default function CallHistory() {

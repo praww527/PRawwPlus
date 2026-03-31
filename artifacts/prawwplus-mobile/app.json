@@ -5,7 +5,7 @@
     "owner": "praww",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./icon.png",
     "scheme": "prawwplus",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
@@ -19,7 +19,7 @@
       "checkAutomatically": "ON_LOAD"
     },
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0A84FF"
     },
@@ -63,7 +63,7 @@
       "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./icon.png"
     },
     "plugins": [
       "expo-font",

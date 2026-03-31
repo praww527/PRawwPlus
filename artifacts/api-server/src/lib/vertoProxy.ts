@@ -47,9 +47,21 @@ export function createVertoProxy(): WebSocketServer {
 
     const upstream = new WebSocket(upstreamUrl, ["verto"]);
 
+    // Buffer messages that arrive from the browser while the upstream WebSocket
+    // is still in CONNECTING state.  Without this the Verto login message sent
+    // immediately on browser-open is silently dropped, causing a 10 s RPC
+    // timeout → reconnect loop (the primary "Verto WebSocket not connecting" bug).
+    const pendingToUpstream: Array<{ data: Parameters<WebSocket["send"]>[0]; isBinary: boolean }> = [];
+
     // ── upstream → client ────────────────────────────────────────────────────
     upstream.on("open", () => {
       logger.info("Verto proxy: upstream connected to FreeSWITCH");
+      // Flush any messages that were buffered while we were still connecting.
+      for (const msg of pendingToUpstream.splice(0)) {
+        if (upstream.readyState === WebSocket.OPEN) {
+          upstream.send(msg.data, { binary: msg.isBinary });
+        }
+      }
     });
 
     upstream.on("message", (data, isBinary) => {
@@ -99,6 +111,9 @@ export function createVertoProxy(): WebSocketServer {
     client.on("message", (data, isBinary) => {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
+      } else if (upstream.readyState === WebSocket.CONNECTING) {
+        // Upstream not yet open — buffer so the Verto login isn't lost
+        pendingToUpstream.push({ data, isBinary });
       }
       // Log what the browser is sending (method names, not SDPs)
       if (!isBinary) {

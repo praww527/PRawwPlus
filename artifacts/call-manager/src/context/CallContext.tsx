@@ -109,7 +109,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pendingIncomingNumberRef = useRef<string | null>(null);
   const inboundRecordCreatedRef  = useRef<boolean>(false);
 
+  // Refs used inside the stale Verto-callback closure and the polling effect
+  const callStateRef    = useRef<CallState>("idle");
+  const callInfoRef     = useRef<CallInfo | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollAttemptsRef = useRef(0);
+
   const { mutateAsync: createCallRecord } = useMakeCall();
+
+  // Keep refs in sync so stale closures always see current values
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
+  useEffect(() => { callInfoRef.current  = callInfo;  }, [callInfo]);
 
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
     setVertoConfigState((prev) => {
@@ -146,7 +156,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       onAnswer: async (callId, _sdp) => {
         setHangupInfo(null);
-        setCallPhase("connected");
+        if (callStateRef.current === "outgoing") {
+          // FreeSWITCH answered the A-leg for ICE/DTLS media setup before the
+          // callee has actually picked up.  Stay in "ringing" — the polling
+          // effect below transitions to "connected" once the DB confirms
+          // status=answered via the CHANNEL_ANSWER ESL event.
+          setCallPhase("ringing");
+        } else {
+          setCallPhase("connected");
+        }
         setCallState("active");
 
         // Create an inbound call record for the callee so their Call History is complete.
@@ -188,6 +206,53 @@ export function CallProvider({ children }: { children: ReactNode }) {
     };
   }, [vertoConfig]);
 
+  // Poll the call record (every 2 s) until FreeSWITCH confirms the callee
+  // answered (CHANNEL_ANSWER → status "answered" in DB), then go to
+  // "connected".  Falls back after 30 s regardless.
+  // This effect only runs in the unique state: active+ringing, which only
+  // occurs for outbound calls after verto.answer fires prematurely.
+  useEffect(() => {
+    const active = callState === "active" && callPhase === "ringing" && callInfo?.callId;
+    if (!active) {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        pollAttemptsRef.current = 0;
+      }
+      return;
+    }
+
+    const dbCallId = callInfo!.callId!;
+    pollAttemptsRef.current = 0;
+
+    pollIntervalRef.current = setInterval(async () => {
+      pollAttemptsRef.current += 1;
+      if (pollAttemptsRef.current > 15) {
+        clearInterval(pollIntervalRef.current!);
+        pollIntervalRef.current = null;
+        setCallPhase("connected");
+        return;
+      }
+      try {
+        const res = await fetch(`/api/calls/${dbCallId}`);
+        if (!res.ok) return;
+        const data = await res.json() as { status?: string };
+        if (data.status === "answered" || data.status === "completed") {
+          clearInterval(pollIntervalRef.current!);
+          pollIntervalRef.current = null;
+          setCallPhase("connected");
+        }
+      } catch { /* network error — will retry */ }
+    }, 2000);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [callState, callPhase, callInfo?.callId]);
+
   const startOutgoing = useCallback((info: CallInfo) => {
     setHangupInfo(null);
     setCallInfo(info);
@@ -223,13 +288,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (clientRef.current && callInfo?.callId && incomingSdpRef.current) {
       try {
         await clientRef.current.answerCall(callInfo.callId, incomingSdpRef.current);
+        setHangupInfo(null);
+        setCallPhase("connected");
+        setCallState("active");
       } catch (e) {
         console.warn("[Verto] answerCall error", e);
+        setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "failed" });
+        setCallPhase("ended");
+        setTimeout(() => {
+          setCallState("idle");
+          setCallInfo(null);
+        }, 1500);
       }
+    } else {
+      setHangupInfo(null);
+      setCallPhase("connected");
+      setCallState("active");
     }
-    setHangupInfo(null);
-    setCallPhase("connected");
-    setCallState("active");
   }, [callInfo]);
 
   const declineCall = useCallback(() => {

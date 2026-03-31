@@ -311,4 +311,10 @@ router.get("/logout", async (req: Request, res: Response) => {
   res.redirect("/");
 });
 
+router.post("/auth/logout", async (req: Request, res: Response) => {
+  const sid = getSessionId(req);
+  await clearSession(res, sid);
+  res.json({ message: "Logged out" });
+});
+
 export default router;

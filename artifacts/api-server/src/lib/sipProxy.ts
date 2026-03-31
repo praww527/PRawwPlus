@@ -37,8 +37,20 @@ export function createSipProxy(): WebSocketServer {
 
     const upstream = new WebSocket(upstreamUrl, ["sip"]);
 
+    // Buffer messages that arrive from the mobile client while the upstream
+    // WebSocket is still in CONNECTING state.  Without this the SIP REGISTER
+    // sent immediately on connect is silently dropped, causing registration
+    // failures (the primary "mobile SIP not connecting" bug).
+    const pendingToUpstream: Array<{ data: Parameters<WebSocket["send"]>[0]; isBinary: boolean }> = [];
+
     upstream.on("open", () => {
       logger.debug("SIP proxy: upstream connected");
+      // Flush any messages buffered while we were connecting
+      for (const msg of pendingToUpstream.splice(0)) {
+        if (upstream.readyState === WebSocket.OPEN) {
+          upstream.send(msg.data, { binary: msg.isBinary });
+        }
+      }
     });
 
     upstream.on("message", (data, isBinary) => {
@@ -61,6 +73,9 @@ export function createSipProxy(): WebSocketServer {
     client.on("message", (data, isBinary) => {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
+      } else if (upstream.readyState === WebSocket.CONNECTING) {
+        // Upstream not yet open — buffer so the SIP REGISTER isn't lost
+        pendingToUpstream.push({ data, isBinary });
       }
     });
 

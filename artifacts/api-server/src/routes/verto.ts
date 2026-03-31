@@ -49,15 +49,22 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   const fsHost = user?.freeswitchHost ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
   const fsPort = user?.freeswitchPort ?? 5060;
 
-  const iceServers = process.env.ICE_SERVERS
-    ? JSON.parse(process.env.ICE_SERVERS)
-    : [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-      { urls: "stun:stun3.l.google.com:19302" },
-      { urls: "stun:stun4.l.google.com:19302" },
-    ];
+  const defaultIceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+  ];
+  let iceServers = defaultIceServers;
+  if (process.env.ICE_SERVERS) {
+    try {
+      iceServers = JSON.parse(process.env.ICE_SERVERS);
+    } catch {
+      const { logger } = await import("../lib/logger");
+      logger.warn("[verto/config] ICE_SERVERS env var contains invalid JSON — using defaults");
+    }
+  }
 
   res.json({
     wsUrl,

@@ -8,7 +8,7 @@ module.exports = ({ config }) => {
       targetSdkVersion: 34,
       buildToolsVersion: "34.0.0",
       adaptiveIcon: {
-        foregroundImage: "./assets/images/icon.png",
+        foregroundImage: "./icon.png",
         backgroundColor: "#0A84FF"
       },
     },

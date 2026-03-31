@@ -56,4 +56,5 @@ attached_assets/*privat*
 replit.md
 .env
 .env.*
+!.env.example
 *.pem

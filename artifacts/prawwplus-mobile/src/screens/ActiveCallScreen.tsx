@@ -227,11 +227,13 @@ export default function ActiveCallScreen() {
 
   const statusText = isOnHold
     ? "On Hold"
-    : callState === "calling"
-      ? "Calling…"
-      : isOutbound
-        ? "Connected"
-        : "Incoming";
+    : callState === "in-call"
+      ? "Connected"
+      : callState === "calling"
+        ? (isOutbound ? "Calling…" : "Ringing…")
+        : isOutbound
+          ? "Connected"
+          : "Incoming";
 
   return (
     <SafeAreaView style={styles.safe}>

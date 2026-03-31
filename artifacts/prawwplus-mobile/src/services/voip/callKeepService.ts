@@ -71,10 +71,12 @@ export const callKeepService = {
 
     RNCallKeep.addEventListener("answerCall", ({ callUUID }: { callUUID: string }) => {
       console.log("[CallKeep] answerCall", callUUID);
-      // If SIP INVITE isn't here yet (app just woke up), queue the answer.
-      // VoipEngine will auto-answer as soon as the incoming session is created.
+      // Queue the answer UUID so VoipEngine auto-answers once the SIP INVITE
+      // arrives (handles the app-woken-from-push case).
       voipEngine.queueAnswer(callUUID);
-      voipEngine.answerIncomingCall().catch(console.error);
+      // The actual answerIncomingCall() call is made by the CallContext listener
+      // below (via listeners.forEach).  Calling it here as well would cause a
+      // double-answer race that can corrupt the JsSIP session state.
       const event: CallKeepEvent = { type: "answerCall", uuid: callUUID };
       listeners.forEach((l) => l(event));
     });
@@ -105,7 +107,7 @@ export const callKeepService = {
         if (event.name === "RNCallKeepPerformAnswerCallAction") {
           const { callUUID } = event.data ?? {};
           if (callUUID) {
-            voipEngine.answerIncomingCall().catch(console.error);
+            voipEngine.queueAnswer(callUUID);
             listeners.forEach((l) => l({ type: "answerCall", uuid: callUUID }));
           }
         } else if (event.name === "RNCallKeepPerformEndCallAction") {

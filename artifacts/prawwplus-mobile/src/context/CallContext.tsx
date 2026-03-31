@@ -268,6 +268,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       setIncomingFrom(from);
       setIncomingUuid(uuid);
       incomingFromRef.current = from;
+      pendingDirectionRef.current = "inbound";
       setLastFailureReason(null);
       callKeepService.displayIncomingCall(uuid, from, from);
       navigate("IncomingCall");
@@ -275,6 +276,10 @@ export function CallProvider({ children }: PropsWithChildren) {
 
     const onWaiting = (info: WaitingCall) => {
       setWaitingCall(info);
+    };
+
+    const onWaitingCallEnded = () => {
+      setWaitingCall(null);
     };
 
     const onConnected = async (info: CallInfo) => {
@@ -362,12 +367,13 @@ export function CallProvider({ children }: PropsWithChildren) {
       console.error("[VoIP] Error:", message);
     };
 
-    voipEngine.on("stateChange",   onState);
-    voipEngine.on("incomingCall",  onIncoming);
-    voipEngine.on("waitingCall",   onWaiting);
-    voipEngine.on("callConnected", onConnected);
-    voipEngine.on("callEnded",     onEnded);
-    voipEngine.on("error",         onError);
+    voipEngine.on("stateChange",      onState);
+    voipEngine.on("incomingCall",     onIncoming);
+    voipEngine.on("waitingCall",      onWaiting);
+    voipEngine.on("waitingCallEnded", onWaitingCallEnded);
+    voipEngine.on("callConnected",    onConnected);
+    voipEngine.on("callEnded",        onEnded);
+    voipEngine.on("error",            onError);
 
     const removeCallKeepListener = callKeepService.addListener((event) => {
       if (event.type === "answerCall") {
@@ -379,12 +385,13 @@ export function CallProvider({ children }: PropsWithChildren) {
     });
 
     return () => {
-      voipEngine.off("stateChange",   onState);
-      voipEngine.off("incomingCall",  onIncoming);
-      voipEngine.off("waitingCall",   onWaiting);
-      voipEngine.off("callConnected", onConnected);
-      voipEngine.off("callEnded",     onEnded);
-      voipEngine.off("error",         onError);
+      voipEngine.off("stateChange",      onState);
+      voipEngine.off("incomingCall",     onIncoming);
+      voipEngine.off("waitingCall",      onWaiting);
+      voipEngine.off("waitingCallEnded", onWaitingCallEnded);
+      voipEngine.off("callConnected",    onConnected);
+      voipEngine.off("callEnded",        onEnded);
+      voipEngine.off("error",            onError);
       removeCallKeepListener();
     };
   }, [createCallRecord, finalizeCallRecord]);

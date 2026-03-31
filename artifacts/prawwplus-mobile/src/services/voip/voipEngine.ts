@@ -90,12 +90,13 @@ export interface WaitingCall {
 }
 
 type VoipEventMap = {
-  stateChange:    (state: CallState) => void;
-  incomingCall:   (session: RTCSession, from: string, uuid: string) => void;
-  waitingCall:    (info: WaitingCall) => void;
-  callConnected:  (info: CallInfo) => void;
-  callEnded:      (reason: string, friendlyReason: string) => void;
-  error:          (message: string) => void;
+  stateChange:      (state: CallState) => void;
+  incomingCall:     (session: RTCSession, from: string, uuid: string) => void;
+  waitingCall:      (info: WaitingCall) => void;
+  waitingCallEnded: () => void;
+  callConnected:    (info: CallInfo) => void;
+  callEnded:        (reason: string, friendlyReason: string) => void;
+  error:            (message: string) => void;
 };
 
 // ─── SIP Cause → User-Friendly Message mapping ────────────────────────────────
@@ -306,8 +307,18 @@ class VoipEngine {
         this.waitingSession = { session, fromNumber: fromNum, uuid };
         this.emit("waitingCall", this.waitingSession);
 
-        session.on("ended",  () => { if (this.waitingSession?.uuid === uuid) this.waitingSession = null; });
-        session.on("failed", () => { if (this.waitingSession?.uuid === uuid) this.waitingSession = null; });
+        session.on("ended",  () => {
+          if (this.waitingSession?.uuid === uuid) {
+            this.waitingSession = null;
+            this.emit("waitingCallEnded");
+          }
+        });
+        session.on("failed", () => {
+          if (this.waitingSession?.uuid === uuid) {
+            this.waitingSession = null;
+            this.emit("waitingCallEnded");
+          }
+        });
         return;
       }
 
@@ -581,6 +592,29 @@ class VoipEngine {
       try { oldSession.terminate(); } catch {}
     }
 
+    // Wire SIP event handlers BEFORE calling answer() so no events are missed.
+    // callConnected is emitted from the accepted handler (not prematurely here)
+    // to ensure the SIP 200 OK has been received before the UI transitions.
+    session.on("accepted", () => {
+      toneService.startCallAudio();
+      this.currentCallInfo = {
+        uuid,
+        remoteNumber: fromNumber,
+        direction: "inbound",
+        startedAt: new Date(),
+      };
+      this.isHeld = false;
+      this.setState("in-call");
+      this.emit("callConnected", this.currentCallInfo);
+    });
+
+    session.on("ended",  (e: any) => { this.handleSessionEnd(session, e?.cause ?? "ended"); });
+    session.on("failed", (e: any) => { this.handleSessionEnd(session, e?.cause ?? "failed"); });
+
+    session.on("peerconnection", (data: any) => {
+      this.wireRemoteStream(data.peerconnection);
+    });
+
     const localStream = await this.getLocalAudioStream();
     this.localStream  = localStream;
 
@@ -588,22 +622,14 @@ class VoipEngine {
       mediaStream:      localStream as any,
       mediaConstraints: { audio: true, video: false },
       pcConfig: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
+        iceServers: (this.credentials?.iceServers && Array.isArray(this.credentials.iceServers) && this.credentials.iceServers.length > 0)
+          ? this.credentials.iceServers
+          : [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
       },
     });
-
-    this.currentCallInfo = {
-      uuid,
-      remoteNumber: fromNumber,
-      direction: "inbound",
-      startedAt: new Date(),
-    };
-    this.isHeld = false;
-    this.setState("in-call");
-    this.emit("callConnected", this.currentCallInfo);
   }
 
   dismissWaitingCall(): void {
