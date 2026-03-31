@@ -34,3 +34,21 @@ server.listen(port, async () => {
   // Runs every time the server starts — safe to run repeatedly (idempotent).
   await runStartup();
 });
+
+// Graceful shutdown — PM2 sends SIGTERM on reload/stop.
+// Stop accepting new connections, let in-flight requests drain (up to 15 s),
+// then exit cleanly. ecosystem.config.cjs kill_timeout (20 s) is the hard cap.
+function gracefulShutdown(signal: string) {
+  logger.info({ signal }, "Received shutdown signal — closing server");
+  server.close(() => {
+    logger.info("All connections closed — exiting");
+    process.exit(0);
+  });
+  setTimeout(() => {
+    logger.warn("Graceful shutdown timed out — force exiting");
+    process.exit(1);
+  }, 15_000).unref();
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
