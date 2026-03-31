@@ -15,7 +15,7 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       }
     },
     "preview": {
@@ -24,7 +24,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       }
     },
     "production": {
@@ -37,7 +37,7 @@
         "credentialsSource": "remote"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       }
     },
     "production-aab": {
@@ -47,7 +47,7 @@
         "gradleCommand": ":app:bundleRelease"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://rtc.praww.co.za"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       }
     }
   },
