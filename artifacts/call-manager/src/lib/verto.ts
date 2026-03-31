@@ -21,6 +21,12 @@
  * is the #1 cause of one-way or no-audio calls.
  */
 
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
 export interface VertoConfig {
   wsUrl: string;
   domain: string;
@@ -29,6 +35,7 @@ export interface VertoConfig {
   password: string;
   coins: number;
   configured: boolean;
+  iceServers?: IceServer[];
 }
 
 export interface HangupCause {
@@ -383,14 +390,13 @@ export class VertoClient {
 
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 
+    const defaultIce: IceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+    ];
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-      ],
+      iceServers: this.config.iceServers ?? defaultIce,
     });
     this.pc = pc;
 
