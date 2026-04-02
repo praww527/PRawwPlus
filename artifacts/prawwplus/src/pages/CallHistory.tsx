@@ -53,11 +53,13 @@ export default function CallHistory() {
       return;
     }
 
+    const fsCallId = crypto.randomUUID();
     startOutgoing({ number, callType });
     try {
-      const fsCallId = await makeVertoCall(number);
-      const record = await initiateCall({ data: { recipientNumber: number, fsCallId: fsCallId ?? undefined } });
+      const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
       if (record?.id) updateCallId(record.id);
+      const vertoCallId = await makeVertoCall(number, fsCallId);
+      if (!vertoCallId) throw new Error("Could not connect to the call server.");
     } catch (err: any) {
       endCall();
       toast({ title: "Call failed", description: err?.message ?? "Could not place the call.", variant: "destructive" });
