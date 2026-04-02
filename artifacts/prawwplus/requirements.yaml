@@ -8,10 +8,10 @@ packages:
   "tailwind-merge": "Resolving Tailwind class conflicts"
 
 images:
-  - path: "artifacts/call-manager/public/images/bg-abstract.png"
+  - path: "artifacts/prawwplus/public/images/bg-abstract.png"
     description: "Dark professional abstract background with subtle deep indigo, neon teal, and black mesh gradients, highly blurred and modern"
     aspect_ratio: "16:9"
-  - path: "artifacts/call-manager/public/images/avatar-placeholder.png"
+  - path: "artifacts/prawwplus/public/images/avatar-placeholder.png"
     description: "Minimalist abstract geometric user avatar placeholder in shades of deep blue and purple on a transparent background"
     aspect_ratio: "1:1"
 

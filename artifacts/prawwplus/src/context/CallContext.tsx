@@ -293,7 +293,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallState("active");
       } catch (e) {
         console.warn("[Verto] answerCall error", e);
-        setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "failed" });
+        setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "error" });
         setCallPhase("ended");
         setTimeout(() => {
           setCallState("idle");

@@ -226,7 +226,7 @@ importers:
         specifier: 'catalog:'
         version: 4.21.0
 
-  artifacts/call-manager:
+  artifacts/prawwplus:
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
