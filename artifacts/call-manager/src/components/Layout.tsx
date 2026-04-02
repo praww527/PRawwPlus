@@ -1,19 +1,19 @@
 import { Link, useLocation } from "wouter";
-import { Phone, Clock, User, Voicemail, Star } from "lucide-react";
+import { Phone, Clock, Users, Voicemail, Star } from "lucide-react";
 import { VertoInit } from "@/components/VertoInit";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-export const NAV_H = 80;
+export const NAV_H = 62;
 
 const navItems = [
-  { href: "/dashboard",  label: "Keypad",    icon: Phone },
-  { href: "/calls",      label: "Calls",      icon: Clock },
+  { href: "/dashboard",  label: "Keypad",     icon: Phone },
+  { href: "/calls",      label: "Recents",    icon: Clock },
   { href: "/voicemail",  label: "Voicemail",  icon: Voicemail },
-  { href: "/favorites",  label: "Favorites",  icon: Star },
-  { href: "/profile",    label: "Profile",    icon: User },
+  { href: "/contacts",   label: "Contacts",   icon: Users },
+  { href: "/favorites",  label: "Favourites", icon: Star },
 ];
 
 export function Layout({ children }: LayoutProps) {
@@ -41,7 +41,7 @@ export function Layout({ children }: LayoutProps) {
           flex: 1,
           overflowY: "auto",
           paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: "calc(94px + env(safe-area-inset-bottom, 0px))",
+          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
         }}
       >
         <div
@@ -56,8 +56,8 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* Fixed bottom navbar */}
-      <div
+      {/* Fixed full-width bottom navbar */}
+      <nav
         style={{
           position: "fixed",
           bottom: 0,
@@ -65,81 +65,76 @@ export function Layout({ children }: LayoutProps) {
           right: 0,
           zIndex: 50,
           display: "flex",
-          justifyContent: "center",
-          alignItems: "flex-end",
-          paddingBottom: "calc(14px + env(safe-area-inset-bottom, 0px))",
-          pointerEvents: "none",
+          alignItems: "stretch",
+          height: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          background: "rgba(14,14,20,0.95)",
+          backdropFilter: "blur(20px) saturate(160%)",
+          WebkitBackdropFilter: "blur(20px) saturate(160%)",
+          borderTop: "1px solid rgba(255,255,255,0.07)",
         }}
       >
-        <nav
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: "6px",
-            gap: 2,
-            pointerEvents: "all",
-            borderRadius: 36,
-            background: "rgba(255,255,255,0.12)",
-            backdropFilter: "blur(28px) saturate(200%) brightness(1.08)",
-            WebkitBackdropFilter: "blur(28px) saturate(200%) brightness(1.08)",
-            border: "1px solid rgba(255,255,255,0.25)",
-            boxShadow: "0 12px 40px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.15)",
-          }}
-        >
-          {navItems.map((item) => {
-            const active = isActive(item.href);
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{ textDecoration: "none" }}
+        {navItems.map((item) => {
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{ textDecoration: "none", flex: 1 }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: `${NAV_H}px`,
+                  gap: 3,
+                  cursor: "pointer",
+                  userSelect: "none",
+                  position: "relative",
+                  transition: "opacity 0.15s",
+                }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 4,
-                    padding: "6px 14px",
-                    borderRadius: 28,
-                    cursor: "pointer",
-                    userSelect: "none",
-                    minWidth: 52,
-                    background: active ? "rgba(255,255,255,0.28)" : "transparent",
-                    boxShadow: active
-                      ? "inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 4px rgba(0,0,0,0.08)"
-                      : "none",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <item.icon
+                {active && (
+                  <div
                     style={{
-                      width: 20,
-                      height: 20,
-                      color: active ? "#3b82f6" : "rgba(255,255,255,0.5)",
-                      strokeWidth: active ? 2.2 : 1.6,
-                      transition: "all 0.2s ease",
+                      position: "absolute",
+                      top: 0,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      width: 28,
+                      height: 2,
+                      borderRadius: "0 0 2px 2px",
+                      background: "#3b82f6",
                     }}
                   />
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: active ? "#3b82f6" : "rgba(255,255,255,0.5)",
-                      lineHeight: 1,
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    {item.label}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+                )}
+                <item.icon
+                  style={{
+                    width: 22,
+                    height: 22,
+                    color: active ? "#3b82f6" : "rgba(255,255,255,0.35)",
+                    strokeWidth: active ? 2.2 : 1.5,
+                    transition: "color 0.15s",
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: active ? 700 : 500,
+                    color: active ? "#3b82f6" : "rgba(255,255,255,0.35)",
+                    lineHeight: 1,
+                    transition: "color 0.15s",
+                  }}
+                >
+                  {item.label}
+                </span>
+              </div>
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }

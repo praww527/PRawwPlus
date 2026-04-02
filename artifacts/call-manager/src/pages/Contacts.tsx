@@ -410,6 +410,43 @@ export default function Contacts() {
           )}
         </div>
 
+        {/* My Contact Card */}
+        {!isLoading && !query && user && (
+          <div className="section-card" style={{ marginBottom: 0 }}>
+            <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: "50%",
+                background: "rgba(59,130,246,0.18)",
+                border: "1px solid rgba(59,130,246,0.35)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 14, fontWeight: 700, color: "#3b82f6", flexShrink: 0,
+              }}>
+                {initials(user.name, primaryNumber?.number)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {user.name ?? user.email ?? "Me"}
+                  </p>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 6, padding: "1px 6px" }}>
+                    ME
+                  </span>
+                </div>
+                {primaryNumber && (
+                  <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>
+                    {primaryNumber.number}
+                  </p>
+                )}
+                {user.extension && (
+                  <p style={{ fontSize: 11, color: "#30d158", marginTop: 1, fontWeight: 600 }}>
+                    Ext. {user.extension}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* List */}
         {isLoading ? (
           <div className="section-card">

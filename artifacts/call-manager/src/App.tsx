@@ -24,6 +24,8 @@ import IncomingCallScreen from "@/pages/IncomingCallScreen";
 import BuyNumber          from "@/pages/BuyNumber";
 import NotificationsPage  from "@/pages/NotificationsPage";
 import CallSettingsPage   from "@/pages/CallSettingsPage";
+import VoicemailPage      from "@/pages/Voicemail";
+import Favorites          from "@/pages/Favorites";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -102,7 +104,9 @@ function Router() {
       <Route path="/reset-password"  component={ResetPassword} />
       <Route path="/dashboard"       component={() => <ProtectedRoute component={DialPad} />} />
       <Route path="/calls"           component={() => <ProtectedRoute component={CallHistory} />} />
+      <Route path="/voicemail"       component={() => <ProtectedRoute component={VoicemailPage} />} />
       <Route path="/contacts"        component={() => <ProtectedRoute component={Contacts} />} />
+      <Route path="/favorites"       component={() => <ProtectedRoute component={Favorites} />} />
       <Route path="/profile"         component={() => <ProtectedRoute component={Profile} />} />
       <Route path="/buy-number"      component={BuyNumberRoute} />
       <Route path="/notifications"   component={() => <ProtectedRoute component={NotificationsPage} />} />

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, AlertCircle, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Delete, Phone, Loader2, UserCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
@@ -29,6 +29,17 @@ const GRID_W = BTN * 3 + COL_GAP * 2;
 function isInternalNumber(num: string): boolean {
   const digits = num.replace(/\D/g, "");
   return digits.length === 4;
+}
+
+function userInitials(name?: string, email?: string) {
+  if (name) {
+    const parts = name.trim().split(/\s+/);
+    return parts.length > 1
+      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      : parts[0].slice(0, 2).toUpperCase();
+  }
+  if (email) return email.slice(0, 2).toUpperCase();
+  return "ME";
 }
 
 export default function DialPad() {
@@ -75,18 +86,15 @@ export default function DialPad() {
 
   const del = () => setNumber((n) => n.slice(0, -1));
 
-  const isInternal = isInternalNumber(number);
   const coins = user?.coins ?? 0;
   const isActive = user?.subscriptionStatus === "active";
   const canCallExternal = coins > 0 && isActive;
+  const isInternal = isInternalNumber(number);
   const minLength = 3;
 
   const handleCall = async () => {
     if (!number || number.length < minLength) {
-      toast({
-        title: "Enter a valid number or extension",
-        variant: "destructive",
-      });
+      toast({ title: "Enter a valid number or extension", variant: "destructive" });
       return;
     }
 
@@ -101,64 +109,39 @@ export default function DialPad() {
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
-
-    // Pre-generate the FreeSWITCH call UUID so we can store it in the DB
-    // BEFORE initiating the Verto call. This prevents a race condition where
-    // FreeSWITCH fires CHANNEL_ORIGINATE / CHANNEL_ANSWER events before the
-    // call record exists, causing the ESL handler to silently drop them.
     const fsCallId = crypto.randomUUID();
 
-    // Show calling UI immediately
     startOutgoing({ number, callType });
 
     try {
-      // Create the server-side call record FIRST (validates subscription/balance).
-      // The fsCallId is stored now so ESL events arriving during ICE negotiation
-      // can find this record.
-      const record = await initiateCall({
-        data: {
-          recipientNumber: number,
-          fsCallId,
-        },
-      });
-
-      if (record?.id) {
-        updateCallId(record.id);
-      }
+      const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
+      if (record?.id) updateCallId(record.id);
 
       if (vertoActive) {
-        // Place the Verto WebRTC call, reusing the pre-generated UUID as the
-        // Verto callID so FreeSWITCH uses it as its channel Unique-ID.
         const vertoCallId = await makeVertoCall(number, fsCallId);
         if (!vertoCallId) {
-          // makeVertoCall returned null — WebSocket issue or ICE failure
           endCall();
-          toast({
-            title: "Call failed",
-            description: "Could not connect to the call server. Check your connection.",
-            variant: "destructive",
-          });
+          toast({ title: "Call failed", description: "Could not connect to the call server.", variant: "destructive" });
           return;
         }
       } else {
-        // No Verto connection — immediately mark as connected (non-VoIP fallback)
         connectCall();
       }
-      // When Verto IS active: stay in "calling/ringing" state until verto.answer fires
     } catch (err: any) {
       endCall();
       toast({
         title: "Call failed",
-        description: err?.message ?? (isInternal
-          ? "Could not reach that extension."
-          : "Check your subscription and coin balance."),
+        description: err?.message ?? (isInternal ? "Could not reach that extension." : "Check your subscription and balance."),
         variant: "destructive",
       });
     }
   };
 
-  const extension = user?.extension;
   const numFontSize = number.length > 14 ? 26 : number.length > 10 ? 30 : number.length > 6 ? 36 : 42;
+
+  const isConnected = Boolean(vertoConfig?.configured && isVertoConnected);
+  const isConnecting = Boolean(vertoConfig?.configured && !isVertoConnected);
+  const dotColor = isConnected ? "#30d158" : isConnecting ? "#ff9f0a" : "#ff453a";
 
   return (
     <div style={{
@@ -173,101 +156,56 @@ export default function DialPad() {
       background: "var(--surface-0)",
       overflowY: "auto",
     }}>
-      <div style={{ flex: 1, minHeight: 16 }} />
 
-      {extension && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 8,
-          padding: "6px 16px",
-          borderRadius: 20,
-          background: "rgba(0,199,255,0.07)",
-          border: "1px solid rgba(0,199,255,0.15)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-        }}>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Your Extension
-          </span>
-          <span style={{ fontSize: 16, fontWeight: 700, color: "#00c7ff", letterSpacing: "0.04em" }}>
-            {extension}
-          </span>
-          {vertoConfig?.configured && (
-            <span style={{ display: "flex", alignItems: "center" }}>
-              {isVertoConnected
-                ? <Wifi style={{ width: 12, height: 12, color: "#30d158" }} />
-                : <WifiOff style={{ width: 12, height: 12, color: "#ff9500" }} />
-              }
-            </span>
-          )}
-        </div>
-      )}
-
-      {user && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: 10,
-          padding: "5px 14px",
-          borderRadius: 20,
-          background: "rgba(255,214,10,0.08)",
-          border: "1px solid rgba(255,214,10,0.15)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-        }}>
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.40)", fontWeight: 500 }}>Balance</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#ffd60a", letterSpacing: "0.02em" }}>
-            {coins.toFixed(2)}
-          </span>
-          <span style={{ fontSize: 10, color: "rgba(255,214,10,0.55)" }}>coins</span>
-        </div>
-      )}
-
-      {number.length >= 3 && (
-        <div style={{
-          marginBottom: 8,
-          padding: "4px 12px",
-          borderRadius: 12,
-          background: isInternal ? "rgba(48,209,88,0.08)" : "rgba(255,159,10,0.08)",
-          border: `1px solid ${isInternal ? "rgba(48,209,88,0.2)" : "rgba(255,159,10,0.2)"}`,
-        }}>
-          <span style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: isInternal ? "#30d158" : "#ff9f0a",
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-          }}>
-            {isInternal ? "Extension Call · Free" : "External Call · Coins"}
+      {/* Top bar: Balance (left) | Connection dot (center) | Profile (right) */}
+      <div style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "14px 20px 0",
+        maxWidth: 480,
+      }}>
+        {/* Balance — top left */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)" }}>
+            R {coins.toFixed(2)}
           </span>
         </div>
-      )}
 
-      {user && !isInternal && !canCallExternal && number.length >= 5 && (
+        {/* Connection dot — center */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{
+            width: 10, height: 10, borderRadius: "50%",
+            background: dotColor,
+            boxShadow: `0 0 6px ${dotColor}`,
+          }} />
+        </div>
+
+        {/* Profile avatar — top right */}
         <button
           onClick={() => setLocation("/profile")}
           style={{
-            display: "flex", alignItems: "center", gap: 8,
-            marginBottom: 16, padding: "10px 18px", borderRadius: 14,
-            background: "rgba(255,149,0,0.08)",
-            border: "1px solid rgba(255,149,0,0.15)",
+            width: 36, height: 36, borderRadius: "50%",
+            background: "var(--glass-bg)",
+            border: "1px solid var(--glass-border)",
             backdropFilter: "blur(12px)",
             WebkitBackdropFilter: "blur(12px)",
-            cursor: "pointer", maxWidth: GRID_W + 40,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer",
+            fontSize: 13, fontWeight: 700, color: "var(--text-1)",
           }}
         >
-          <AlertCircle style={{ width: 15, height: 15, color: "#ff9500", flexShrink: 0 }} />
-          <span style={{ fontSize: 13, color: "#ff9500", textAlign: "left" }}>
-            {!isActive
-              ? "Subscribe for external calls — from R59/mo"
-              : "Top up your coin balance to call externally"}
-          </span>
+          {user?.name || user?.email
+            ? userInitials(user.name, user.email)
+            : <UserCircle2 style={{ width: 18, height: 18, color: "var(--text-2)" }} />
+          }
         </button>
-      )}
+      </div>
 
+      <div style={{ flex: 1, minHeight: 16 }} />
+
+      {/* Number display */}
       <div style={{
         width: GRID_W + 40,
         maxWidth: "100%",
@@ -315,6 +253,7 @@ export default function DialPad() {
         )}
       </div>
 
+      {/* Dial grid */}
       <div style={{
         display: "grid",
         gridTemplateColumns: `repeat(3, ${BTN}px)`,
@@ -338,6 +277,7 @@ export default function DialPad() {
         })}
       </div>
 
+      {/* Call button row */}
       <div style={{
         width: GRID_W,
         display: "flex",
@@ -412,9 +352,7 @@ function DialButton({ primary, secondary, isZero, size, onPress, onZeroDown, onZ
       style={{
         width: size, height: size,
         borderRadius: "50%",
-        background: pressed
-          ? "rgba(255,255,255,0.18)"
-          : "var(--dial-btn-bg)",
+        background: pressed ? "rgba(255,255,255,0.18)" : "var(--dial-btn-bg)",
         border: "1px solid var(--dial-btn-border)",
         backdropFilter: "blur(14px)",
         WebkitBackdropFilter: "blur(14px)",
