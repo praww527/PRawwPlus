@@ -1,7 +1,7 @@
 import { useLocation } from "wouter";
 import {
   Phone, Zap, CreditCard, Globe, Shield, Star,
-  ArrowRight, CheckCircle, ChevronRight
+  ArrowRight, CheckCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import logoImg from "/logo.png";
@@ -231,30 +231,6 @@ export default function Home() {
               <p className="text-white/50 text-sm">Local & national calls. Only billed for connected time.</p>
             </div>
 
-            <div className="glass rounded-2xl p-6 border border-white/10">
-              <h4 className="text-white font-semibold mb-4">Example calculation</h4>
-              <div className="space-y-3">
-                {[
-                  { label: "Top up R100", result: "≈ 111 minutes of calls" },
-                  { label: "Top up R200", result: "≈ 222 minutes of calls" },
-                  { label: "Top up R500", result: "≈ 555 minutes of calls" },
-                ].map((ex) => (
-                  <div key={ex.label} className="flex items-center justify-between text-sm">
-                    <span className="text-white/60">{ex.label}</span>
-                    <span className="flex items-center gap-1.5 text-green-400 font-medium">
-                      <ChevronRight className="h-3.5 w-3.5" />
-                      {ex.result}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="glass rounded-2xl p-6 border border-white/10 bg-green-500/5 border-green-500/15">
-              <p className="text-green-400 text-sm font-medium">
-                💡 <strong>R100 = ~110 minutes</strong> of calls — enough for a full business day of conversations.
-              </p>
-            </div>
           </div>
         </div>
       </section>
