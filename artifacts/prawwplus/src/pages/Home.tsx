@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import {
-  Phone, Zap, CreditCard, Globe, Shield, Star,
+  Phone, Zap, CreditCard, Globe, Shield,
   ArrowRight, CheckCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,27 +33,6 @@ const trustItems = [
   { icon: Shield, text: "Secure payments with PayFast" },
   { icon: Globe, text: "Powered by global telecom infrastructure" },
   { icon: CheckCircle, text: "No contracts, cancel anytime" },
-];
-
-const testimonials = [
-  {
-    name: "Sipho M.",
-    role: "Small Business Owner, Johannesburg",
-    text: "My call costs dropped by 60%. I top up with PayFast and I'm done. No contracts, no hassle.",
-    rating: 5,
-  },
-  {
-    name: "Lerato K.",
-    role: "Freelancer, Cape Town",
-    text: "I needed a business number fast. Had one in 5 minutes. Calls are crystal clear.",
-    rating: 5,
-  },
-  {
-    name: "Thabo N.",
-    role: "Startup Founder, Durban",
-    text: "Finally a calling solution built for South Africa. PayFast integration is seamless.",
-    rating: 5,
-  },
 ];
 
 export default function Home() {
@@ -230,43 +209,19 @@ export default function Home() {
               </div>
               <p className="text-white/50 text-sm">Local & national calls. Only billed for connected time.</p>
             </div>
-
           </div>
         </div>
       </section>
 
       {/* Trust Section */}
       <section className="relative z-10 px-6 md:px-12 py-24 max-w-7xl mx-auto">
-        <div className="flex flex-wrap justify-center gap-8 mb-20">
+        <div className="flex flex-wrap justify-center gap-8">
           {trustItems.map((item) => (
             <div key={item.text} className="flex items-center gap-3 glass rounded-2xl px-6 py-4 border border-white/8">
               <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
                 <item.icon className="h-4.5 w-4.5 text-primary" />
               </div>
               <span className="text-white/70 font-medium text-sm">{item.text}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Testimonials */}
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-display font-bold text-white mb-3">
-            Trusted by South African businesses
-          </h2>
-        </div>
-        <div className="grid md:grid-cols-3 gap-5">
-          {testimonials.map((t) => (
-            <div key={t.name} className="glass rounded-2xl p-6 border border-white/8">
-              <div className="flex gap-0.5 mb-4">
-                {Array.from({ length: t.rating }).map((_, i) => (
-                  <Star key={i} className="h-4 w-4 fill-amber-400 text-amber-400" />
-                ))}
-              </div>
-              <p className="text-white/70 text-sm leading-relaxed mb-4">"{t.text}"</p>
-              <div>
-                <p className="text-white font-semibold text-sm">{t.name}</p>
-                <p className="text-white/40 text-xs">{t.role}</p>
-              </div>
             </div>
           ))}
         </div>
@@ -281,7 +236,7 @@ export default function Home() {
               Ready to cut your call costs?
             </h2>
             <p className="text-white/55 text-lg mb-8 max-w-lg mx-auto">
-              Join hundreds of South African businesses saving money on every call.
+              Get a dedicated South African business number and start making affordable calls today.
             </p>
             <Button
               size="lg"
