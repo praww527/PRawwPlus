@@ -1,124 +1,198 @@
 #!/usr/bin/env bash
 # deploy/freeswitch.sh
-# Install FreeSWITCH 1.10 on Oracle Ubuntu 22.04 (jammy) AMD64.
-# Run as root or a user with sudo access.
-# Usage: sudo bash deploy/freeswitch.sh YOUR_SIGNALWIRE_TOKEN
+# Build and install FreeSWITCH 1.10 from source on Oracle Ubuntu 22.04 AMD64.
+# No SignalWire token required.
 #
-# Get your free SignalWire token at: https://id.signalwire.com/
-# (sign up → Personal Access Token — it's free for FreeSWITCH package access)
+# Usage: sudo bash deploy/freeswitch.sh
+#
+# Build time: 20-40 minutes depending on VPS size.
+# Installs to: /usr/local/freeswitch
+# Config dir:  /etc/freeswitch  (symlinked → /usr/local/freeswitch/conf)
+# Logs:        /var/log/freeswitch
+# Storage:     /usr/local/freeswitch/storage
 set -euo pipefail
 
-SIGNALWIRE_TOKEN="${1:-}"
-if [ -z "$SIGNALWIRE_TOKEN" ]; then
-  echo "ERROR: Pass your SignalWire token as the first argument."
-  echo "  sudo bash deploy/freeswitch.sh YOUR_TOKEN"
-  echo "  Get a free token at: https://id.signalwire.com/"
-  exit 1
+FS_VERSION="${FS_VERSION:-v1.10.12}"
+FS_SRC="/usr/src/freeswitch"
+FS_PREFIX="/usr/local/freeswitch"
+
+echo "===== [1/8] Install build dependencies ====="
+apt-get update -y
+apt-get install -y \
+  build-essential cmake automake autoconf libtool pkg-config \
+  git wget curl lsb-release ca-certificates \
+  \
+  libssl-dev zlib1g-dev libdb-dev unixodbc-dev \
+  libncurses5-dev libexpat1-dev libedit-dev \
+  libsqlite3-dev libpcre3-dev libcurl4-openssl-dev \
+  libldns-dev liblua5.2-dev libjpeg-dev libtiff5-dev \
+  \
+  libopus-dev libopus0 \
+  libsndfile1-dev libspeex-dev libspeexdsp-dev \
+  libvorbis-dev libgsm1-dev \
+  \
+  libsofia-sip-ua-dev libspandsp-dev \
+  \
+  flite libflite1 \
+  \
+  yasm nasm \
+  libavformat-dev libswscale-dev \
+  python3-dev swig \
+  uuid-dev
+
+echo "===== [2/8] Create freeswitch system user ====="
+if ! id freeswitch &>/dev/null; then
+  adduser --system --group --no-create-home --home "$FS_PREFIX" \
+    --shell /bin/false freeswitch
 fi
 
-CODENAME="$(lsb_release -cs)"  # jammy, focal, etc.
+echo "===== [3/8] Clone FreeSWITCH ${FS_VERSION} source ====="
+if [ -d "$FS_SRC/.git" ]; then
+  echo "Source already exists — fetching updates"
+  git -C "$FS_SRC" fetch --tags
+  git -C "$FS_SRC" checkout "$FS_VERSION"
+else
+  git clone https://github.com/signalwire/freeswitch.git "$FS_SRC" --depth 1 \
+    --branch "$FS_VERSION"
+fi
+cd "$FS_SRC"
 
-echo "===== [1/5] Install prerequisites ====="
-sudo apt-get update -y
-sudo apt-get install -y gnupg2 wget curl lsb-release apt-transport-https ca-certificates
+echo "===== [4/8] Enable required modules ====="
+# modules.conf controls what gets compiled. Enable the modules PRaww+ needs.
+cp modules.conf modules.conf.bak 2>/dev/null || true
+cat > /tmp/fs_modules_enable.sh << 'MODSCRIPT'
+#!/usr/bin/env bash
+# Uncomment (enable) a set of required modules in modules.conf
+CONF="$1"
+enable_mod() {
+  local mod="$1"
+  # Remove leading # and optional spaces
+  sed -i "s|^[[:space:]]*#[[:space:]]*\(.*${mod}\)|\1|" "$CONF"
+}
+enable_mod "codecs/mod_opus"
+enable_mod "codecs/mod_sndfile"
+enable_mod "codecs/mod_speex"
+enable_mod "codecs/mod_vorbis"
+enable_mod "codecs/mod_h26x"
+enable_mod "endpoints/mod_sofia"
+enable_mod "endpoints/mod_verto"
+enable_mod "endpoints/mod_loopback"
+enable_mod "event_handlers/mod_event_socket"
+enable_mod "event_handlers/mod_json_cdr"
+enable_mod "applications/mod_commands"
+enable_mod "applications/mod_dptools"
+enable_mod "applications/mod_voicemail"
+enable_mod "applications/mod_flite"
+enable_mod "applications/mod_say_en"
+enable_mod "applications/mod_curl"
+enable_mod "xml_int/mod_xml_curl"
+enable_mod "xml_int/mod_xml_rpc"
+enable_mod "loggers/mod_logfile"
+enable_mod "loggers/mod_console"
+enable_mod "formats/mod_sndfile"
+MODSCRIPT
+bash /tmp/fs_modules_enable.sh modules.conf
 
-echo "===== [2/5] Add SignalWire FreeSWITCH repository ====="
-# GPG key
-sudo wget -q -O /usr/share/keyrings/signalwire-freeswitch-repo.gpg \
-  "https://freeswitch.signalwire.com/repo/deb/ubuntu-release/${CODENAME}/signalwire-freeswitch-repo.gpg"
+echo "===== [5/8] Bootstrap and configure ====="
+./bootstrap.sh -j
+./configure \
+  --prefix="$FS_PREFIX" \
+  --with-openssl
 
-# Credentials
-echo "machine freeswitch.signalwire.com login signalwire password ${SIGNALWIRE_TOKEN}" \
-  | sudo tee /etc/apt/auth.conf > /dev/null
-sudo chmod 600 /etc/apt/auth.conf
+echo "===== [6/8] Build (this takes 20-40 minutes) ====="
+make -j"$(nproc)"
 
-# Sources list
-echo "deb [signed-by=/usr/share/keyrings/signalwire-freeswitch-repo.gpg] \
-https://freeswitch.signalwire.com/repo/deb/ubuntu-release/ ${CODENAME} main" \
-  | sudo tee /etc/apt/sources.list.d/freeswitch.list > /dev/null
+echo "===== [7/8] Install FreeSWITCH ====="
+make install
+make cd-sounds-install
+make cd-moh-install
 
-sudo apt-get update -y
+# ── Directory ownership ───────────────────────────────────────────────────
+chown -R freeswitch:freeswitch "$FS_PREFIX"
+mkdir -p /var/log/freeswitch
+chown freeswitch:freeswitch /var/log/freeswitch
 
-echo "===== [3/7] Install FreeSWITCH core + all audio modules ====="
-# freeswitch-meta-all installs the core + most modules.
-# We also explicitly install the WebRTC audio-critical modules:
-#   mod_opus     — Opus codec (REQUIRED for Chrome/Firefox/Safari WebRTC audio)
-#   mod_verto    — WebRTC browser support via JSON-RPC over WebSocket
-#   mod_sofia    — SIP stack (mobile JsSIP clients)
-#   mod_voicemail — Voicemail storage and retrieval
-#   mod_flite    — TTS engine (announcements, voicemail prompts)
-#   mod_say_en   — English speech synthesis support
-#   mod_event_socket — ESL control for API server
-#   mod_xml_curl — Dynamic XML directory (users from our API)
-#   mod_dptools  — Call control (bridge, answer, hangup)
-#   mod_loopback — Internal call routing
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  freeswitch-meta-all \
-  freeswitch-mod-opus \
-  freeswitch-mod-flite \
-  freeswitch-mod-say-en \
-  freeswitch-mod-verto \
-  freeswitch-mod-sofia \
-  freeswitch-mod-voicemail \
-  freeswitch-mod-event-socket \
-  freeswitch-mod-xml-curl \
-  freeswitch-mod-dptools \
-  freeswitch-mod-commands \
-  freeswitch-mod-loopback
+# ── Symlinks for system-wide access ──────────────────────────────────────
+ln -sf "$FS_PREFIX/bin/freeswitch" /usr/local/bin/freeswitch
+ln -sf "$FS_PREFIX/bin/fs_cli"     /usr/local/bin/fs_cli
 
-echo "===== [4/7] Enable required modules in modules.conf.xml ====="
-FS_MODS_CONF="/etc/freeswitch/autoload_configs/modules.conf.xml"
-if [ -f "$FS_MODS_CONF" ]; then
-  for MOD in mod_opus mod_verto mod_sofia mod_voicemail mod_flite mod_event_socket mod_xml_curl mod_dptools mod_commands mod_loopback; do
-    if ! grep -q "<load module=\"${MOD}\"" "$FS_MODS_CONF"; then
-      sudo sed -i "s|</modules>|  <load module=\"${MOD}\"/>\n</modules>|" "$FS_MODS_CONF"
-      echo "  Enabled ${MOD} in modules.conf.xml"
-    fi
-  done
+# ── /etc/freeswitch → conf dir (matches FREESWITCH_CONF_DIR default) ─────
+if [ ! -L /etc/freeswitch ] && [ ! -d /etc/freeswitch ]; then
+  ln -sf "$FS_PREFIX/conf" /etc/freeswitch
+  echo "Created symlink /etc/freeswitch → $FS_PREFIX/conf"
 fi
 
-echo "===== [5/7] Check ESL default password ====="
-ESL_CONF="/etc/freeswitch/autoload_configs/event_socket.conf.xml"
-if grep -q "ClueCon" "$ESL_CONF" 2>/dev/null; then
-  echo "WARNING: ESL password is still the default 'ClueCon'."
-  echo "  Set a strong FREESWITCH_ESL_PASSWORD in .env — the API server pushes"
-  echo "  a new event_socket.conf.xml via SSH on startup."
-fi
+# ── Systemd service unit ──────────────────────────────────────────────────
+cat > /etc/systemd/system/freeswitch.service << UNIT
+[Unit]
+Description=FreeSWITCH Voice Platform
+After=network.target syslog.target
+Wants=network.target
 
-echo "===== [6/7] Enable and start FreeSWITCH service ====="
-sudo systemctl enable freeswitch
-sudo systemctl start freeswitch
-sleep 5
-sudo systemctl status freeswitch --no-pager
+[Service]
+Type=forking
+PIDFile=${FS_PREFIX}/run/freeswitch.pid
+EnvironmentFile=-/etc/default/freeswitch
 
-echo "===== [7/7] Verify FreeSWITCH + Opus codec ====="
-sudo fs_cli -x "status" || echo "WARNING: fs_cli not ready yet — FreeSWITCH may still be starting"
-echo ""
-echo "Checking Opus codec support (required for WebRTC audio)..."
-sudo fs_cli -x "show codec" 2>/dev/null | grep -i opus || echo "  mod_opus not yet loaded — check modules.conf.xml"
+ExecStart=${FS_PREFIX}/bin/freeswitch \\
+  -ncwait \\
+  -nonat \\
+  -log /var/log/freeswitch \\
+  -run ${FS_PREFIX}/run \\
+  -db  ${FS_PREFIX}/db \\
+  -mod ${FS_PREFIX}/mod
+
+ExecStop=/bin/kill -TERM \$MAINPID
+ExecReload=/bin/kill -HUP \$MAINPID
+
+Restart=always
+RestartSec=5
+LimitNOFILE=999999
+LimitSTACK=240
+User=freeswitch
+Group=freeswitch
+WorkingDirectory=${FS_PREFIX}
+TimeoutStartSec=45
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable freeswitch
+systemctl start freeswitch
 
 echo ""
-echo "===== FreeSWITCH installation complete ====="
+echo "Waiting for FreeSWITCH to start..."
+sleep 8
+systemctl status freeswitch --no-pager || true
+
+echo "===== [8/8] Verify installation ====="
 echo ""
-echo "Config directory:  /etc/freeswitch"
-echo "Log directory:     /var/log/freeswitch"
-echo "Storage directory: /usr/local/freeswitch/storage  (voicemail)"
+echo "FreeSWITCH status:"
+fs_cli -x "status" 2>/dev/null || echo "  (FreeSWITCH may still be starting — wait 10s and retry: fs_cli -x status)"
+
 echo ""
-echo "IMPORTANT — Next steps:"
-echo "  1. Set in your .env:"
-echo "     FREESWITCH_DOMAIN=<your VPS public IP>"
-echo "     FREESWITCH_ESL_HOST=127.0.0.1"
-echo "     FREESWITCH_ESL_PORT=8021"
-echo "     FREESWITCH_ESL_PASSWORD=<strong password — change from default ClueCon>"
-echo "     FREESWITCH_SSH_USER=root"
-echo "     FREESWITCH_SSH_KEY=<private key contents>"
-echo "     FREESWITCH_CONF_DIR=/etc/freeswitch"
-echo "     FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage"
+echo "Opus codec check (required for WebRTC audio):"
+fs_cli -x "show codec" 2>/dev/null | grep -i opus \
+  || echo "  mod_opus not yet loaded — run: fs_cli -x 'load mod_opus'"
+
 echo ""
-echo "  2. Open Oracle Cloud firewall: UDP 16384-32768 (RTP media — required for audio)"
-echo ""
-echo "  3. Start PRaww+ API: pm2 start ecosystem.config.cjs"
-echo "     The server auto-pushes FreeSWITCH config on startup."
-echo ""
-echo "  4. Verify: pm2 logs prawwplus | grep FSH"
-echo "  5. Test audio: sudo fs_cli -x \"show codec\" | grep opus"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║  FreeSWITCH build complete                                  ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  Install prefix:  ${FS_PREFIX}                   ║"
+echo "║  Config dir:      /etc/freeswitch  (→ ${FS_PREFIX}/conf) ║"
+echo "║  Log dir:         /var/log/freeswitch                       ║"
+echo "║  Storage dir:     ${FS_PREFIX}/storage              ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  Set in .env:                                               ║"
+echo "║    FREESWITCH_DOMAIN=<your VPS public IP>                   ║"
+echo "║    FREESWITCH_ESL_HOST=127.0.0.1                            ║"
+echo "║    FREESWITCH_ESL_PORT=8021                                 ║"
+echo "║    FREESWITCH_ESL_PASSWORD=<strong password>                ║"
+echo "║    FREESWITCH_CONF_DIR=/etc/freeswitch                      ║"
+echo "║    FREESWITCH_STORAGE_DIR=${FS_PREFIX}/storage      ║"
+echo "║                                                              ║"
+echo "║  Open Oracle firewall: UDP 16384-32768 (RTP audio)          ║"
+echo "╚══════════════════════════════════════════════════════════════╝"

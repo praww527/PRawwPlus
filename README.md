@@ -64,8 +64,8 @@ See [DEPLOY.md](./DEPLOY.md) for the complete step-by-step guide.
 **Quick summary:**
 
 ```bash
-# 1. Install FreeSWITCH (get a free SignalWire token at id.signalwire.com)
-sudo bash deploy/freeswitch.sh YOUR_SIGNALWIRE_TOKEN
+# 1. Build and install FreeSWITCH from source (takes 20-40 min)
+sudo bash deploy/freeswitch.sh
 
 # 2. Bootstrap VPS (Node.js 22, pnpm, PM2, nginx, certbot)
 bash deploy/setup.sh

@@ -10,7 +10,7 @@ Complete step-by-step guide for deploying PRaww+ to an **Oracle Cloud Ubuntu 22.
 - A domain name (or subdomain) pointing to the VM's public IP
 - A MongoDB instance (Atlas free tier or self-hosted replica set)
 - A Firebase project with a service account private key
-- A SignalWire account (free) for FreeSWITCH package access
+- FreeSWITCH built from source (the install script handles this)
 - A PayFast merchant account
 
 ---
@@ -41,19 +41,24 @@ ssh ubuntu@YOUR_VPS_IP
 
 ---
 
-## Step 3 — Install FreeSWITCH
+## Step 3 — Build and Install FreeSWITCH
 
-Get a free SignalWire token at **https://id.signalwire.com** (sign up → Personal Access Token).
+No token or account required — FreeSWITCH is compiled from the official source on GitHub.
+
+> **Build time:** 20-40 minutes depending on VPS size. Run in a `tmux` or `screen` session so a dropped SSH connection doesn't interrupt it.
 
 ```bash
 # Clone the repo (replace with your actual git repo URL)
 git clone https://github.com/YOUR_ORG/prawwplus.git ~/PRawwPlus
 cd ~/PRawwPlus
 
-sudo bash deploy/freeswitch.sh YOUR_SIGNALWIRE_TOKEN
+# Start a persistent session first (optional but recommended):
+tmux new -s freeswitch
+
+sudo bash deploy/freeswitch.sh
 ```
 
-This installs FreeSWITCH 1.10 with **all audio modules required for WebRTC**:
+This compiles FreeSWITCH 1.10 from source with **all audio modules required for WebRTC**:
 - `mod_opus` — **Opus codec** (required for Chrome/Firefox/Safari WebRTC audio — no audio without this)
 - `mod_verto` — WebRTC browser support
 - `mod_sofia` — SIP stack for mobile (JsSIP)
@@ -61,6 +66,14 @@ This installs FreeSWITCH 1.10 with **all audio modules required for WebRTC**:
 - `mod_flite` — TTS announcements
 - `mod_event_socket` — API server control (ESL)
 - `mod_xml_curl` — Dynamic user directory
+
+**Install locations:**
+| Path | Purpose |
+|---|---|
+| `/usr/local/freeswitch` | Install prefix (binaries, modules, sounds) |
+| `/etc/freeswitch` | Config directory (symlink → `/usr/local/freeswitch/conf`) |
+| `/var/log/freeswitch` | Log files |
+| `/usr/local/freeswitch/storage` | Voicemail recordings |
 
 **Verify FreeSWITCH is running:**
 ```bash
