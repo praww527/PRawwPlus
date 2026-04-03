@@ -18,7 +18,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "praww.onrender.com"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       },
       "android": {
         "buildType": "apk"
@@ -27,7 +27,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "praww.onrender.com"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       },
       "android": {
         "buildType": "apk",
@@ -40,7 +40,7 @@
     "production-aab": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "praww.onrender.com"
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
       },
       "android": {
         "buildType": "app-bundle",

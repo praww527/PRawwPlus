@@ -11,7 +11,7 @@ import { getTrustedClientIp } from "./lib/clientIp";
 
 const app: Express = express();
 
-// When behind Render/nginx, set TRUST_PROXY=1 so req.ip / X-Forwarded-For are trusted
+// When behind Oracle VPS nginx, set TRUST_PROXY=1 so req.ip / X-Forwarded-For are trusted
 // for PayFast IP checks. Leave unset in direct-exposed dev to prevent header spoofing.
 app.set(
   "trust proxy",
@@ -21,14 +21,14 @@ app.set(
 // In production, serve the pre-built frontend from the same process.
 // STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
 function findStaticDirFromRoot(root: string): string {
-  return path.resolve(root, "artifacts", "call-manager", "dist", "public");
+  return path.resolve(root, "artifacts", "prawwplus", "dist", "public");
 }
 
 function resolveStaticDir(): string {
   if (process.env.STATIC_DIR) return process.env.STATIC_DIR;
 
-  // Render and other production environments may start the server with a cwd
-  // that is *not* the repo root (e.g. artifacts/api-server). Try a few likely roots.
+  // Oracle VPS (PM2) may start the server with a cwd that is *not* the repo root
+  // (e.g. artifacts/api-server). Try a few likely roots.
   const cwd = process.cwd();
   const candidates: string[] = [
     findStaticDirFromRoot(cwd),

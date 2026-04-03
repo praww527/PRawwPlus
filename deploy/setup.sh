@@ -57,7 +57,7 @@ pnpm --filter @workspace/db \
      --filter @workspace/api-client-react \
      run build
 
-pnpm --filter @workspace/call-manager run build
+pnpm --filter @workspace/prawwplus run build
 pnpm --filter @workspace/api-server run build
 
 mkdir -p logs
