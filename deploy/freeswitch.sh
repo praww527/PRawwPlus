@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # deploy/freeswitch.sh
 # Build and install FreeSWITCH 1.10 from source on Oracle Ubuntu 22.04 AMD64.
-# No SignalWire token required.
+#
+# FreeSWITCH is open-source and free. Its official source code is hosted on
+# GitHub at github.com/signalwire/freeswitch (SignalWire acquired FreeSWITCH).
+# No account, token, or subscription of any kind is required.
 #
 # Usage: sudo bash deploy/freeswitch.sh
 #

@@ -5,8 +5,8 @@
 # Usage: bash deploy/setup.sh
 set -euo pipefail
 
-DEPLOY_DIR="/home/ubuntu/PRawwPlus"   # ← change if needed
-DOMAIN="your-domain.com"              # ← change to your domain / VPS IP
+DEPLOY_DIR="/home/ubuntu/PRawwPlus"
+DOMAIN="rtc.praww.co.za"
 NODE_VERSION="22"
 PNPM_VERSION="10.26.1"
 
@@ -40,8 +40,7 @@ if [ -d "$DEPLOY_DIR/.git" ]; then
   git -C "$DEPLOY_DIR" pull
 else
   echo "Cloning repo"
-  # TODO: replace with your actual git repo URL before running
-  git clone https://github.com/YOUR_ORG/prawwplus.git "$DEPLOY_DIR"
+  git clone https://github.com/praww527/PRawwPlus.git "$DEPLOY_DIR"
 fi
 
 echo "===== [7/8] Install dependencies + build ====="

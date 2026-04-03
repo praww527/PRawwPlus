@@ -10,7 +10,7 @@ module.exports = {
     {
       name: "prawwplus",
       script: "./artifacts/api-server/dist/index.cjs",
-      cwd: "/home/ubuntu/PRawwPlus",   // ← change to your VPS deploy dir
+      cwd: "/home/ubuntu/PRawwPlus",
 
       instances: 1,
       autorestart: true,
