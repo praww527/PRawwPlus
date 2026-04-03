@@ -108,7 +108,7 @@ export default function Admin() {
           </div>
         ) : (
           <div className="divide-y divide-white/6">
-            {usersData?.users.map((u) => (
+            {usersData?.users.map((u: any) => (
               <div key={u.id} className="flex items-center gap-3 px-5 py-3.5">
                 {/* Avatar */}
                 <div className="w-10 h-10 rounded-full bg-white/8 border border-white/10 flex items-center justify-center shrink-0">

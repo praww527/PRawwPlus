@@ -153,7 +153,7 @@ export default function DialPad() {
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
-      background: "var(--surface-0)",
+      background: "transparent",
       overflowY: "auto",
     }}>
 

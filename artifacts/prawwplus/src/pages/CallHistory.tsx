@@ -58,7 +58,6 @@ export default function CallHistory() {
   const { toast } = useToast();
   const { startOutgoing, updateCallId, makeVertoCall, endCall, isVertoConnected } = useCall();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
-  const [swipedId, setSwipedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const handleCallBack = async (number: string) => {
@@ -90,7 +89,6 @@ export default function CallHistory() {
 
   const handleDelete = (id: string) => {
     setDeletedIds((prev) => new Set([...prev, id]));
-    setSwipedId(null);
     if (expandedId === id) setExpandedId(null);
   };
 

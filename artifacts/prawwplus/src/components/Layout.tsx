@@ -48,7 +48,6 @@ export function Layout({ children }: LayoutProps) {
         }}
       >
         <div
-          className="page-in"
           style={{
             maxWidth: 512,
             margin: "0 auto",

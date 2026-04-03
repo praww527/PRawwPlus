@@ -333,8 +333,8 @@ export default function Contacts() {
     }
   };
 
-  const contacts = contactsData?.contacts ?? [];
-  const filtered = contacts.filter((c) => {
+  const contacts: any[] = contactsData?.contacts ?? [];
+  const filtered = contacts.filter((c: any) => {
     const q = query.toLowerCase();
     return c.name.toLowerCase().includes(q) || c.number.includes(q);
   });
@@ -344,7 +344,7 @@ export default function Contacts() {
       {showImportModal && <ImportModal entries={phoneEntries} onImport={handleImport} onClose={() => setShowImportModal(false)} />}
       {showAddModal && <AddContactModal onAdd={handleAddContact} onClose={() => setShowAddModal(false)} />}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 4 }}>
           <div>
@@ -494,7 +494,7 @@ export default function Contacts() {
           </div>
         ) : (
           <div className="section-card">
-            {filtered.map((contact, i, arr) => {
+            {filtered.map((contact: any, i: number, arr: any[]) => {
               const callCount = callCounts.get(contact.number) ?? 0;
               return (
                 <div key={contact.id}>

@@ -325,7 +325,7 @@ export default function Profile() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 8, paddingTop: 4 }}>
+    <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 8, paddingTop: 4 }}>
       <PayFastRedirect data={pfData} />
 
       {/* ── User header ──────────────────────────────────── */}
@@ -501,7 +501,7 @@ export default function Profile() {
             </div>
           ) : (
             <div className="section-card">
-              {recentPayments.map((p: PaymentRecord, i) => (
+              {recentPayments.map((p: PaymentRecord, i: number) => (
                 <div key={p.id}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px" }}>
                     <div>
@@ -532,7 +532,7 @@ export default function Profile() {
           <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 12 }}>{myNumbers.length}/{maxNumbers} numbers on {currentPlan} plan</p>
           {myNumbers.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              {myNumbers.map((n: OwnedNumber, i) => (
+              {myNumbers.map((n: OwnedNumber, i: number) => (
                 <div key={n.id}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
                     <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(48,209,88,0.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
