@@ -8,7 +8,8 @@
     "start": "tsx ./src/index.ts",
     "build": "tsx ./build.ts",
     "typecheck": "pnpm --filter @workspace/db run build && tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/lib/callStateMachine.test.ts src/lib/callLimits.test.ts"
+    "test": "tsx --test src/lib/callStateMachine.test.ts src/lib/callLimits.test.ts",
+    "test:esl": "tsx scripts/test-esl.ts"
   },
   "dependencies": {
     "@workspace/db": "workspace:*",
