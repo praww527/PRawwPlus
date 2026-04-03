@@ -50,7 +50,7 @@ if [ ! -f .env ]; then
   echo "WARNING: .env not found — copy it to $DEPLOY_DIR/.env before starting"
 fi
 
-pnpm install --frozen-lockfile
+pnpm install --no-frozen-lockfile
 
 pnpm --filter @workspace/db \
      --filter @workspace/auth-web \
