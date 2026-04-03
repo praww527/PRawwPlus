@@ -1,60 +1,62 @@
-# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# compiled output
-dist
-tmp
-out-tsc
+# ── Build outputs ──────────────────────────────────────────────────────────────
+dist/
+tmp/
+out-tsc/
 *.tsbuildinfo
-.expo
-.expo-shared
+.expo/
+.expo-shared/
 
-# dependencies
-node_modules
+# ── Dependencies ───────────────────────────────────────────────────────────────
+node_modules/
 
-# IDEs and editors
-/.idea
+# ── IDE / Editor ───────────────────────────────────────────────────────────────
+.idea/
 .project
 .classpath
 .c9/
 *.launch
 .settings/
 *.sublime-workspace
-
-# IDE - VSCode
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# misc
-/.sass-cache
-/connect.lock
-/coverage
-/libpeerconnection.log
-npm-debug.log
-yarn-error.log
-testem.log
-/typings
-
-# System Files
+# ── System Files ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
+# ── Logs ───────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
 
-# Replit
-.cache/
-.local/
-attached_assets/Pasted--type-service-account-project-id-prawwplus-1324c-privat_1774554024152.txt
-attached_assets/*privat*
-
-# Secrets / env files
-.replit
-.replitignore
-replit.md
+# ── Secrets & environment ──────────────────────────────────────────────────────
 .env
 .env.*
 !.env.example
 *.pem
+*.key
+*.p12
+
+# ── Replit platform files (never commit these to your VPS repo) ────────────────
+.replit
+.replitignore
+replit.md
+.cache/
+.local/
+.agents/
+attached_assets/
+.replit-artifact
+**/.replit-artifact/
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# ── Coverage ───────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
