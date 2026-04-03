@@ -93,11 +93,12 @@ export function vertoConf(fsIp: string): string {
       <param name="context" value="call_manager"/>
 
       <!--
-        Codecs: Opus first for WebRTC browser compatibility, then PCMU/PCMA
-        as fallback for PSTN/SIP trunks.
+        Codecs: Opus first (WebRTC / browser / mobile), G722 for HD voice on
+        SIP endpoints, then PCMU/PCMA for PSTN gateway interoperability.
+        mod_opus MUST be installed: sudo apt-get install freeswitch-mod-opus
       -->
-      <param name="outbound-codec-string" value="opus,PCMU,PCMA"/>
-      <param name="inbound-codec-string" value="opus,PCMU,PCMA"/>
+      <param name="outbound-codec-string" value="opus,G722,PCMU,PCMA"/>
+      <param name="inbound-codec-string" value="opus,G722,PCMU,PCMA"/>
 
       <!--
         RTP timeouts: disconnect if no RTP arrives within 30s (dead call cleanup).
@@ -369,9 +370,9 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
     <!-- WebSocket transport on port 5066 (plain WS; TLS terminated by proxy) -->
     <param name="ws-binding" value="0.0.0.0:5066"/>
 
-    <!-- Codecs — Opus first for WebRTC compatibility -->
-    <param name="inbound-codec-prefs" value="opus,PCMU,PCMA,G722"/>
-    <param name="outbound-codec-prefs" value="opus,PCMU,PCMA,G722"/>
+    <!-- Codecs — Opus first (WebRTC), G722 (HD SIP), PCMU/PCMA (PSTN fallback) -->
+    <param name="inbound-codec-prefs" value="opus,G722,PCMU,PCMA"/>
+    <param name="outbound-codec-prefs" value="opus,G722,PCMU,PCMA"/>
     <param name="inbound-codec-negotiation" value="generous"/>
 
     <!-- STUN -->
@@ -407,10 +408,13 @@ export function eventSocketConf(password?: string): string {
   return `<configuration name="event_socket.conf" description="Socket Client">
   <settings>
     <param name="nat-map" value="false"/>
-    <param name="listen-ip" value="0.0.0.0"/>
+    <!--
+      Security: bind ESL only to localhost. The API server connects from 127.0.0.1.
+      Never expose port 8021 to the internet — use a firewall rule to block it externally.
+    -->
+    <param name="listen-ip" value="127.0.0.1"/>
     <param name="listen-port" value="8021"/>
     <param name="password" value="${eslPassword}"/>
-    <param name="apply-inbound-acl" value="any_v4.auto"/>
   </settings>
 </configuration>`;
 }

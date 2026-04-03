@@ -26,15 +26,20 @@ function safeCloseCode(code: number): number {
 }
 
 function getInternalWsUrl(): string {
-  // FREESWITCH_INTERNAL_WS_URL: plain WS to FreeSWITCH (ws://host:8081/)
-  // Falls back to FREESWITCH_WS_URL (may be wss:// pointing to 8082 — only
-  // used as a last resort; plain WS on 8081 is preferred for the proxy).
+  // Priority order:
+  // 1. FREESWITCH_INTERNAL_WS_URL — explicit internal plain-WS URL
+  // 2. FREESWITCH_WS_URL — from .env (e.g. ws://127.0.0.1:8081/)
+  //    NOTE: Must be the internal/localhost URL. Never use the public IP here —
+  //    if FREESWITCH_DOMAIN is the public IP, FreeSWITCH WS only listens on
+  //    127.0.0.1:8081 so the proxy must connect to localhost, not the public IP.
+  // 3. Fallback: derive from FREESWITCH_ESL_HOST (same host as ESL, port 8081)
+  // 4. Last resort: ws://localhost:8081/
   return (
-    process.env.FREESWITCH_INTERNAL_WS_URL ??
-    // Try to derive ws://host:8081/ from FREESWITCH_DOMAIN
-    (process.env.FREESWITCH_DOMAIN
-      ? `ws://${process.env.FREESWITCH_DOMAIN}:8081/`
-      : "ws://localhost:8081/")
+    process.env.FREESWITCH_INTERNAL_WS_URL?.trim() ||
+    process.env.FREESWITCH_WS_URL?.trim() ||
+    (process.env.FREESWITCH_ESL_HOST
+      ? `ws://${process.env.FREESWITCH_ESL_HOST}:8081/`
+      : "ws://127.0.0.1:8081/")
   );
 }
 

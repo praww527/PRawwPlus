@@ -39,38 +39,86 @@ https://freeswitch.signalwire.com/repo/deb/ubuntu-release/ ${CODENAME} main" \
 
 sudo apt-get update -y
 
-echo "===== [3/5] Install FreeSWITCH ====="
-# freeswitch-meta-all installs the core + most common modules including:
-#   mod_verto, mod_sofia, mod_xml_curl, mod_voicemail,
-#   mod_flite (TTS), mod_event_socket, mod_commands, mod_dptools
+echo "===== [3/7] Install FreeSWITCH core + all audio modules ====="
+# freeswitch-meta-all installs the core + most modules.
+# We also explicitly install the WebRTC audio-critical modules:
+#   mod_opus     — Opus codec (REQUIRED for Chrome/Firefox/Safari WebRTC audio)
+#   mod_verto    — WebRTC browser support via JSON-RPC over WebSocket
+#   mod_sofia    — SIP stack (mobile JsSIP clients)
+#   mod_voicemail — Voicemail storage and retrieval
+#   mod_flite    — TTS engine (announcements, voicemail prompts)
+#   mod_say_en   — English speech synthesis support
+#   mod_event_socket — ESL control for API server
+#   mod_xml_curl — Dynamic XML directory (users from our API)
+#   mod_dptools  — Call control (bridge, answer, hangup)
+#   mod_loopback — Internal call routing
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   freeswitch-meta-all \
+  freeswitch-mod-opus \
   freeswitch-mod-flite \
-  freeswitch-mod-say-en
+  freeswitch-mod-say-en \
+  freeswitch-mod-verto \
+  freeswitch-mod-sofia \
+  freeswitch-mod-voicemail \
+  freeswitch-mod-event-socket \
+  freeswitch-mod-xml-curl \
+  freeswitch-mod-dptools \
+  freeswitch-mod-commands \
+  freeswitch-mod-loopback
 
-echo "===== [4/5] Enable and start FreeSWITCH service ====="
+echo "===== [4/7] Enable required modules in modules.conf.xml ====="
+FS_MODS_CONF="/etc/freeswitch/autoload_configs/modules.conf.xml"
+if [ -f "$FS_MODS_CONF" ]; then
+  for MOD in mod_opus mod_verto mod_sofia mod_voicemail mod_flite mod_event_socket mod_xml_curl mod_dptools mod_commands mod_loopback; do
+    if ! grep -q "<load module=\"${MOD}\"" "$FS_MODS_CONF"; then
+      sudo sed -i "s|</modules>|  <load module=\"${MOD}\"/>\n</modules>|" "$FS_MODS_CONF"
+      echo "  Enabled ${MOD} in modules.conf.xml"
+    fi
+  done
+fi
+
+echo "===== [5/7] Check ESL default password ====="
+ESL_CONF="/etc/freeswitch/autoload_configs/event_socket.conf.xml"
+if grep -q "ClueCon" "$ESL_CONF" 2>/dev/null; then
+  echo "WARNING: ESL password is still the default 'ClueCon'."
+  echo "  Set a strong FREESWITCH_ESL_PASSWORD in .env — the API server pushes"
+  echo "  a new event_socket.conf.xml via SSH on startup."
+fi
+
+echo "===== [6/7] Enable and start FreeSWITCH service ====="
 sudo systemctl enable freeswitch
 sudo systemctl start freeswitch
-sleep 3
+sleep 5
 sudo systemctl status freeswitch --no-pager
 
-echo "===== [5/5] Verify fs_cli works ====="
+echo "===== [7/7] Verify FreeSWITCH + Opus codec ====="
 sudo fs_cli -x "status" || echo "WARNING: fs_cli not ready yet — FreeSWITCH may still be starting"
+echo ""
+echo "Checking Opus codec support (required for WebRTC audio)..."
+sudo fs_cli -x "show codec" 2>/dev/null | grep -i opus || echo "  mod_opus not yet loaded — check modules.conf.xml"
 
 echo ""
 echo "===== FreeSWITCH installation complete ====="
 echo ""
 echo "Config directory:  /etc/freeswitch"
 echo "Log directory:     /var/log/freeswitch"
-echo "Storage directory: /usr/local/freeswitch/storage  (voicemail recordings)"
+echo "Storage directory: /usr/local/freeswitch/storage  (voicemail)"
 echo ""
-echo "Next steps:"
-echo "  1. Ensure your .env on the server has:"
+echo "IMPORTANT — Next steps:"
+echo "  1. Set in your .env:"
 echo "     FREESWITCH_DOMAIN=<your VPS public IP>"
 echo "     FREESWITCH_ESL_HOST=127.0.0.1"
-echo "     FREESWITCH_ESL_PASSWORD=ClueCon"
+echo "     FREESWITCH_ESL_PORT=8021"
+echo "     FREESWITCH_ESL_PASSWORD=<strong password — change from default ClueCon>"
 echo "     FREESWITCH_SSH_USER=root"
-echo "     FREESWITCH_SSH_KEY=<contents of /root/.ssh/id_rsa>"
+echo "     FREESWITCH_SSH_KEY=<private key contents>"
 echo "     FREESWITCH_CONF_DIR=/etc/freeswitch"
-echo "  2. Start the PRaww+ API server — it will auto-push FreeSWITCH config on startup."
-echo "  3. Verify config was pushed: pm2 logs prawwplus | grep FSH"
+echo "     FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage"
+echo ""
+echo "  2. Open Oracle Cloud firewall: UDP 16384-32768 (RTP media — required for audio)"
+echo ""
+echo "  3. Start PRaww+ API: pm2 start ecosystem.config.cjs"
+echo "     The server auto-pushes FreeSWITCH config on startup."
+echo ""
+echo "  4. Verify: pm2 logs prawwplus | grep FSH"
+echo "  5. Test audio: sudo fs_cli -x \"show codec\" | grep opus"

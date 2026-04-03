@@ -19,13 +19,17 @@ function safeCloseCode(code: number): number {
 }
 
 function getSipWsUrl(): string {
+  // Priority:
+  // 1. FREESWITCH_SIP_WS_URL — explicit internal WS URL (e.g. ws://127.0.0.1:5066)
+  // 2. Derive from FREESWITCH_ESL_HOST:FREESWITCH_SIP_WS_PORT (both internal)
+  //    Never use FREESWITCH_DOMAIN — that may be the public IP, but FreeSWITCH
+  //    WS profile only listens on 127.0.0.1 inside the VPS.
   const explicit = process.env.FREESWITCH_SIP_WS_URL?.trim();
   if (explicit) return explicit;
 
-  const domain = process.env.FREESWITCH_DOMAIN ?? "";
-  const port   = process.env.FREESWITCH_SIP_WS_PORT ?? "5066";
-  if (!domain) return `ws://localhost:${port}/`;
-  return `ws://${domain}:${port}/`;
+  const host = process.env.FREESWITCH_ESL_HOST?.trim() || "127.0.0.1";
+  const port = process.env.FREESWITCH_SIP_WS_PORT?.trim() ?? "5066";
+  return `ws://${host}:${port}/`;
 }
 
 export function createSipProxy(): WebSocketServer {

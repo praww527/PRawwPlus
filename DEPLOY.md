@@ -46,14 +46,21 @@ ssh ubuntu@YOUR_VPS_IP
 Get a free SignalWire token at **https://id.signalwire.com** (sign up → Personal Access Token).
 
 ```bash
-# Clone the repo first (or upload the deploy scripts)
-git clone https://github.com/YOUR_ORG/YOUR_REPO.git ~/PRawwPlus
+# Clone the repo (replace with your actual git repo URL)
+git clone https://github.com/YOUR_ORG/prawwplus.git ~/PRawwPlus
 cd ~/PRawwPlus
 
 sudo bash deploy/freeswitch.sh YOUR_SIGNALWIRE_TOKEN
 ```
 
-This installs FreeSWITCH 1.10 with all modules needed (mod_verto, mod_sofia, mod_voicemail, mod_event_socket, mod_flite).
+This installs FreeSWITCH 1.10 with **all audio modules required for WebRTC**:
+- `mod_opus` — **Opus codec** (required for Chrome/Firefox/Safari WebRTC audio — no audio without this)
+- `mod_verto` — WebRTC browser support
+- `mod_sofia` — SIP stack for mobile (JsSIP)
+- `mod_voicemail` — Voicemail
+- `mod_flite` — TTS announcements
+- `mod_event_socket` — API server control (ESL)
+- `mod_xml_curl` — Dynamic user directory
 
 **Verify FreeSWITCH is running:**
 ```bash
@@ -103,18 +110,22 @@ FIREBASE_PROJECT_ID=your-firebase-project-id
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY\n-----END PRIVATE KEY-----\n"
 
-# FreeSWITCH — usually all on the same VPS (127.0.0.1)
-FREESWITCH_DOMAIN=YOUR_VPS_PUBLIC_IP
-FREESWITCH_ESL_HOST=127.0.0.1
+# FreeSWITCH
+# FREESWITCH_DOMAIN = your VPS PUBLIC IP (used for RTP NAT in verto/sofia configs)
+# If this is wrong, calls will connect but have NO AUDIO.
+FREESWITCH_DOMAIN=140.245.xx.xx          # ← your VPS public IP
+FREESWITCH_ESL_HOST=127.0.0.1            # always localhost (ESL on same VPS)
 FREESWITCH_ESL_PORT=8021
-FREESWITCH_ESL_PASSWORD=ClueCon
-FREESWITCH_WS_URL=ws://127.0.0.1:8081/
-FREESWITCH_SIP_WS_URL=ws://127.0.0.1:5066
-FREESWITCH_SSH_USER=root
+FREESWITCH_ESL_PASSWORD=strong_password_here   # CHANGE from default ClueCon!
+FREESWITCH_WS_URL=ws://127.0.0.1:8081/  # internal Verto WS (never public IP)
+FREESWITCH_SIP_WS_URL=ws://127.0.0.1:5066     # internal SIP WS (never public IP)
+FREESWITCH_SIP_WS_PORT=5066
+FREESWITCH_SSH_USER=ubuntu
 FREESWITCH_SSH_PORT=22
-# Generate SSH key: ssh-keygen -t ed25519 -f ~/.ssh/freeswitch_key -N ""
-# Add public key to FreeSWITCH server: cat ~/.ssh/freeswitch_key.pub >> /root/.ssh/authorized_keys
-# Paste private key contents here (use \n for newlines in the .env value):
+# Generate SSH key on the VPS: ssh-keygen -t ed25519 -f ~/.ssh/freeswitch_key -N ""
+# Add public key:               cat ~/.ssh/freeswitch_key.pub >> ~/.ssh/authorized_keys
+# Get private key contents:     cat ~/.ssh/freeswitch_key
+# Paste the private key below (replace \n with actual newlines in .env):
 FREESWITCH_SSH_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\nYOUR_KEY\n-----END OPENSSH PRIVATE KEY-----\n"
 FREESWITCH_CONF_DIR=/etc/freeswitch
 FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage
@@ -308,6 +319,53 @@ Set `MONGODB_URI=mongodb://localhost:27017/prawwplus?replicaSet=rs0`
 
 ---
 
+## Audio Troubleshooting (No Sound / One-Way Audio)
+
+This is the most common deployment issue. Work through this checklist:
+
+**1. Verify RTP ports are open (Oracle Cloud + UFW)**
+```bash
+# Oracle Cloud Console → Security List → must have UDP 16384-32768 inbound
+# On the VPS:
+sudo ufw status | grep 16384
+# Should show: 16384:32768/udp ALLOW Anywhere
+```
+
+**2. Verify FREESWITCH_DOMAIN is the correct PUBLIC IP**
+```bash
+# Get your public IP:
+curl -s ifconfig.me
+# Must match FREESWITCH_DOMAIN in .env exactly
+grep FREESWITCH_DOMAIN .env
+```
+
+**3. Verify mod_opus is loaded**
+```bash
+sudo fs_cli -x "show codec" | grep -i opus
+# Must return one or more opus codec lines
+# If empty: sudo apt-get install freeswitch-mod-opus
+# Then: sudo fs_cli -x "load mod_opus"
+```
+
+**4. Verify FreeSWITCH config was pushed**
+```bash
+pm2 logs prawwplus | grep FSH
+# Should show "Config push complete" steps
+# If SSH key error: check FREESWITCH_SSH_KEY in .env
+```
+
+**5. Check ICE candidates in browser**
+Open browser DevTools → Network tab. After a call attempt, look for `/api/verto/ws` WebSocket frames. The Verto `verto.invite` message should include ICE candidates with your VPS public IP (not 10.x.x.x or 172.x.x.x).
+
+**6. Optional: Add TURN server for restrictive networks**
+Some mobile networks block direct UDP/RTP. Add a TURN server in `.env`:
+```bash
+ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:YOUR_TURN_SERVER:3478","username":"user","credential":"pass"}]
+```
+Free TURN servers: [Metered.ca](https://www.metered.ca/tools/openrelay/) (limited) or self-host with `coturn`.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -315,10 +373,14 @@ Set `MONGODB_URI=mongodb://localhost:27017/prawwplus?replicaSet=rs0`
 | `502 Bad Gateway` | PM2 app not running — `pm2 start ecosystem.config.cjs` |
 | `MongoDB connection error` | Check `MONGODB_URI` and IP whitelist in Atlas |
 | `FREESWITCH_SSH_KEY not configured` | Add the private key to `.env` |
-| Calls fail to connect | Check `FREESWITCH_DOMAIN` points to VPS public IP; verify RTP ports are open |
+| Calls connect but NO AUDIO | `FREESWITCH_DOMAIN` must be the public IP; UDP 16384-32768 must be open; `mod_opus` must be installed |
+| One-way audio only | Same as above — wrong ext-rtp-ip in FreeSWITCH config |
+| Calls fail to connect | Check `FREESWITCH_WS_URL=ws://127.0.0.1:8081/` — must use 127.0.0.1, not public IP |
+| ESL not connecting | Check `FREESWITCH_ESL_PASSWORD` matches FreeSWITCH config; `FREESWITCH_ESL_HOST=127.0.0.1` |
 | No voicemail listed | Check `FREESWITCH_STORAGE_DIR` and SSH key access; `sudo fs_cli -x "voicemail list default"` |
 | SSL error | Run `sudo certbot --nginx -d your-domain.com` |
-| Push notifications not working | Verify Firebase credentials and FCM project ID |
+| Push notifications not working | Verify Firebase credentials and FCM project ID; check `google-services.json` in mobile app |
+| Android build fails | Run `expo prebuild` then `eas build --platform android` |
 
 ---
 

@@ -15,9 +15,11 @@ sudo apt-get update -y
 sudo apt-get upgrade -y
 sudo apt-get install -y curl git nginx certbot python3-certbot-nginx ufw
 
-echo "===== [2/8] Firewall (SSH + HTTP + HTTPS) ====="
+echo "===== [2/8] Firewall (SSH + HTTP + HTTPS + RTP) ====="
 sudo ufw allow OpenSSH
 sudo ufw allow 'Nginx Full'
+# FreeSWITCH RTP media ports — required for audio, must be UDP
+sudo ufw allow 16384:32768/udp comment "FreeSWITCH RTP media"
 sudo ufw --force enable
 
 echo "===== [3/8] Node.js ${NODE_VERSION} via NodeSource ====="
@@ -38,7 +40,8 @@ if [ -d "$DEPLOY_DIR/.git" ]; then
   git -C "$DEPLOY_DIR" pull
 else
   echo "Cloning repo"
-  git clone https://github.com/YOUR_ORG/YOUR_REPO.git "$DEPLOY_DIR"
+  # TODO: replace with your actual git repo URL before running
+  git clone https://github.com/YOUR_ORG/prawwplus.git "$DEPLOY_DIR"
 fi
 
 echo "===== [7/8] Install dependencies + build ====="
