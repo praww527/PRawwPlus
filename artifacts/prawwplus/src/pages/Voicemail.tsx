@@ -86,6 +86,7 @@ function formatDate(date: Date) {
 }
 
 export default function VoicemailPage() {
+  const [, setLocation] = useLocation();
   const [entries, setEntries] = useState<VoicemailEntry[]>(SAMPLE_VOICEMAILS);
   const [playing, setPlaying] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -180,7 +181,6 @@ export default function VoicemailPage() {
                   }}
                   onPointerDown={(e) => {
                     const startX = e.clientX;
-                    const el = e.currentTarget;
                     const onMove = (ev: PointerEvent) => {
                       const dx = ev.clientX - startX;
                       if (dx < -20) setSwipedId(entry.id);
@@ -229,7 +229,7 @@ export default function VoicemailPage() {
                           )}
                         </div>
                         <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", fontFamily: "monospace" }}>
-                          {entry.name ? entry.from : ""} · {formatDate(entry.date)} · {formatDur(entry.duration)}
+                          {[entry.name ? entry.from : null, formatDate(entry.date), formatDur(entry.duration)].filter(Boolean).join(" · ")}
                         </p>
                       </div>
 
@@ -309,7 +309,7 @@ export default function VoicemailPage() {
                             Delete
                           </button>
                           <button
-                            onClick={() => {}}
+                            onClick={() => setLocation(`/dashboard?dial=${encodeURIComponent(entry.from)}`)}
                             style={{
                               flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                               padding: "10px 0", borderRadius: 12,
