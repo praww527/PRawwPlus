@@ -14,6 +14,7 @@ import {
 import { format } from "date-fns";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { MODAL_Z } from "@/components/Layout";
 
 const PLANS = [
   { id: "basic", name: "Basic", price: 59,  maxNumbers: 1 },
@@ -36,20 +37,48 @@ function PayFastRedirect({ data }: { data: any }) {
 /* ── Modal sheet ───────────────────────────────────────────────────── */
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div className="modal-surface slide-up" style={{ borderRadius: "20px 20px 0 0", padding: "0 0 env(safe-area-inset-bottom,16px)", maxHeight: "88dvh", overflowY: "auto" }}>
+    <div
+      className="overlay-backdrop"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: MODAL_Z,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+      }}
+    >
+      <div
+        className="modal-surface slide-up"
+        style={{
+          borderRadius: "24px 24px 0 0",
+          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 24px)",
+          maxHeight: "90dvh",
+          overflowY: "auto",
+          overflowX: "hidden",
+        }}
+      >
         {/* Drag handle */}
-        <div style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 4 }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 6 }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
         </div>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 20px 16px" }}>
-          <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>{title}</p>
-          <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 14, background: "var(--surface-2)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>{title}</p>
+          <button
+            onClick={onClose}
+            style={{
+              width: 30, height: 30, borderRadius: 15,
+              background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+              backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
             <X style={{ width: 14, height: 14, color: "var(--text-2)" }} />
           </button>
         </div>
-        <div style={{ padding: "0 20px 16px" }}>{children}</div>
+        <div style={{ padding: "0 20px 8px" }}>{children}</div>
       </div>
     </div>
   );
@@ -74,7 +103,7 @@ function Row({
         cursor: onClick ? "pointer" : "default",
         transition: "background 0.12s",
       }}
-      onPointerDown={(e) => onClick && (e.currentTarget.style.background = "var(--surface-2)")}
+      onPointerDown={(e) => onClick && (e.currentTarget.style.background = "var(--glass-bg-strong)")}
       onPointerUp={(e) => (e.currentTarget.style.background = "transparent")}
       onPointerLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
@@ -318,7 +347,7 @@ export default function Profile() {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 8 }}>
         {[120, 80, 180, 180].map((h, i) => (
-          <div key={i} style={{ height: h, borderRadius: 16, background: "var(--surface-1)", animation: "pulse 1.5s ease-in-out infinite" }} />
+          <div key={i} className="skeleton" style={{ height: h, borderRadius: 20 }} />
         ))}
       </div>
     );
@@ -330,18 +359,25 @@ export default function Profile() {
 
       {/* ── User header ──────────────────────────────────── */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 4 }}>
-        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <UserCircle2 style={{ width: 40, height: 40, color: "#ffffff" }} />
+        <div style={{
+          width: 82, height: 82, borderRadius: "50%",
+          background: "var(--glass-bg)",
+          border: "1.5px solid var(--glass-border)",
+          backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 20px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
+        }}>
+          <UserCircle2 style={{ width: 42, height: 42, color: "var(--text-1)" }} />
         </div>
         <div style={{ textAlign: "center" }}>
-          <p style={{ fontSize: 20, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>
+          <p style={{ fontSize: 21, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>
             {user?.name || user?.username || "—"}
           </p>
           <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 2 }}>{user?.email ?? user?.username ?? ""}</p>
           {primaryNumber && <p style={{ fontSize: 13, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>{primaryNumber}</p>}
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8,
-            padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+            padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600,
             background: isActive ? "rgba(48,209,88,0.12)" : "var(--surface-2)",
             color: isActive ? "#30d158" : "var(--text-3)",
             border: `1px solid ${isActive ? "rgba(48,209,88,0.22)" : "var(--sep)"}`,
@@ -359,7 +395,12 @@ export default function Profile() {
           { label: "Numbers", value: `${myNumbers.length}/${maxNumbers}`, sub: "assigned", color: "hsl(var(--primary))", bg: "rgba(10,132,255,0.12)" },
           { label: "Plan", value: isActive ? currentPlan.slice(0,1).toUpperCase() + currentPlan.slice(1) : "None", sub: isActive ? "active" : "inactive", color: isActive ? "#30d158" : "var(--text-3)", bg: isActive ? "rgba(48,209,88,0.12)" : "var(--surface-1)" },
         ].map(({ label, value, sub, color, bg }) => (
-          <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "14px 8px", borderRadius: 14, background: bg, border: "1px solid var(--sep)" }}>
+          <div key={label} style={{
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+            padding: "14px 8px", borderRadius: 16,
+            background: bg, border: "1px solid var(--sep)",
+            backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          }}>
             <span style={{ fontSize: 18, fontWeight: 700, color, lineHeight: 1 }}>{value}</span>
             <span style={{ fontSize: 10, color: "var(--text-2)", fontWeight: 600 }}>{label}</span>
             <span style={{ fontSize: 9, color: "var(--text-3)" }}>{sub}</span>
@@ -435,9 +476,15 @@ export default function Profile() {
               const active = topupAmount === amt;
               return (
                 <button key={amt} onClick={() => setTopupAmount(amt)}
-                  style={{ padding: "12px 0", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-                    background: active ? "rgba(255,214,10,0.15)" : "var(--surface-2)", border: `1px solid ${active ? "rgba(255,214,10,0.30)" : "var(--sep)"}`,
-                    cursor: "pointer", color: active ? "#ffd60a" : "var(--text-2)", fontWeight: 700 }}>
+                  style={{
+                    padding: "12px 0", borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                    background: active ? "rgba(255,214,10,0.15)" : "var(--glass-bg)",
+                    border: `1px solid ${active ? "rgba(255,214,10,0.30)" : "var(--glass-border)"}`,
+                    backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                    cursor: "pointer", color: active ? "#ffd60a" : "var(--text-2)", fontWeight: 700,
+                    boxShadow: active ? "0 2px 12px rgba(255,214,10,0.20)" : "none",
+                    transition: "all 0.18s",
+                  }}>
                   <span style={{ fontSize: 13 }}>R{amt}</span>
                   <span style={{ fontSize: 10, opacity: 0.7 }}>{c}c</span>
                 </button>
@@ -445,7 +492,7 @@ export default function Profile() {
             })}
           </div>
           <button onClick={handleTopup} disabled={toppingUp}
-            style={{ width: "100%", padding: "14px 0", borderRadius: 12, background: "rgba(255,214,10,0.18)", border: "1px solid rgba(255,214,10,0.28)", color: "#ffd60a", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "rgba(255,214,10,0.18)", border: "1px solid rgba(255,214,10,0.28)", color: "#ffd60a", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             {toppingUp ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : `Pay R${topupAmount} → ${Math.floor(Number(topupAmount) / 0.9)} coins`}
           </button>
         </Modal>
@@ -455,7 +502,7 @@ export default function Profile() {
       {sheet === "plan" && (
         <Modal title="Subscription Plan" onClose={() => setSheet("none")}>
           {isActive && (
-            <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 12, background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)" }}>
+            <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 14, background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)" }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: "#30d158" }}>
                 {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} Plan — Active
               </p>
@@ -472,10 +519,14 @@ export default function Profile() {
               const isProPlan = plan.id === "pro";
               return (
                 <button key={plan.id} onClick={() => setSelectedPlan(plan.id)}
-                  style={{ padding: "16px 12px", borderRadius: 14, textAlign: "left",
-                    background: active ? (isProPlan ? "rgba(120,65,190,0.18)" : "rgba(10,132,255,0.18)") : "var(--surface-2)",
-                    border: `1px solid ${active ? (isProPlan ? "rgba(120,65,190,0.30)" : "rgba(10,132,255,0.30)") : "var(--sep)"}`,
-                    cursor: "pointer" }}>
+                  style={{
+                    padding: "16px 12px", borderRadius: 16, textAlign: "left",
+                    background: active ? (isProPlan ? "rgba(120,65,190,0.18)" : "rgba(10,132,255,0.18)") : "var(--glass-bg)",
+                    border: `1px solid ${active ? (isProPlan ? "rgba(120,65,190,0.30)" : "rgba(10,132,255,0.30)") : "var(--glass-border)"}`,
+                    backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+                    cursor: "pointer",
+                    transition: "all 0.18s",
+                  }}>
                   {isProPlan ? <Zap style={{ width: 16, height: 16, color: "#bf5af2", marginBottom: 8 }} /> : <Star style={{ width: 16, height: 16, color: "hsl(var(--primary))", marginBottom: 8 }} />}
                   <p style={{ fontSize: 14, fontWeight: 700, color: active ? (isProPlan ? "#bf5af2" : "hsl(var(--primary))") : "var(--text-1)" }}>{plan.name}</p>
                   <p style={{ fontSize: 12, fontWeight: 600, color: active ? (isProPlan ? "#bf5af2" : "hsl(var(--primary))") : "var(--text-2)", opacity: 0.85, marginTop: 2 }}>R{plan.price}/mo</p>
@@ -485,7 +536,7 @@ export default function Profile() {
             })}
           </div>
           <button onClick={handleSubscribe} disabled={subscribing}
-            style={{ width: "100%", padding: "14px 0", borderRadius: 12, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 2px 16px rgba(26,140,255,0.32)" }}>
             {subscribing ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : `Pay R${PLANS.find(p => p.id === selectedPlan)?.price}/mo`}
           </button>
         </Modal>
@@ -500,27 +551,39 @@ export default function Profile() {
               <p style={{ fontSize: 14, color: "var(--text-2)" }}>No transactions yet</p>
             </div>
           ) : (
-            <div className="section-card">
-              {recentPayments.map((p: PaymentRecord, i: number) => (
-                <div key={p.id}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px" }}>
-                    <div>
-                      <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)", textTransform: "capitalize" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {recentPayments.map((p: PaymentRecord) => {
+                const isPending   = p.status === "pending";
+                const isCompleted = p.status === "completed";
+                const statusColor = isCompleted ? "#30d158" : isPending ? "#ff9f0a" : "#ff453a";
+                const statusBg    = isCompleted ? "rgba(48,209,88,0.14)" : isPending ? "rgba(255,149,0,0.14)" : "rgba(255,69,58,0.14)";
+                const statusLabel = isCompleted ? "Completed" : isPending ? "Pending" : p.status;
+                return (
+                  <div key={p.id} className="tx-card stagger-item" style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {p.paymentType === "number_change" ? "Number Change" : p.paymentType}
                         {p.subscriptionPlan ? ` · ${p.subscriptionPlan}` : ""}
                       </p>
-                      <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                      <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
                         {format(new Date(p.createdAt), "MMM d, yyyy · h:mm a")}
                       </p>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>R{p.amount.toFixed(2)}</p>
-                      <p style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: p.status === "completed" ? "#30d158" : p.status === "pending" ? "#ffd60a" : "#ff453a", marginTop: 2 }}>{p.status}</p>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)" }}>R{p.amount.toFixed(2)}</p>
+                      <span style={{
+                        display: "inline-block", marginTop: 4,
+                        fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        padding: "3px 8px", borderRadius: 6,
+                        background: statusBg, color: statusColor,
+                      }}>
+                        {statusLabel}
+                      </span>
                     </div>
                   </div>
-                  {i < recentPayments.length - 1 && <div className="row-sep" />}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Modal>
@@ -531,27 +594,24 @@ export default function Profile() {
         <Modal title="Phone Numbers" onClose={() => setSheet("none")}>
           <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 12 }}>{myNumbers.length}/{maxNumbers} numbers on {currentPlan} plan</p>
           {myNumbers.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              {myNumbers.map((n: OwnedNumber, i: number) => (
-                <div key={n.id}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, background: "rgba(48,209,88,0.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Phone style={{ width: 14, height: 14, color: "#30d158" }} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", fontFamily: "monospace" }}>{n.number}</p>
-                      <p style={{ fontSize: 10, fontWeight: 600, color: "#30d158" }}>● Active</p>
-                    </div>
-                    <button onClick={() => { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); }}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--sep)", color: "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                      <Shuffle style={{ width: 11, height: 11 }} /> Change
-                    </button>
-                    <button onClick={() => handleRemoveNumber(n.id, n.number)} disabled={removingId === n.id || removing}
-                      style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", opacity: removingId === n.id ? 0.5 : 1 }}>
-                      {removingId === n.id ? <Loader2 style={{ width: 13, height: 13, color: "#ff453a" }} className="animate-spin" /> : <Trash2 style={{ width: 13, height: 13, color: "#ff453a" }} />}
-                    </button>
+            <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {myNumbers.map((n: OwnedNumber) => (
+                <div key={n.id} className="tx-card" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px" }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(48,209,88,0.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Phone style={{ width: 14, height: 14, color: "#30d158" }} />
                   </div>
-                  {i < myNumbers.length - 1 && <div className="row-sep" />}
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", fontFamily: "monospace" }}>{n.number}</p>
+                    <p style={{ fontSize: 10, fontWeight: 600, color: "#30d158" }}>● Active</p>
+                  </div>
+                  <button onClick={() => { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); }}
+                    style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", color: "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                    <Shuffle style={{ width: 11, height: 11 }} /> Change
+                  </button>
+                  <button onClick={() => handleRemoveNumber(n.id, n.number)} disabled={removingId === n.id || removing}
+                    style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", opacity: removingId === n.id ? 0.5 : 1 }}>
+                    {removingId === n.id ? <Loader2 style={{ width: 13, height: 13, color: "#ff453a" }} className="animate-spin" /> : <Trash2 style={{ width: 13, height: 13, color: "#ff453a" }} />}
+                  </button>
                 </div>
               ))}
             </div>
@@ -563,7 +623,7 @@ export default function Profile() {
             </div>
           )}
           <button onClick={() => { setSheet("none"); setLocation("/buy-number"); }} disabled={!isActive || !canAddMore}
-            style={{ width: "100%", padding: "14px 0", borderRadius: 12, background: isActive && canAddMore ? "hsl(var(--primary))" : "var(--surface-2)", border: isActive && canAddMore ? "none" : "1px solid var(--sep)", color: isActive && canAddMore ? "#fff" : "var(--text-3)", fontSize: 15, fontWeight: 600, cursor: isActive && canAddMore ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: isActive && canAddMore ? "hsl(var(--primary))" : "var(--glass-bg)", border: isActive && canAddMore ? "none" : "1px solid var(--glass-border)", color: isActive && canAddMore ? "#fff" : "var(--text-3)", fontSize: 15, fontWeight: 600, cursor: isActive && canAddMore ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <Plus style={{ width: 16, height: 16 }} />
             {!isActive ? "Subscribe to buy numbers" : !canAddMore ? `Limit reached (${maxNumbers} max)` : "Add Number"}
           </button>
@@ -618,30 +678,21 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Contact Us ──────────────────────────────── */}
+      {/* ── Sheet: Contact ─────────────────────────────────── */}
       {sheet === "contact" && (
         <Modal title="Contact Us" onClose={() => setSheet("none")}>
-          <div style={{ marginBottom: 16, padding: "14px", borderRadius: 14, background: "var(--surface-2)", border: "1px solid var(--sep)", display: "flex", alignItems: "flex-start", gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(48,209,88,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Mail style={{ width: 16, height: 16, color: "#30d158" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="tx-card" style={{ padding: "16px" }}>
+              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+                For support, billing queries, or feature requests, reach out to our team. We respond within 24 hours on business days.
+              </p>
             </div>
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)" }}>Email Support</p>
-              <p style={{ fontSize: 12, color: "var(--text-2)", marginTop: 2 }}>We typically respond within 24 hours on business days.</p>
-              <a href={`mailto:${CONTACT_EMAIL}`} style={{ display: "inline-block", marginTop: 6, fontSize: 13, color: "hsl(var(--primary))", fontFamily: "monospace" }}>{CONTACT_EMAIL}</a>
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[
-              { label: "General Enquiry", subject: "General Enquiry" },
-              { label: "Technical Support", subject: "Technical Support Request" },
-              { label: "Billing Enquiry", subject: "Billing Enquiry" },
-            ].map(({ label, subject }) => (
-              <button key={label} onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}`, "_blank")}
-                style={{ padding: "13px 0", borderRadius: 12, background: "var(--surface-2)", border: "1px solid var(--sep)", color: "var(--text-1)", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-                {label}
-              </button>
-            ))}
+            <button
+              onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=PRaww+ Support`, "_blank")}
+              style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <Mail style={{ width: 16, height: 16 }} />
+              Email Support
+            </button>
           </div>
         </Modal>
       )}

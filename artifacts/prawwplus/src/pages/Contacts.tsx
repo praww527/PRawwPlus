@@ -8,8 +8,17 @@ import {
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCall } from "@/context/CallContext";
+import { MODAL_Z } from "@/components/Layout";
 
 interface PhoneEntry { name: string; number: string; }
+
+type ContactFilter = "all" | "phone" | "frequent";
+
+const FILTERS: { key: ContactFilter; label: string }[] = [
+  { key: "all",      label: "All" },
+  { key: "phone",    label: "From Phone" },
+  { key: "frequent", label: "Frequent" },
+];
 
 function initials(name?: string, number?: string) {
   if (name) {
@@ -55,20 +64,34 @@ function ImportModal({ entries, onImport, onClose }: {
   });
 
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div className="modal-surface slide-up" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: "20px 0", display: "flex", flexDirection: "column", maxHeight: "80dvh" }}>
-        <div style={{ display: "flex", justifyContent: "center", paddingBottom: 12 }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
+    <div
+      className="overlay-backdrop"
+      style={{ position: "fixed", inset: 0, zIndex: MODAL_Z, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+    >
+      <div
+        className="modal-surface slide-up"
+        style={{
+          width: "100%", maxWidth: 480,
+          borderRadius: "24px 24px 0 0",
+          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 20px)",
+          display: "flex", flexDirection: "column",
+          maxHeight: "90dvh",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 8 }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px 16px" }}>
-          <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>
+          <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>
             Select Contacts ({selected.size}/{entries.length})
           </p>
-          <button className="btn-press" onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <button className="btn-press" onClick={onClose}
+            style={{ width: 30, height: 30, borderRadius: 15, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X style={{ width: 15, height: 15, color: "var(--text-2)" }} />
           </button>
         </div>
-        <button className="btn-press" onClick={() => selected.size === entries.length ? setSelected(new Set()) : setSelected(new Set(entries.map(e => e.number)))}
+        <button className="btn-press"
+          onClick={() => selected.size === entries.length ? setSelected(new Set()) : setSelected(new Set(entries.map(e => e.number)))}
           style={{ textAlign: "left", padding: "0 20px 12px", fontSize: 13, fontWeight: 600, color: "hsl(var(--primary))", background: "none", border: "none", cursor: "pointer" }}>
           {selected.size === entries.length ? "Deselect all" : "Select all"}
         </button>
@@ -77,13 +100,14 @@ function ImportModal({ entries, onImport, onClose }: {
             <button key={e.number} className="btn-press" onClick={() => toggle(e.number)}
               style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 12,
-                padding: "10px 8px", borderRadius: 14, marginBottom: 4,
-                background: selected.has(e.number) ? "rgba(255,255,255,0.08)" : "transparent",
-                border: `1px solid ${selected.has(e.number) ? "rgba(255,255,255,0.12)" : "transparent"}`,
+                padding: "10px 8px", borderRadius: 14, marginBottom: 6,
+                background: selected.has(e.number) ? "var(--glass-bg-strong)" : "var(--glass-bg)",
+                border: `1px solid ${selected.has(e.number) ? "var(--glass-border)" : "transparent"}`,
+                backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
                 cursor: "pointer", textAlign: "left",
               }}>
               <div style={{
-                width: 38, height: 38, borderRadius: "50%",
+                width: 40, height: 40, borderRadius: "50%",
                 background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 13, fontWeight: 700, color: "var(--text-1)", flexShrink: 0,
@@ -129,22 +153,33 @@ function AddContactModal({ onAdd, onClose }: { onAdd: (name: string, number: str
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div className="modal-surface slide-up" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: 20 }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
+    <div
+      className="overlay-backdrop"
+      style={{ position: "fixed", inset: 0, zIndex: MODAL_Z, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+    >
+      <div
+        className="modal-surface slide-up"
+        style={{
+          width: "100%", maxWidth: 480,
+          borderRadius: "24px 24px 0 0",
+          padding: "0 0 max(env(safe-area-inset-bottom, 0px), 20px)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 8 }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <p style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}>Add Contact</p>
-          <button className="btn-press" onClick={onClose} style={{ width: 30, height: 30, borderRadius: 15, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px 20px" }}>
+          <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>Add Contact</p>
+          <button className="btn-press" onClick={onClose}
+            style={{ width: 30, height: 30, borderRadius: 15, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X style={{ width: 15, height: 15, color: "var(--text-2)" }} />
           </button>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
           <input style={glassInput} type="text" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input style={{ ...glassInput, fontFamily: "monospace" }} type="tel" placeholder="+27821234567" value={number} onChange={(e) => setNumber(e.target.value)} />
         </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+        <div style={{ display: "flex", gap: 10, padding: "20px 20px 0" }}>
           <button className="btn-press" onClick={onClose}
             style={{ flex: 1, padding: "13px 0", borderRadius: 14, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", color: "var(--text-1)", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
             Cancel
@@ -170,7 +205,7 @@ function Avatar({ name, number }: { name: string; number: string }) {
       display: "flex", alignItems: "center", justifyContent: "center",
       fontSize: 14, fontWeight: 700, color: "var(--text-1)",
       flexShrink: 0,
-      boxShadow: "0 2px 8px rgba(0,0,0,0.14)",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.14), 0 1px 0 var(--glass-highlight) inset",
     }}>
       {initials(name, number)}
     </div>
@@ -184,6 +219,7 @@ function isInternalNumber(num: string): boolean {
 
 export default function Contacts() {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ContactFilter>("all");
   const [phoneEntries, setPhoneEntries] = useState<PhoneEntry[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -273,11 +309,7 @@ export default function Contacts() {
     const isActive = user?.subscriptionStatus === "active";
 
     if (!isVertoConnected) {
-      toast({
-        title: "Not connected",
-        description: "VoIP connection is not ready. Please wait a moment and try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Not connected", description: "VoIP connection is not ready. Please wait a moment and try again.", variant: "destructive" });
       return;
     }
 
@@ -288,56 +320,38 @@ export default function Contacts() {
         return;
       }
       if (!isActive || coins <= 0) {
-        toast({
-          title: "Cannot make external call",
-          description: !isActive ? "Subscribe to make external calls" : "Top up your balance",
-          variant: "destructive",
-        });
+        toast({ title: "Cannot make external call", description: !isActive ? "Subscribe to make external calls" : "Top up your balance", variant: "destructive" });
         return;
       }
     }
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
-
-    // Pre-generate the FreeSWITCH call UUID so the DB record exists BEFORE
-    // we send verto.invite. This prevents ESL events (CHANNEL_ANSWER etc.)
-    // from arriving before the record is created and being silently dropped.
     const fsCallId = crypto.randomUUID();
-
     startOutgoing({ number, name, callType });
 
     try {
-      // Create the call record first — fsCallId links it to ESL events.
-      const record = await initiateCall({
-        data: { recipientNumber: number, fsCallId },
-      });
-
-      if (record?.id) {
-        updateCallId(record.id);
-      }
-
-      // Now fire the Verto invite with the same pre-generated UUID.
+      const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
+      if (record?.id) updateCallId(record.id);
       const vertoCallId = await makeVertoCall(number, fsCallId);
-
-      if (vertoCallId === null) {
-        // makeVertoCall returned null — WebSocket issue or ICE failure.
-        throw new Error("VoIP connection error. Please try again.");
-      }
+      if (vertoCallId === null) throw new Error("VoIP connection error. Please try again.");
     } catch (err: any) {
       endCall();
-      toast({
-        title: "Call failed",
-        description: err?.message ?? (isInternal ? "Could not reach that extension." : "Check your subscription and coin balance."),
-        variant: "destructive",
-      });
+      toast({ title: "Call failed", description: err?.message ?? (isInternalNumber(number) ? "Could not reach that extension." : "Check your subscription and coin balance."), variant: "destructive" });
     }
   };
 
   const contacts: any[] = contactsData?.contacts ?? [];
-  const filtered = contacts.filter((c: any) => {
+
+  const filteredContacts = contacts.filter((c: any) => {
     const q = query.toLowerCase();
-    return c.name.toLowerCase().includes(q) || c.number.includes(q);
+    const matchesSearch = c.name.toLowerCase().includes(q) || c.number.includes(q);
+    if (!matchesSearch) return false;
+    if (filter === "phone")    return c.fromPhone === true;
+    if (filter === "frequent") return (callCounts.get(c.number) ?? 0) >= 2;
+    return true;
   });
+
+  const frequentCount = contacts.filter((c: any) => (callCounts.get(c.number) ?? 0) >= 2).length;
 
   return (
     <>
@@ -363,6 +377,7 @@ export default function Contacts() {
                   background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
                   backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
                   color: "var(--text-2)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  boxShadow: "0 1px 0 var(--glass-highlight) inset",
                 }}
               >
                 {importing
@@ -380,13 +395,36 @@ export default function Contacts() {
                 padding: "9px 16px", borderRadius: 22,
                 background: "hsl(var(--primary))", border: "none",
                 color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                boxShadow: "0 2px 12px rgba(26,140,255,0.28)",
+                boxShadow: "0 2px 12px rgba(26,140,255,0.30)",
               }}
             >
               <Plus style={{ width: 14, height: 14 }} />
               Add
             </button>
           </div>
+        </div>
+
+        {/* Filter chips */}
+        <div className="chip-row">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              className={`chip${filter === f.key ? " chip-active" : ""}`}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+              {f.key === "frequent" && frequentCount > 0 && (
+                <span style={{
+                  marginLeft: 2, minWidth: 16, height: 16, borderRadius: 8, padding: "0 4px",
+                  background: filter === "frequent" ? "rgba(255,255,255,0.30)" : "rgba(26,140,255,0.70)",
+                  color: "#fff", fontSize: 10, fontWeight: 700,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {frequentCount}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
         {/* Search */}
@@ -411,7 +449,7 @@ export default function Contacts() {
         </div>
 
         {/* My Contact Card */}
-        {!isLoading && !query && user && (
+        {!isLoading && !query && user && filter === "all" && (
           <div className="section-card" style={{ marginBottom: 0 }}>
             <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
@@ -453,31 +491,32 @@ export default function Contacts() {
             {[...Array(5)].map((_, i) => (
               <div key={i}>
                 <div style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--glass-bg)", border: "1px solid var(--glass-border)", flexShrink: 0 }} />
+                  <div className="skeleton" style={{ width: 44, height: 44, borderRadius: "50%", flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ height: 14, width: "55%", borderRadius: 6, background: "var(--glass-bg)", marginBottom: 6 }} />
-                    <div style={{ height: 11, width: "35%", borderRadius: 6, background: "var(--glass-bg)" }} />
+                    <div className="skeleton" style={{ height: 14, width: "55%", marginBottom: 6 }} />
+                    <div className="skeleton" style={{ height: 11, width: "35%" }} />
                   </div>
                 </div>
                 {i < 4 && <div className="row-sep" />}
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : filteredContacts.length === 0 ? (
           <div style={{ padding: "60px 0", textAlign: "center" }}>
-            <div style={{
+            <div className="float-card" style={{
               width: 72, height: 72, borderRadius: 24,
               background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-              backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+              backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: "0 auto 16px",
+              boxShadow: "0 4px 24px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
             }}>
               <UserCircle2 style={{ width: 30, height: 30, color: "var(--text-3)" }} />
             </div>
             <p style={{ color: "var(--text-2)", fontSize: 15, marginBottom: 16 }}>
-              {query ? "No contacts match your search" : "No contacts yet"}
+              {query ? "No contacts match your search" : filter !== "all" ? `No ${filter} contacts` : "No contacts yet"}
             </p>
-            {!query && (
+            {!query && filter === "all" && (
               <button
                 className="btn-press"
                 onClick={() => setShowAddModal(true)}
@@ -491,13 +530,26 @@ export default function Contacts() {
                 Add your first contact
               </button>
             )}
+            {filter !== "all" && (
+              <button
+                className="btn-press"
+                onClick={() => setFilter("all")}
+                style={{
+                  marginTop: 8, padding: "9px 22px", borderRadius: 20,
+                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+                  color: "var(--text-2)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                Show all
+              </button>
+            )}
           </div>
         ) : (
           <div className="section-card">
-            {filtered.map((contact: any, i: number, arr: any[]) => {
+            {filteredContacts.map((contact: any, i: number, arr: any[]) => {
               const callCount = callCounts.get(contact.number) ?? 0;
               return (
-                <div key={contact.id}>
+                <div key={contact.id} className="stagger-item">
                   <div style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                     <Avatar name={contact.name} number={contact.number} />
 
@@ -521,7 +573,7 @@ export default function Contacts() {
                         className="btn-press"
                         onClick={() => handleDelete(contact.id, contact.name)}
                         style={{
-                          width: 38, height: 38, borderRadius: 13,
+                          width: 38, height: 38, borderRadius: "50%",
                           background: "rgba(255,69,58,0.10)",
                           border: "1px solid rgba(255,69,58,0.18)",
                           display: "flex", alignItems: "center", justifyContent: "center",
@@ -534,7 +586,7 @@ export default function Contacts() {
                         className="btn-press"
                         onClick={() => handleCall(contact.number, contact.name)}
                         style={{
-                          width: 38, height: 38, borderRadius: 13,
+                          width: 38, height: 38, borderRadius: "50%",
                           background: "rgba(48,209,88,0.12)",
                           border: "1px solid rgba(48,209,88,0.20)",
                           display: "flex", alignItems: "center", justifyContent: "center",

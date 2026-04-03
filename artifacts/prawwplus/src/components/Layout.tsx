@@ -6,9 +6,9 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-export const NAV_H = 64;
+export const NAV_H = 72;
 export const NAV_Z = 50;
-export const MODAL_Z = 200;
+export const MODAL_Z = 300;
 
 const navItems = [
   { href: "/dashboard",  label: "Keypad",     icon: Phone },
@@ -44,7 +44,7 @@ export function Layout({ children }: LayoutProps) {
           overflowY: "auto",
           overflowX: "hidden",
           paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 8px)`,
+          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 16px)`,
         }}
       >
         <div
@@ -59,7 +59,7 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* Fixed glass bottom navbar — z-index 50 */}
+      {/* Fixed glass bottom navbar */}
       <nav
         style={{
           position: "fixed",
@@ -72,10 +72,10 @@ export function Layout({ children }: LayoutProps) {
           height: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
           background: "var(--nav-bg)",
-          backdropFilter: "blur(28px) saturate(1.8)",
-          WebkitBackdropFilter: "blur(28px) saturate(1.8)",
+          backdropFilter: "blur(32px) saturate(1.9)",
+          WebkitBackdropFilter: "blur(32px) saturate(1.9)",
           borderTop: "1px solid var(--nav-border)",
-          boxShadow: "0 -1px 0 var(--glass-highlight) inset",
+          boxShadow: "0 -4px 24px rgba(0,0,0,0.18), 0 -1px 0 var(--glass-highlight) inset",
         }}
       >
         {navItems.map((item) => {
@@ -93,21 +93,41 @@ export function Layout({ children }: LayoutProps) {
                   alignItems: "center",
                   justifyContent: "center",
                   height: `${NAV_H}px`,
-                  gap: 4,
+                  gap: 5,
                   cursor: "pointer",
                   userSelect: "none",
                   transition: "opacity 0.18s",
+                  WebkitTapHighlightColor: "transparent",
                 }}
               >
-                <item.icon
+                {/* Circle icon container */}
+                <div
                   style={{
-                    width: 22,
-                    height: 22,
-                    color: active ? "var(--nav-active)" : "var(--nav-inactive)",
-                    strokeWidth: active ? 2.2 : 1.6,
-                    transition: "color 0.2s, stroke-width 0.2s",
+                    width: 42,
+                    height: 42,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: active ? "var(--nav-active-circle)" : "transparent",
+                    border: active ? "1px solid var(--nav-active-circle-border)" : "1px solid transparent",
+                    backdropFilter: active ? "blur(12px)" : "none",
+                    WebkitBackdropFilter: active ? "blur(12px)" : "none",
+                    transition: "all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                    boxShadow: active ? "0 2px 12px rgba(59,130,246,0.20), 0 1px 0 rgba(255,255,255,0.14) inset" : "none",
                   }}
-                />
+                >
+                  <item.icon
+                    style={{
+                      width: 20,
+                      height: 20,
+                      color: active ? "var(--nav-active)" : "var(--nav-inactive)",
+                      strokeWidth: active ? 2.3 : 1.6,
+                      transition: "color 0.2s, stroke-width 0.2s",
+                    }}
+                  />
+                </div>
+
                 <span
                   style={{
                     fontSize: 10,

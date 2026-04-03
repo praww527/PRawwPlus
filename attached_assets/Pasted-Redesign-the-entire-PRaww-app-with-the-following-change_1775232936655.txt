@@ -1,0 +1,38 @@
+Redesign the entire PRaww+ app with the following changes across ALL pages and components:
+
+LIQUID GLASS EFFECT
+Every panel, card, modal, navbar, and sheet should use a clear frosted glass effect — no color tint on the glass itself, just pure transparent frosted. Use backdrop-filter blur and a white rgba background at low opacity. Subtle inner highlight on the top edge. Rounded corners everywhere.
+
+BACKGROUND
+Use a soft light gradient behind everything so the glass effect is visible. The gradient should animate slowly and continuously like flowing water.
+
+WATER MOTION
+All motion in the app should feel fluid and organic like water. Background flows slowly. Glass cards have a subtle floating/breathing animation. Page transitions are smooth and liquid, not snappy. Button taps trigger a ripple/wave effect. List items stagger-fade in like water drops. Nothing should feel mechanical or instant.
+
+BOTTOM NAVBAR
+White/clear glass background. Each tab has an icon and label. Active tab: icon and label in brand blue. Inactive: grey. No pill, no underline bar. Clean and minimal.
+
+FILTER CHIPS
+Add a horizontal scrollable row of pill-shaped filter chips below page titles on all list screens. Active chip is solid and filled. Inactive chips are glass pills. Chips for Recents: All, Missed, Incoming, Outgoing.
+LIST ROWS
+Each row is a glass card with avatar circle on the left, bold primary text, muted secondary text. No visible action buttons by default — swipe left to reveal delete.
+
+DIALPAD
+Glass card container. Each key is a frosted glass circle. Numbers are bold (font-weight: 700). Sub-labels (ABC, DEF) stay normal weight.
+PAGE TITLES
+Large bold heading top left with small muted subtitle below (e.g. ‘77 calls’).
+
+MODALS & SHEETS
+All bottom sheets and modals use heavy blur glass. Transaction History: each row is a glass card, amount is bold, status is a small colored badge (amber for Pending, green for Completed), date is small and muted.
+SETTINGS, CONTACTS, VOICEMAIL
+
+All sections use the same glass card treatment. Consistent spacing and typography throughout.
+The overall feel should be like iOS 26 / visionOS — crystal clear, fluid, and modern. Apply everything to every single page.
+
+Fix the bottom navbar overlapping page content and modals. Two things to fix:
+
+Main content area — add enough bottom padding/margin to all pages so content is never hidden behind the navbar. The main scrollable area should end above the navbar, not underneath it.
+Bottom sheets and modals (like Transaction History) — they are being cut off by the navbar. Bottom sheets should sit ABOVE the navbar, not behind it. Make sure the sheet's z-index is higher than the navbar and the sheet height accounts for the navbar height so nothing gets clipped.
+This must be fixed on every page and every modal/sheet in the app.
+
+this app should be clear on both light mode and dark mode
