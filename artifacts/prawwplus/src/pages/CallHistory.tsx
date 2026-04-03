@@ -1,13 +1,22 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useListCalls, useMakeCall, useGetMe } from "@workspace/api-client-react";
 import { formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
 import {
-  PhoneOutgoing, Clock, ChevronLeft, ChevronRight,
-  PhoneMissed, PhoneOff, FileText, Phone, Trash2, ChevronDown, ChevronUp,
+  PhoneOutgoing, ChevronLeft, ChevronRight,
+  PhoneMissed, PhoneOff, Phone, Trash2, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useCall } from "@/context/CallContext";
 import { useToast } from "@/hooks/use-toast";
+
+type FilterType = "all" | "missed" | "incoming" | "outgoing";
+
+const FILTERS: { key: FilterType; label: string }[] = [
+  { key: "all",      label: "All" },
+  { key: "missed",   label: "Missed" },
+  { key: "incoming", label: "Incoming" },
+  { key: "outgoing", label: "Outgoing" },
+];
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "completed") return <PhoneOutgoing className="h-4 w-4" style={{ color: "#30d158" }} />;
@@ -16,18 +25,33 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 function statusColors(status: string) {
-  if (status === "completed") return { bg: "rgba(48,209,88,0.13)",  label: "#30d158" };
-  if (status === "failed")    return { bg: "rgba(255,69,58,0.13)",  label: "#ff453a" };
-  return                             { bg: "rgba(255,214,10,0.13)", label: "#ffd60a" };
+  if (status === "completed") return { bg: "rgba(48,209,88,0.14)",  label: "#30d158" };
+  if (status === "failed")    return { bg: "rgba(255,69,58,0.14)",  label: "#ff453a" };
+  return                             { bg: "rgba(255,214,10,0.14)", label: "#ffd60a" };
+}
+
+function statusLabel(status: string) {
+  if (status === "completed") return "Completed";
+  if (status === "failed")    return "Failed";
+  return "Missed";
 }
 
 function isInternalNum(num: string): boolean {
-  const d = num.replace(/\D/g, "");
-  return d.length === 4;
+  return num.replace(/\D/g, "").length === 4;
+}
+
+function formatCallDate(dateStr: string | Date) {
+  const d = new Date(dateStr);
+  const diffH = (Date.now() - d.getTime()) / 3_600_000;
+  if (diffH < 1)  return "Just now";
+  if (diffH < 24) return format(d, "h:mm a");
+  if (diffH < 48) return "Yesterday";
+  return format(d, "MMM d");
 }
 
 export default function CallHistory() {
   const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<FilterType>("all");
   const { data, isLoading } = useListCalls({ page, limit: 20 });
   const { data: user } = useGetMe();
   const { mutateAsync: initiateCall } = useMakeCall();
@@ -39,7 +63,6 @@ export default function CallHistory() {
 
   const handleCallBack = async (number: string) => {
     const callType: "internal" | "external" = isInternalNum(number) ? "internal" : "external";
-    const isInternal = callType === "internal";
     const coins = user?.coins ?? 0;
     const isActive = user?.subscriptionStatus === "active";
 
@@ -47,8 +70,7 @@ export default function CallHistory() {
       toast({ title: "Not connected", description: "VoIP connection is not ready.", variant: "destructive" });
       return;
     }
-
-    if (!isInternal && (!isActive || coins <= 0)) {
+    if (callType === "external" && (!isActive || coins <= 0)) {
       toast({ title: "Cannot call back", description: !isActive ? "Subscribe to make external calls" : "Top up your balance", variant: "destructive" });
       return;
     }
@@ -72,229 +94,172 @@ export default function CallHistory() {
     if (expandedId === id) setExpandedId(null);
   };
 
-  const calls = (data?.calls ?? []).filter((c) => !deletedIds.has(c.id));
+  const allCalls = (data?.calls ?? []).filter((c: any) => !deletedIds.has(c.id));
+
+  const filteredCalls = allCalls.filter((c: any) => {
+    if (filter === "all")      return true;
+    if (filter === "missed")   return c.status !== "completed";
+    if (filter === "incoming") return (c.direction ?? "").toLowerCase().includes("in");
+    if (filter === "outgoing") return (c.direction ?? "").toLowerCase().includes("out");
+    return true;
+  });
+
+  const skeletonRows = [...Array(6)];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Page title */}
       <div style={{ paddingTop: 4 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>
+        <h1 style={{ fontSize: 30, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0, letterSpacing: "-0.02em" }}>
           Recents
         </h1>
-        {data?.total ? (
-          <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 2 }}>{data.total} calls</p>
-        ) : null}
+        <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 3 }}>
+          {data?.total ? `${data.total} calls` : "Your recent calls"}
+        </p>
       </div>
 
+      {/* Filter chips */}
+      <div className="chip-row">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            className={`chip${filter === f.key ? " chip-active" : ""}`}
+            onClick={() => { setFilter(f.key); setPage(1); }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
       {isLoading ? (
         <div className="section-card">
-          {[...Array(6)].map((_, i) => (
-            <div key={i}>
+          {skeletonRows.map((_, i) => (
+            <div key={i} className="stagger-item">
               <div style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 42, height: 42, borderRadius: 12, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", flexShrink: 0 }} />
+                <div className="skeleton" style={{ width: 44, height: 44, borderRadius: "50%", flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ height: 14, width: "60%", borderRadius: 6, background: "var(--glass-bg)", marginBottom: 6 }} />
-                  <div style={{ height: 11, width: "40%", borderRadius: 6, background: "var(--glass-bg)" }} />
+                  <div className="skeleton" style={{ height: 13, width: "55%", marginBottom: 7 }} />
+                  <div className="skeleton" style={{ height: 10, width: "35%" }} />
                 </div>
+                <div className="skeleton" style={{ width: 60, height: 22, borderRadius: 10 }} />
               </div>
-              {i < 5 && <div className="row-sep" />}
+              {i < skeletonRows.length - 1 && <div className="row-sep" />}
             </div>
           ))}
         </div>
-      ) : calls.length === 0 ? (
-        <div style={{ padding: "64px 0", textAlign: "center" }}>
-          <div style={{
+      ) : filteredCalls.length === 0 ? (
+        <div style={{ padding: "60px 0", textAlign: "center" }}>
+          <div className="float-card" style={{
             width: 72, height: 72, borderRadius: 24,
             background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-            backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+            backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
             display: "flex", alignItems: "center", justifyContent: "center",
             margin: "0 auto 16px",
+            boxShadow: "0 4px 24px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
           }}>
-            <FileText style={{ width: 30, height: 30, color: "var(--text-3)" }} />
+            <PhoneMissed style={{ width: 30, height: 30, color: "var(--text-3)" }} />
           </div>
-          <p style={{ color: "var(--text-2)", fontSize: 15 }}>No calls yet. Start dialing!</p>
+          <p style={{ color: "var(--text-2)", fontSize: 15, marginBottom: 6 }}>
+            {filter === "all" ? "No recent calls" : `No ${filter} calls`}
+          </p>
+          <p style={{ color: "var(--text-3)", fontSize: 13 }}>
+            {filter !== "all" ? "Try a different filter" : "Your call history will appear here"}
+          </p>
         </div>
       ) : (
-        <div className="section-card" style={{ overflow: "hidden" }}>
-          {calls.map((call, i, arr) => {
-            const colors = statusColors(call.status);
-            const internal = call.callType === "internal";
-            const isSwiped = swipedId === call.id;
-            const isExpanded = expandedId === call.id;
+        <div className="section-card">
+          {filteredCalls.map((c: any, i: number, arr: any[]) => {
+            const isExpanded = expandedId === c.id;
+            const colors = statusColors(c.status);
+            const dateStr = c.startedAt ?? c.createdAt ?? c.date;
+            const displayNum = c.recipientNumber ?? c.callerNumber ?? c.number ?? "Unknown";
 
             return (
-              <div key={call.id} style={{ position: "relative", overflow: "hidden" }}>
-                {/* Delete reveal */}
-                <div style={{
-                  position: "absolute", right: 0, top: 0, bottom: 0, width: 80,
-                  background: "#ff453a",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  zIndex: 0,
-                }}>
-                  <button
-                    onClick={() => handleDelete(call.id)}
-                    style={{ width: "100%", height: "100%", background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-                  >
-                    <Trash2 style={{ width: 20, height: 20, color: "#fff" }} />
-                  </button>
-                </div>
-
-                {/* Row content */}
+              <div key={c.id} className="stagger-item">
                 <div
-                  style={{
-                    position: "relative", zIndex: 1,
-                    transform: isSwiped ? "translateX(-80px)" : "translateX(0)",
-                    transition: "transform 0.25s ease",
-                    background: "var(--surface-1, var(--surface-0))",
-                  }}
-                  onPointerDown={(e) => {
-                    const startX = e.clientX;
-                    const onMove = (ev: PointerEvent) => {
-                      const dx = ev.clientX - startX;
-                      if (dx < -24) setSwipedId(call.id);
-                      else if (dx > 24) setSwipedId(null);
-                    };
-                    const onUp = () => {
-                      document.removeEventListener("pointermove", onMove);
-                      document.removeEventListener("pointerup", onUp);
-                    };
-                    document.addEventListener("pointermove", onMove);
-                    document.addEventListener("pointerup", onUp);
-                  }}
+                  style={{ padding: "11px 16px", cursor: "pointer", transition: "background 0.15s" }}
+                  onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                  onPointerDown={(e) => { e.currentTarget.style.background = "var(--glass-bg-strong)"; }}
+                  onPointerUp={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  onPointerLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >
-                  <div style={{ padding: "11px 16px" }}>
-                    {/* Main row */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{
-                        width: 42, height: 42, borderRadius: 13,
-                        background: colors.bg,
-                        border: "1px solid rgba(255,255,255,0.06)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        flexShrink: 0,
-                      }}>
-                        <StatusIcon status={call.status} />
-                      </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {/* Avatar circle */}
+                    <div style={{
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+                      background: colors.bg, border: `1.5px solid ${colors.label}44`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <StatusIcon status={c.status} />
+                    </div>
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{
-                          fontFamily: "monospace", fontWeight: 600, fontSize: 15,
-                          color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis",
-                          whiteSpace: "nowrap", margin: 0,
-                        }}>
-                          {call.recipientNumber}
-                        </p>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
-                          <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-                            {format(new Date(call.createdAt), "MMM d, h:mm a")}
-                          </span>
-                          {internal && (
-                            <>
-                              <span style={{ color: "var(--sep-strong)", fontSize: 11 }}>·</span>
-                              <span style={{ fontSize: 11, color: "#30d158", fontWeight: 600 }}>EXT</span>
-                            </>
-                          )}
-                          {call.duration > 0 && (
-                            <>
-                              <span style={{ color: "var(--sep-strong)", fontSize: 11 }}>·</span>
-                              <Clock style={{ width: 11, height: 11, color: "var(--text-3)" }} />
-                              <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-                                {formatDuration(call.duration)}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        {/* Expand toggle */}
-                        <button
-                          className="btn-press"
-                          onClick={() => setExpandedId((id) => id === call.id ? null : call.id)}
-                          style={{
-                            width: 32, height: 32, borderRadius: 10,
-                            background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            cursor: "pointer",
-                          }}
-                        >
-                          {isExpanded
-                            ? <ChevronUp style={{ width: 14, height: 14, color: "var(--text-2)" }} />
-                            : <ChevronDown style={{ width: 14, height: 14, color: "var(--text-2)" }} />
-                          }
-                        </button>
-
-                        <button
-                          className="btn-press"
-                          onClick={() => handleCallBack(call.recipientNumber)}
-                          style={{
-                            width: 38, height: 38, borderRadius: 13,
-                            background: "rgba(48,209,88,0.12)",
-                            border: "1px solid rgba(48,209,88,0.20)",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            cursor: "pointer", flexShrink: 0,
-                          }}
-                        >
-                          <Phone style={{ width: 16, height: 16, color: "#30d158" }} />
-                        </button>
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {displayNum}
+                      </p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+                          {dateStr ? formatCallDate(dateStr) : ""}
+                        </span>
+                        {c.duration != null && c.duration > 0 && (
+                          <>
+                            <span style={{ fontSize: 10, color: "var(--text-3)" }}>·</span>
+                            <span style={{ fontSize: 12, color: "var(--text-3)" }}>{formatDuration(c.duration)}</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    {/* Expanded detail */}
-                    {isExpanded && (
-                      <div style={{
-                        marginTop: 12, paddingTop: 12,
-                        borderTop: "1px solid var(--sep)",
-                        display: "flex", flexDirection: "column", gap: 6,
+                    {/* Status badge + chevron */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 8,
+                        background: colors.bg, color: colors.label, whiteSpace: "nowrap",
                       }}>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: "var(--text-3)" }}>Status</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: colors.label, textTransform: "capitalize" }}>
-                            {call.status}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: "var(--text-3)" }}>Type</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>
-                            {internal ? "Extension" : "External"}
-                          </span>
-                        </div>
-                        {call.duration > 0 && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-3)" }}>Duration</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>
-                              {formatDuration(call.duration)}
-                            </span>
-                          </div>
-                        )}
-                        {call.failReason && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-3)" }}>Reason</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "#ff453a" }}>{call.failReason}</span>
-                          </div>
-                        )}
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: "var(--text-3)" }}>Date</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)" }}>
-                            {format(new Date(call.createdAt), "MMM d yyyy, h:mm a")}
-                          </span>
-                        </div>
-
-                        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                          <button
-                            onClick={() => handleDelete(call.id)}
-                            style={{
-                              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                              padding: "9px 0", borderRadius: 10,
-                              background: "rgba(255,69,58,0.1)", border: "1px solid rgba(255,69,58,0.2)",
-                              color: "#ff453a", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                            }}
-                          >
-                            <Trash2 style={{ width: 13, height: 13 }} /> Delete
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                        {statusLabel(c.status)}
+                      </span>
+                      {isExpanded
+                        ? <ChevronUp  style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />
+                        : <ChevronDown style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />
+                      }
+                    </div>
                   </div>
+
+                  {/* Expanded actions */}
+                  {isExpanded && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--sep)" }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          className="btn-press"
+                          onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
+                          style={{
+                            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            padding: "10px 0", borderRadius: 12,
+                            background: "rgba(255,69,58,0.10)", border: "1px solid rgba(255,69,58,0.20)",
+                            color: "#ff453a", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                          }}
+                        >
+                          <Trash2 style={{ width: 14, height: 14 }} /> Delete
+                        </button>
+                        <button
+                          className="btn-press"
+                          onClick={(e) => { e.stopPropagation(); handleCallBack(displayNum); }}
+                          style={{
+                            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            padding: "10px 0", borderRadius: 12,
+                            background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)",
+                            color: "#30d158", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                          }}
+                        >
+                          <Phone style={{ width: 14, height: 14 }} /> Call Back
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
+
                 {i < arr.length - 1 && <div className="row-sep" />}
               </div>
             );
@@ -302,11 +267,10 @@ export default function CallHistory() {
         </div>
       )}
 
+      {/* Pagination */}
       {data && data.totalPages > 1 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
-          <p style={{ fontSize: 12, color: "var(--text-3)" }}>
-            Page {data.page} of {data.totalPages}
-          </p>
+          <p style={{ fontSize: 12, color: "var(--text-3)" }}>Page {data.page} of {data.totalPages}</p>
           <div style={{ display: "flex", gap: 8 }}>
             {[
               { icon: ChevronLeft,  disabled: page === 1,               onClick: () => setPage((p) => Math.max(1, p - 1)) },

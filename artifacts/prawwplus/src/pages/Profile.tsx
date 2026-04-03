@@ -36,8 +36,8 @@ function PayFastRedirect({ data }: { data: any }) {
 /* ── Modal sheet ───────────────────────────────────────────────────── */
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div className="modal-surface" style={{ borderRadius: "20px 20px 0 0", padding: "0 0 env(safe-area-inset-bottom,16px)", maxHeight: "88dvh", overflowY: "auto" }}>
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div className="modal-surface slide-up" style={{ borderRadius: "20px 20px 0 0", padding: "0 0 env(safe-area-inset-bottom,16px)", maxHeight: "88dvh", overflowY: "auto" }}>
         {/* Drag handle */}
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 4 }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />

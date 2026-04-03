@@ -6,7 +6,9 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-export const NAV_H = 62;
+export const NAV_H = 64;
+export const NAV_Z = 50;
+export const MODAL_Z = 200;
 
 const navItems = [
   { href: "/dashboard",  label: "Keypad",     icon: Phone },
@@ -31,7 +33,7 @@ export function Layout({ children }: LayoutProps) {
         flexDirection: "column",
         height: "100dvh",
         overflow: "hidden",
-        background: "var(--surface-0)",
+        background: "transparent",
       }}
     >
       <VertoInit />
@@ -40,11 +42,13 @@ export function Layout({ children }: LayoutProps) {
         style={{
           flex: 1,
           overflowY: "auto",
+          overflowX: "hidden",
           paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
+          paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 8px)`,
         }}
       >
         <div
+          className="page-in"
           style={{
             maxWidth: 512,
             margin: "0 auto",
@@ -56,22 +60,23 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </main>
 
-      {/* Fixed full-width bottom navbar */}
+      {/* Fixed glass bottom navbar — z-index 50 */}
       <nav
         style={{
           position: "fixed",
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 50,
+          zIndex: NAV_Z,
           display: "flex",
           alignItems: "stretch",
           height: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          background: "rgba(14,14,20,0.95)",
-          backdropFilter: "blur(20px) saturate(160%)",
-          WebkitBackdropFilter: "blur(20px) saturate(160%)",
-          borderTop: "1px solid rgba(255,255,255,0.07)",
+          background: "var(--nav-bg)",
+          backdropFilter: "blur(28px) saturate(1.8)",
+          WebkitBackdropFilter: "blur(28px) saturate(1.8)",
+          borderTop: "1px solid var(--nav-border)",
+          boxShadow: "0 -1px 0 var(--glass-highlight) inset",
         }}
       >
         {navItems.map((item) => {
@@ -89,43 +94,29 @@ export function Layout({ children }: LayoutProps) {
                   alignItems: "center",
                   justifyContent: "center",
                   height: `${NAV_H}px`,
-                  gap: 3,
+                  gap: 4,
                   cursor: "pointer",
                   userSelect: "none",
-                  position: "relative",
-                  transition: "opacity 0.15s",
+                  transition: "opacity 0.18s",
                 }}
               >
-                {active && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      width: 28,
-                      height: 2,
-                      borderRadius: "0 0 2px 2px",
-                      background: "#3b82f6",
-                    }}
-                  />
-                )}
                 <item.icon
                   style={{
                     width: 22,
                     height: 22,
-                    color: active ? "#3b82f6" : "rgba(255,255,255,0.35)",
-                    strokeWidth: active ? 2.2 : 1.5,
-                    transition: "color 0.15s",
+                    color: active ? "var(--nav-active)" : "var(--nav-inactive)",
+                    strokeWidth: active ? 2.2 : 1.6,
+                    transition: "color 0.2s, stroke-width 0.2s",
                   }}
                 />
                 <span
                   style={{
                     fontSize: 10,
                     fontWeight: active ? 700 : 500,
-                    color: active ? "#3b82f6" : "rgba(255,255,255,0.35)",
+                    color: active ? "var(--nav-active)" : "var(--nav-inactive)",
                     lineHeight: 1,
-                    transition: "color 0.15s",
+                    transition: "color 0.2s, font-weight 0.2s",
+                    letterSpacing: "0.01em",
                   }}
                 >
                   {item.label}

@@ -369,7 +369,7 @@ function DialButton({ primary, secondary, isZero, size, onPress, onZeroDown, onZ
     >
       <span style={{
         fontSize: 30,
-        fontWeight: 300,
+        fontWeight: 700,
         color: "var(--text-1)",
         lineHeight: 1,
         fontFamily: "var(--font-sans)",

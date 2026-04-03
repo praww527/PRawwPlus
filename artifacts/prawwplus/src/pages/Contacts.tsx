@@ -55,8 +55,8 @@ function ImportModal({ entries, onImport, onClose }: {
   });
 
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div className="modal-surface" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: "20px 0", display: "flex", flexDirection: "column", maxHeight: "80dvh" }}>
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="modal-surface slide-up" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: "20px 0", display: "flex", flexDirection: "column", maxHeight: "80dvh" }}>
         <div style={{ display: "flex", justifyContent: "center", paddingBottom: 12 }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
         </div>
@@ -129,8 +129,8 @@ function AddContactModal({ onAdd, onClose }: { onAdd: (name: string, number: str
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
   return (
-    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div className="modal-surface" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: 20 }}>
+    <div className="overlay-backdrop" style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="modal-surface slide-up" style={{ width: "100%", maxWidth: 480, borderRadius: "22px 22px 0 0", padding: 20 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
         </div>
@@ -348,8 +348,8 @@ export default function Contacts() {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: 4 }}>
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>Contacts</h1>
-            <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 2 }}>{contacts.length} contact{contacts.length !== 1 ? "s" : ""}</p>
+            <h1 style={{ fontSize: 30, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0, letterSpacing: "-0.02em" }}>Contacts</h1>
+            <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 3 }}>{contacts.length} contact{contacts.length !== 1 ? "s" : ""}</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {hasContactsApi && (
