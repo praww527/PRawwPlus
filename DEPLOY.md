@@ -1,415 +1,244 @@
 # PRaww+ — Oracle VPS Deployment Guide
 
-Complete step-by-step guide for deploying PRaww+ to an **Oracle Cloud Ubuntu 22.04 AMD64** instance.
+> **Platform:** Ubuntu 22.04 LTS on Oracle Cloud (ARM64 Ampere A1 or AMD64 x86_64)  
+> **Stack:** Node.js 22 + PM2 · Nginx · MongoDB · FreeSWITCH · Firebase FCM · PayFast
 
 ---
 
 ## Prerequisites
 
-- Oracle Cloud account with a running Ubuntu 22.04 AMD64 VM
-- A domain name (or subdomain) pointing to the VM's public IP
-- A MongoDB instance (Atlas free tier or self-hosted replica set)
-- A Firebase project with a service account private key
-- FreeSWITCH built from source (the install script handles this)
-- A PayFast merchant account
+| Service | What you need |
+|---------|--------------|
+| **Oracle VPS** | Ubuntu 22.04 LTS, public IP, SSH access as `ubuntu` user |
+| **Domain** | DNS A record pointing to your VPS public IP (e.g. `rtc.praww.co.za`) |
+| **MongoDB** | Atlas cluster — whitelist your VPS public IP in Network Access settings |
+| **Firebase** | Project with FCM enabled — download service account JSON for push notifications |
+| **PayFast** | Merchant credentials (for billing/subscriptions) |
+| **SMTP** | Any SMTP service (Gmail App Password, SendGrid) — optional but recommended |
 
 ---
 
-## Step 1 — Oracle Cloud Security List (Ingress Rules)
+## First-time Setup
 
-In the **Oracle Cloud Console** navigate to:
-`Networking → Virtual Cloud Networks → <your VCN> → Security Lists → Default Security List`
-
-Add these **Ingress Rules** (do this BEFORE anything else, or you'll lock yourself out):
-
-| Protocol | Source CIDR | Port(s) | Purpose |
-|---|---|---|---|
-| TCP | 0.0.0.0/0 | 22 | SSH |
-| TCP | 0.0.0.0/0 | 80 | HTTP (nginx → HTTPS redirect) |
-| TCP | 0.0.0.0/0 | 443 | HTTPS |
-| UDP | 0.0.0.0/0 | 16384-32768 | FreeSWITCH RTP media |
-
-> **Do NOT** expose ports 3000, 5066, 8021, or 8081 — these are internal only, proxied by nginx.
-
----
-
-## Step 2 — SSH into the VM
+### 1. SSH into your VPS
 
 ```bash
 ssh ubuntu@YOUR_VPS_IP
 ```
 
----
-
-## Step 3 — Build and Install FreeSWITCH
-
-No token or account required — FreeSWITCH is compiled from the official source on GitHub.
-
-> **Build time:** 20-40 minutes depending on VPS size. Run in a `tmux` or `screen` session so a dropped SSH connection doesn't interrupt it.
+### 2. Clone the repository
 
 ```bash
-# Clone the repo (replace with your actual git repo URL)
-git clone https://github.com/YOUR_ORG/prawwplus.git ~/PRawwPlus
-cd ~/PRawwPlus
-
-# Start a persistent session first (optional but recommended):
-tmux new -s freeswitch
-
-sudo bash deploy/freeswitch.sh
+git clone https://github.com/praww527/PRawwPlus.git /home/ubuntu/PRawwPlus
+cd /home/ubuntu/PRawwPlus
 ```
 
-This compiles FreeSWITCH 1.10 from source with **all audio modules required for WebRTC**:
-- `mod_opus` — **Opus codec** (required for Chrome/Firefox/Safari WebRTC audio — no audio without this)
-- `mod_verto` — WebRTC browser support
-- `mod_sofia` — SIP stack for mobile (JsSIP)
-- `mod_voicemail` — Voicemail
-- `mod_flite` — TTS announcements
-- `mod_event_socket` — API server control (ESL)
-- `mod_xml_curl` — Dynamic user directory
-
-**Install locations:**
-| Path | Purpose |
-|---|---|
-| `/usr/local/freeswitch` | Install prefix (binaries, modules, sounds) |
-| `/etc/freeswitch` | Config directory (symlink → `/usr/local/freeswitch/conf`) |
-| `/var/log/freeswitch` | Log files |
-| `/usr/local/freeswitch/storage` | Voicemail recordings |
-
-**Verify FreeSWITCH is running:**
-```bash
-sudo systemctl status freeswitch
-sudo fs_cli -x "status"
-```
-
----
-
-## Step 4 — Bootstrap the VPS
-
-This installs Node.js 22, pnpm, PM2, nginx, and certbot:
+### 3. Create your `.env` file
 
 ```bash
-# Edit the script to set your domain and deploy directory first:
-nano deploy/setup.sh
-# Change: DEPLOY_DIR="/home/ubuntu/PRawwPlus"
-# Change: DOMAIN="your-domain.com"
-
-bash deploy/setup.sh
-```
-
----
-
-## Step 5 — Configure Environment Variables
-
-```bash
-cd ~/PRawwPlus
 cp .env.example .env
 nano .env
 ```
 
-Fill in every value. Critical ones:
+**Minimum required to get login working:**
+
+```env
+NODE_ENV=production
+PORT=3000
+TRUST_PROXY=1
+APP_URL=https://rtc.praww.co.za
+
+MONGODB_URI=mongodb+srv://USER:PASS@cluster.mongodb.net/prawwplus?retryWrites=true&w=majority
+```
+
+Fill in all other variables from `.env.example` for full functionality (FreeSWITCH, Firebase, PayFast, SMTP).
+
+> **Note on email verification:** If `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` are not set,
+> new accounts are **automatically verified** on signup — users can log in immediately
+> without needing email confirmation.
+
+### 4. Run the setup script
 
 ```bash
-# Your server
-PORT=3000
-NODE_ENV=production
-TRUST_PROXY=1
-APP_URL=https://your-domain.com
+sudo bash deploy/setup.sh
+```
 
-# MongoDB — Atlas URI (recommended) or self-hosted
-MONGODB_URI=mongodb+srv://USER:PASS@cluster.mongodb.net/prawwplus?retryWrites=true&w=majority
+This installs Node.js 22, pnpm, PM2, nginx, certbot, installs all dependencies,
+builds the app, starts it with PM2, and configures nginx.
 
-# Firebase — from Firebase Console → Project Settings → Service Accounts → Generate key
-FIREBASE_PROJECT_ID=your-firebase-project-id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY\n-----END PRIVATE KEY-----\n"
+### 5. Get a free SSL certificate
 
-# FreeSWITCH
-# FREESWITCH_DOMAIN = your VPS PUBLIC IP (used for RTP NAT in verto/sofia configs)
-# If this is wrong, calls will connect but have NO AUDIO.
-FREESWITCH_DOMAIN=140.245.xx.xx          # ← your VPS public IP
-FREESWITCH_ESL_HOST=127.0.0.1            # always localhost (ESL on same VPS)
+```bash
+sudo certbot --nginx -d rtc.praww.co.za
+```
+
+### 6. Reload services
+
+```bash
+sudo systemctl reload nginx
+pm2 reload ecosystem.config.cjs --update-env && pm2 save
+```
+
+---
+
+## Installing FreeSWITCH (VoIP calls)
+
+FreeSWITCH is 100% open-source and free. Build it from source on your VPS:
+
+```bash
+sudo bash deploy/freeswitch.sh
+```
+
+**Build time: 20–40 minutes.** After building, set these in your `.env`:
+
+```env
+FREESWITCH_DOMAIN=YOUR_VPS_PUBLIC_IP
+FREESWITCH_ESL_HOST=127.0.0.1
 FREESWITCH_ESL_PORT=8021
-FREESWITCH_ESL_PASSWORD=strong_password_here   # CHANGE from default ClueCon!
-FREESWITCH_WS_URL=ws://127.0.0.1:8081/  # internal Verto WS (never public IP)
-FREESWITCH_SIP_WS_URL=ws://127.0.0.1:5066     # internal SIP WS (never public IP)
+FREESWITCH_ESL_PASSWORD=change_me_strong_password
+FREESWITCH_WS_URL=ws://127.0.0.1:8081/
+FREESWITCH_SIP_WS_URL=ws://127.0.0.1:5066
 FREESWITCH_SIP_WS_PORT=5066
 FREESWITCH_SSH_USER=ubuntu
 FREESWITCH_SSH_PORT=22
-# Generate SSH key on the VPS: ssh-keygen -t ed25519 -f ~/.ssh/freeswitch_key -N ""
-# Add public key:               cat ~/.ssh/freeswitch_key.pub >> ~/.ssh/authorized_keys
-# Get private key contents:     cat ~/.ssh/freeswitch_key
-# Paste the private key below (replace \n with actual newlines in .env):
-FREESWITCH_SSH_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\nYOUR_KEY\n-----END OPENSSH PRIVATE KEY-----\n"
 FREESWITCH_CONF_DIR=/etc/freeswitch
 FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage
-FREESWITCH_WEBHOOK_SECRET=change_me_to_a_random_64char_secret
+FREESWITCH_WEBHOOK_SECRET=change_me_random_secret
+FREESWITCH_SSH_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END OPENSSH PRIVATE KEY-----\n"
+```
 
-# PayFast
-PAYFAST_MERCHANT_ID=your_merchant_id
-PAYFAST_MERCHANT_KEY=your_merchant_key
-PAYFAST_PASSPHRASE=your_passphrase
-
-# Email (SMTP)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your@gmail.com
-SMTP_PASS=your_google_app_password
-SMTP_FROM="PRaww+ <noreply@your-domain.com>"
+Then reload PM2:
+```bash
+pm2 reload ecosystem.config.cjs --update-env && pm2 save
 ```
 
 ---
 
-## Step 6 — Build and Start
+## Firebase (Push Notifications)
 
-```bash
-cd ~/PRawwPlus
+1. Firebase Console → Project Settings → Service Accounts → Generate new private key
+2. From the downloaded JSON, set:
 
-# Install all dependencies
-pnpm install --no-frozen-lockfile
-
-# Build library packages (db models, API client hooks, auth)
-pnpm --filter @workspace/db \
-     --filter @workspace/auth-web \
-     --filter @workspace/api-client-react \
-     run build
-
-# Build frontend (outputs to artifacts/prawwplus/dist/public)
-pnpm --filter @workspace/prawwplus run build
-
-# Build backend (bundles to artifacts/api-server/dist/index.cjs)
-pnpm --filter @workspace/api-server run build
-
-# Create PM2 log directory
-mkdir -p logs
-
-# Start with PM2
-pm2 start ecosystem.config.cjs
-pm2 save
-pm2 status
-```
-
-**Check logs:**
-```bash
-pm2 logs prawwplus --lines 50
+```env
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n"
 ```
 
 ---
 
-## Step 7 — Configure Nginx
+## MongoDB Network Access
 
-The `deploy/setup.sh` script already copies and enables the nginx config. If you need to do it manually:
+MongoDB Atlas blocks all connections by default. You MUST whitelist your VPS IP:
 
-```bash
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/prawwplus
-sudo sed -i 's/YOUR_DOMAIN/your-domain.com/g' /etc/nginx/sites-available/prawwplus
-sudo ln -sf /etc/nginx/sites-available/prawwplus /etc/nginx/sites-enabled/prawwplus
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl reload nginx
-```
+1. Atlas → Network Access → Add IP Address
+2. Enter your Oracle VPS public IP (e.g. `140.245.xx.xx`)
 
 ---
 
-## Step 8 — SSL Certificate (Let's Encrypt)
+## Updating the App
 
 ```bash
-sudo certbot --nginx -d your-domain.com
-# Auto-renew is set up automatically by certbot on Ubuntu
-```
-
-Verify HTTPS works: `https://your-domain.com/api/healthz` should return `{ "status": "ok" }`.
-
----
-
-## Step 9 — OS Firewall
-
-```bash
-sudo bash deploy/oracle-ports.sh
-```
-
-This sets UFW defaults: deny incoming, allow SSH/HTTP/HTTPS + FreeSWITCH RTP UDP range.
-
----
-
-## Step 10 — Verify Everything Works
-
-```bash
-# API health check
-curl https://your-domain.com/api/healthz
-
-# PM2 status
-pm2 status
-pm2 logs prawwplus --lines 100
-
-# FreeSWITCH status
-sudo fs_cli -x "status"
-sudo fs_cli -x "sofia status"
-
-# MongoDB connection (check PM2 logs for "MongoDB connected")
-pm2 logs prawwplus | grep -i mongo
-
-# Nginx
-sudo nginx -t
-sudo systemctl status nginx
-```
-
----
-
-## Zero-Downtime Updates (after code changes)
-
-```bash
-cd ~/PRawwPlus
+cd /home/ubuntu/PRawwPlus
 bash deploy/update.sh
 ```
 
-This pulls latest code, rebuilds everything, and does a PM2 reload (zero-downtime).
+Pulls latest code, rebuilds everything, reloads PM2 with zero downtime.
 
 ---
 
-## FreeSWITCH Configuration
+## Fixing Login Issues
 
-PRaww+ auto-pushes FreeSWITCH configuration via SSH every time the API server starts. It provisions:
+### Users can't log in — email not verified
 
-- SIP directory entries for each user (extension + password)
-- Verto WebSocket profile (`mod_verto` on port 8081)
-- SIP WebSocket profile (`mod_sofia` on port 5066)
-- Voicemail configuration
+If users signed up when SMTP was not configured (before the auto-verify fix),
+their accounts are stuck as unverified. Use the admin tool to fix them:
 
-**Check that config was pushed:**
 ```bash
-pm2 logs prawwplus | grep -i "FSH\|freeswitch\|provision"
+cd /home/ubuntu/PRawwPlus
+
+# List all unverified users
+pnpm tsx scripts/verify-user.ts --list
+
+# Verify a specific user
+pnpm tsx scripts/verify-user.ts user@example.com
+
+# Verify ALL unverified users at once
+pnpm tsx scripts/verify-user.ts --all
 ```
 
-**Manually reload FreeSWITCH config:**
+### MongoDB connection refused
+
+Ensure your VPS public IP is whitelisted in MongoDB Atlas → Network Access.
+
+### Login works but page doesn't stay logged in (cookie dropped)
+
+- Ensure `TRUST_PROXY=1` is in `.env`
+- Ensure nginx forwards `X-Forwarded-Proto: https` (it does by default in our nginx.conf)
+- Ensure the site is accessed over HTTPS — the session cookie requires it
+
+---
+
+## PM2 Commands
+
 ```bash
-sudo fs_cli -x "reloadxml"
-sudo fs_cli -x "sofia rescan"
-sudo fs_cli -x "reload mod_verto"
+pm2 logs prawwplus --lines 100          # Live logs
+pm2 status                              # Process status
+pm2 reload ecosystem.config.cjs --update-env && pm2 save  # Reload with new env
+pm2 monit                               # CPU/memory monitor
 ```
 
 ---
 
-## MongoDB
+## Nginx Commands
 
-**Atlas (recommended):**
-1. Create free M0 cluster at https://cloud.mongodb.com
-2. Create a database user
-3. Whitelist `0.0.0.0/0` (or your VPS IP) in Network Access
-4. Copy the connection string into `MONGODB_URI` in `.env`
-
-**Self-hosted (replica set required for transactions):**
 ```bash
-sudo apt-get install -y mongodb
-sudo systemctl enable mongod
-sudo systemctl start mongod
-# Initialize replica set (required for ACID transactions):
-mongosh --eval "rs.initiate()"
+sudo nginx -t                           # Test config
+sudo systemctl reload nginx             # Reload (no downtime)
+sudo tail -f /var/log/nginx/error.log   # Error log
 ```
-Set `MONGODB_URI=mongodb://localhost:27017/prawwplus?replicaSet=rs0`
 
 ---
 
-## Firebase Setup
+## FreeSWITCH Commands
 
-1. Go to https://console.firebase.google.com
-2. Create or open your project
-3. Project Settings → Service Accounts → **Generate new private key**
-4. Download the JSON file
-5. Extract values into `.env`:
-   - `FIREBASE_PROJECT_ID` = `project_id` field
-   - `FIREBASE_CLIENT_EMAIL` = `client_email` field
-   - `FIREBASE_PRIVATE_KEY` = `private_key` field (replace literal `\n` with `\n` in .env)
+```bash
+fs_cli -x "status"                      # Check status
+fs_cli -x "show registrations"          # List registered phones
+sudo journalctl -u freeswitch -f        # Live logs
+```
 
 ---
 
-## PayFast Setup
+## Oracle Firewall Ports
 
-1. Log in at https://www.payfast.co.za
-2. My Account → Settings → Merchant Details
-3. Copy Merchant ID, Merchant Key, and Passphrase into `.env`
-4. In PayFast settings, set your Return URL and Notify URL:
-   - Notify URL: `https://your-domain.com/api/payments/payfast/notify`
+Open these in both UFW (setup script does this) and Oracle Cloud Security Lists:
 
----
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 22 | TCP | SSH |
+| 80 | TCP | HTTP → HTTPS redirect |
+| 443 | TCP | HTTPS |
+| 5060 | UDP | SIP signalling |
+| 5066 | TCP | SIP over WebSocket |
+| 16384–32768 | UDP | RTP audio media |
 
-## Audio Troubleshooting (No Sound / One-Way Audio)
-
-This is the most common deployment issue. Work through this checklist:
-
-**1. Verify RTP ports are open (Oracle Cloud + UFW)**
-```bash
-# Oracle Cloud Console → Security List → must have UDP 16384-32768 inbound
-# On the VPS:
-sudo ufw status | grep 16384
-# Should show: 16384:32768/udp ALLOW Anywhere
-```
-
-**2. Verify FREESWITCH_DOMAIN is the correct PUBLIC IP**
-```bash
-# Get your public IP:
-curl -s ifconfig.me
-# Must match FREESWITCH_DOMAIN in .env exactly
-grep FREESWITCH_DOMAIN .env
-```
-
-**3. Verify mod_opus is loaded**
-```bash
-sudo fs_cli -x "show codec" | grep -i opus
-# Must return one or more opus codec lines
-# If empty: sudo apt-get install freeswitch-mod-opus
-# Then: sudo fs_cli -x "load mod_opus"
-```
-
-**4. Verify FreeSWITCH config was pushed**
-```bash
-pm2 logs prawwplus | grep FSH
-# Should show "Config push complete" steps
-# If SSH key error: check FREESWITCH_SSH_KEY in .env
-```
-
-**5. Check ICE candidates in browser**
-Open browser DevTools → Network tab. After a call attempt, look for `/api/verto/ws` WebSocket frames. The Verto `verto.invite` message should include ICE candidates with your VPS public IP (not 10.x.x.x or 172.x.x.x).
-
-**6. Optional: Add TURN server for restrictive networks**
-Some mobile networks block direct UDP/RTP. Add a TURN server in `.env`:
-```bash
-ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:YOUR_TURN_SERVER:3478","username":"user","credential":"pass"}]
-```
-Free TURN servers: [Metered.ca](https://www.metered.ca/tools/openrelay/) (limited) or self-host with `coturn`.
+Run `sudo bash deploy/oracle-ports.sh` for Oracle Cloud iptables rules.
 
 ---
 
-## Troubleshooting
+## Architecture
 
-| Symptom | Fix |
-|---|---|
-| `502 Bad Gateway` | PM2 app not running — `pm2 start ecosystem.config.cjs` |
-| `MongoDB connection error` | Check `MONGODB_URI` and IP whitelist in Atlas |
-| `FREESWITCH_SSH_KEY not configured` | Add the private key to `.env` |
-| Calls connect but NO AUDIO | `FREESWITCH_DOMAIN` must be the public IP; UDP 16384-32768 must be open; `mod_opus` must be installed |
-| One-way audio only | Same as above — wrong ext-rtp-ip in FreeSWITCH config |
-| Calls fail to connect | Check `FREESWITCH_WS_URL=ws://127.0.0.1:8081/` — must use 127.0.0.1, not public IP |
-| ESL not connecting | Check `FREESWITCH_ESL_PASSWORD` matches FreeSWITCH config; `FREESWITCH_ESL_HOST=127.0.0.1` |
-| No voicemail listed | Check `FREESWITCH_STORAGE_DIR` and SSH key access; `sudo fs_cli -x "voicemail list default"` |
-| SSL error | Run `sudo certbot --nginx -d your-domain.com` |
-| Push notifications not working | Verify Firebase credentials and FCM project ID; check `google-services.json` in mobile app |
-| Android build fails | Run `expo prebuild` then `eas build --platform android` |
-
----
-
-## Security Checklist
-
-- [ ] `.env` file is NOT in git (it's in `.gitignore`)
-- [ ] `FREESWITCH_ESL_PASSWORD` changed from default `ClueCon`
-- [ ] `FREESWITCH_WEBHOOK_SECRET` set to a random 64-char string
-- [ ] Ports 3000, 5066, 8021, 8081 NOT exposed in Oracle Console security list
-- [ ] UFW enabled: `sudo ufw status`
-- [ ] SSL/TLS certificate installed and auto-renewing: `sudo certbot renew --dry-run`
-- [ ] MongoDB Atlas IP whitelist is not `0.0.0.0/0` in production
-- [ ] PM2 startup script saved: `pm2 save`
-
----
-
-## Support
-
-Contact: info@prawwplus.co.za
+```
+Internet (HTTPS :443)
+    │
+ Nginx  ──────────────────────────────────────────
+    │  /api/*  →  localhost:3000 (Node.js API)
+    │  /       →  Static files (dist/public)
+    │
+ PM2 → Node.js API (Express, port 3000)
+    ├── MongoDB Atlas  (user data, sessions, calls)
+    ├── FreeSWITCH ESL (127.0.0.1:8021)  — call control
+    ├── Verto WS Proxy (127.0.0.1:8081)  — browser WebRTC
+    └── SIP WS Proxy   (127.0.0.1:5066)  — mobile SIP
+```

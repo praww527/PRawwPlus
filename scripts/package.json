@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "mongoose": "^9.3.1",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {

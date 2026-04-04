@@ -34,12 +34,16 @@ router.get("/auth/user", (req: Request, res: Response) => {
   res.json({ user: req.isAuthenticated() ? req.user : null });
 });
 
+function isSmtpConfigured(): boolean {
+  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
 router.post("/auth/signup", async (req: Request, res: Response) => {
   try {
     await connectDB();
   } catch (dbErr: any) {
     res.status(503).json({
-      error: "Database unavailable. Please ensure MongoDB Atlas allows connections from this server. Check your Network Access settings.",
+      error: "Database unavailable. Please ensure MongoDB allows connections from this server's IP address.",
     });
     return;
   }
@@ -69,17 +73,23 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const verificationToken = generateToken();
-    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const userId = crypto.randomUUID();
 
-    await UserModel.create({
+    // When SMTP is not configured, auto-verify the account immediately so
+    // users can log in without needing an email verification step.
+    const smtpReady = isSmtpConfigured();
+    const verificationToken = smtpReady ? generateToken() : undefined;
+    const verificationTokenExpiry = smtpReady
+      ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+      : undefined;
+
+    const user = await UserModel.create({
       _id: userId,
       email: email.toLowerCase(),
       username: email.toLowerCase().split("@")[0],
       name: name || email.split("@")[0],
       passwordHash,
-      emailVerified: false,
+      emailVerified: !smtpReady,
       verificationToken,
       verificationTokenExpiry,
       coins: 0,
@@ -87,12 +97,33 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
       isAdmin: false,
     });
 
-    const baseUrl = getBaseUrl(req);
-    await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
-
-    res.status(201).json({
-      message: "Account created. Please check your email to verify your account.",
-    });
+    if (smtpReady && verificationToken) {
+      const baseUrl = getBaseUrl(req);
+      await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
+      res.status(201).json({
+        message: "Account created. Please check your email to verify your account.",
+      });
+    } else {
+      // SMTP not configured — auto-verified, log in immediately
+      await assignExtensionIfNeeded(user._id as string);
+      const sessionData: SessionData = {
+        user: {
+          id: user._id as string,
+          username: user.username ?? (user._id as string),
+          name: user.name ?? undefined,
+          profileImage: user.profileImage ?? undefined,
+          isAdmin: user.isAdmin,
+        },
+        access_token: generateToken(),
+      };
+      const sid = await createSession(sessionData);
+      setSessionCookie(res, sid);
+      res.status(201).json({
+        message: "Account created. You are now logged in.",
+        user: sessionData.user,
+        token: sid,
+      });
+    }
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to create account" });
   }

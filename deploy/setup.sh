@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # deploy/setup.sh
 # One-time Oracle VPS initialisation script.
+# Platform: Ubuntu 22.04 LTS — ARM64 (Ampere A1) or AMD64
+#
 # Run as a user with sudo access (e.g. "ubuntu").
 # Usage: bash deploy/setup.sh
 set -euo pipefail
@@ -9,6 +11,9 @@ DEPLOY_DIR="/home/ubuntu/PRawwPlus"
 DOMAIN="rtc.praww.co.za"
 NODE_VERSION="22"
 PNPM_VERSION="10.26.1"
+
+ARCH="$(uname -m)"
+echo "===== Detected architecture: ${ARCH} ====="
 
 echo "===== [1/8] System update ====="
 sudo apt-get update -y
@@ -43,17 +48,26 @@ else
   git clone https://github.com/praww527/PRawwPlus.git "$DEPLOY_DIR"
 fi
 
-echo "===== [7/8] Install dependencies + build ====="
+echo "===== [7/8] Create .env and install + build ====="
 cd "$DEPLOY_DIR"
 
 if [ ! -f .env ]; then
-  echo "WARNING: .env not found — create $DEPLOY_DIR/.env with your secrets before starting"
-  echo "         See .env.example for required variables"
+  echo ""
+  echo "WARNING: .env not found."
+  echo "         You MUST create $DEPLOY_DIR/.env with all required secrets."
+  echo "         See .env.example for the full list."
+  echo ""
+  echo "         Minimum required for login to work:"
+  echo "           MONGODB_URI=mongodb+srv://..."
+  echo "           APP_URL=https://${DOMAIN}"
+  echo "           NODE_ENV=production"
+  echo "           PORT=3000"
+  echo "           TRUST_PROXY=1"
+  echo ""
 fi
 
-# Remove lockfile so pnpm resolves packages for this machine's architecture (ARM64).
-# pnpm-workspace.yaml explicitly allows linux-arm64-gnu packages for rollup,
-# esbuild, tailwindcss/oxide, and lightningcss.
+# Remove lockfile so pnpm resolves packages for this machine's architecture.
+# The workspace allows linux-arm64-gnu and linux-x64-gnu native binaries.
 rm -f pnpm-lock.yaml
 CI=true pnpm install --no-frozen-lockfile
 
@@ -63,15 +77,17 @@ pnpm --filter @workspace/db \
      --filter @workspace/api-client-react \
      run build
 
-# Build frontend (Vite + Rollup — requires ARM64 native binary)
+# Build frontend (Vite)
 pnpm --filter @workspace/prawwplus run build
 
-# Build backend (esbuild — requires ARM64 native binary)
+# Build backend (esbuild)
 pnpm --filter @workspace/api-server run build
 
 mkdir -p logs
 
 echo "===== [8/8] Start app with PM2 + configure Nginx ====="
+
+# PM2 reads secrets from the .env file at startup — ensure it loads them
 pm2 start ecosystem.config.cjs
 pm2 save
 
@@ -87,5 +103,11 @@ echo ""
 echo "===== Setup complete ====="
 echo "Next steps:"
 echo "  1. Ensure .env is populated: nano ${DEPLOY_DIR}/.env"
-echo "  2. Get SSL certificate:  sudo certbot --nginx -d ${DOMAIN}"
-echo "  3. Reload PM2 after .env changes: pm2 reload ecosystem.config.cjs --update-env"
+echo "  2. Reload PM2 after .env changes:"
+echo "       pm2 reload ecosystem.config.cjs --update-env && pm2 save"
+echo "  3. Get SSL certificate:  sudo certbot --nginx -d ${DOMAIN}"
+echo "  4. Reload nginx after certbot: sudo systemctl reload nginx"
+echo ""
+echo "  If users already signed up without SMTP, verify them manually:"
+echo "       cd ${DEPLOY_DIR}"
+echo "       pnpm tsx scripts/verify-user.ts <email@example.com>"

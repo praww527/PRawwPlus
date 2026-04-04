@@ -639,6 +639,9 @@ importers:
 
   scripts:
     dependencies:
+      mongoose:
+        specifier: ^9.3.1
+        version: 9.3.1
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0

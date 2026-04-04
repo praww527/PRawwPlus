@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # deploy/freeswitch.sh
-# Build and install FreeSWITCH 1.10 from source on Oracle Ubuntu 22.04 AMD64.
+# Build and install FreeSWITCH 1.10 from source on Oracle Ubuntu 22.04 ARM64.
 #
-# FreeSWITCH is open-source and free. Its official source code is hosted on
-# GitHub at github.com/signalwire/freeswitch (SignalWire acquired FreeSWITCH).
-# No account, token, or subscription of any kind is required.
+# FreeSWITCH is 100% open-source (Apache License). Its canonical source code
+# lives at github.com/signalwire/freeswitch (SignalWire acquired the project
+# in 2018 but kept it open-source). No account, token, subscription, or
+# SignalWire service of any kind is required to build or run FreeSWITCH.
 #
-# Usage: sudo bash deploy/freeswitch.sh
+# Usage:   sudo bash deploy/freeswitch.sh
+# Platform: Oracle Cloud Ubuntu 22.04 LTS — ARM64 (Ampere A1) or AMD64
 #
 # Build time: 20-40 minutes depending on VPS size.
 # Installs to: /usr/local/freeswitch
@@ -18,6 +20,9 @@ set -euo pipefail
 FS_VERSION="${FS_VERSION:-v1.10.12}"
 FS_SRC="/usr/src/freeswitch"
 FS_PREFIX="/usr/local/freeswitch"
+
+ARCH="$(uname -m)"
+echo "===== Detected architecture: ${ARCH} ====="
 
 echo "===== [1/8] Install build dependencies ====="
 apt-get update -y
@@ -61,15 +66,12 @@ fi
 cd "$FS_SRC"
 
 echo "===== [4/8] Enable required modules ====="
-# modules.conf controls what gets compiled. Enable the modules PRaww+ needs.
 cp modules.conf modules.conf.bak 2>/dev/null || true
 cat > /tmp/fs_modules_enable.sh << 'MODSCRIPT'
 #!/usr/bin/env bash
-# Uncomment (enable) a set of required modules in modules.conf
 CONF="$1"
 enable_mod() {
   local mod="$1"
-  # Remove leading # and optional spaces
   sed -i "s|^[[:space:]]*#[[:space:]]*\(.*${mod}\)|\1|" "$CONF"
 }
 enable_mod "codecs/mod_opus"
@@ -110,22 +112,18 @@ make install
 make cd-sounds-install
 make cd-moh-install
 
-# ── Directory ownership ───────────────────────────────────────────────────
 chown -R freeswitch:freeswitch "$FS_PREFIX"
 mkdir -p /var/log/freeswitch
 chown freeswitch:freeswitch /var/log/freeswitch
 
-# ── Symlinks for system-wide access ──────────────────────────────────────
 ln -sf "$FS_PREFIX/bin/freeswitch" /usr/local/bin/freeswitch
 ln -sf "$FS_PREFIX/bin/fs_cli"     /usr/local/bin/fs_cli
 
-# ── /etc/freeswitch → conf dir (matches FREESWITCH_CONF_DIR default) ─────
 if [ ! -L /etc/freeswitch ] && [ ! -d /etc/freeswitch ]; then
   ln -sf "$FS_PREFIX/conf" /etc/freeswitch
   echo "Created symlink /etc/freeswitch → $FS_PREFIX/conf"
 fi
 
-# ── Systemd service unit ──────────────────────────────────────────────────
 cat > /etc/systemd/system/freeswitch.service << UNIT
 [Unit]
 Description=FreeSWITCH Voice Platform
@@ -182,7 +180,7 @@ fs_cli -x "show codec" 2>/dev/null | grep -i opus \
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  FreeSWITCH build complete                                  ║"
+echo "║  FreeSWITCH build complete (${ARCH})                        ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║  Install prefix:  ${FS_PREFIX}                   ║"
 echo "║  Config dir:      /etc/freeswitch  (→ ${FS_PREFIX}/conf) ║"

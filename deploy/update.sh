@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # deploy/update.sh
 # Pull latest code, reinstall, rebuild, and reload PM2.
-# Run directly on the Oracle VPS as the ubuntu user.
+# Platform: Oracle Ubuntu 22.04 LTS — ARM64 (Ampere A1) or AMD64
 #
-# Usage:
-#   ssh ubuntu@rtc.praww.co.za
+# Usage (run directly on the VPS as the ubuntu user):
+#   ssh ubuntu@YOUR_DOMAIN
 #   cd /home/ubuntu/PRawwPlus
 #   bash deploy/update.sh
 set -euo pipefail
@@ -16,8 +16,7 @@ git -C "$DEPLOY_DIR" pull
 
 echo "===== [2/6] Install / update dependencies ====="
 cd "$DEPLOY_DIR"
-# Clear lockfile so pnpm re-resolves for this machine's architecture (ARM64).
-# pnpm-workspace.yaml allows linux-arm64-gnu packages — safe to reinstall.
+# Remove lockfile so pnpm re-resolves for this machine's architecture.
 rm -f pnpm-lock.yaml
 CI=true pnpm install --no-frozen-lockfile
 
@@ -39,6 +38,10 @@ pm2 reload ecosystem.config.cjs --update-env
 pm2 save
 
 echo ""
-echo "✅  Update complete"
-echo "    Logs:    pm2 logs prawwplus --lines 50"
-echo "    Monitor: pm2 monit"
+echo "Update complete"
+echo "  Logs:    pm2 logs prawwplus --lines 50"
+echo "  Monitor: pm2 monit"
+echo ""
+echo "  To verify an unverified user (if needed):"
+echo "    pnpm tsx scripts/verify-user.ts --list"
+echo "    pnpm tsx scripts/verify-user.ts user@example.com"
