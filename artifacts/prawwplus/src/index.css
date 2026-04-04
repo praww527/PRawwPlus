@@ -94,24 +94,24 @@
   --radius: 0.75rem;
 
   /* Surfaces */
-  --surface-0: #06070f;
-  --surface-1: rgba(18, 18, 30, 0.88);
-  --surface-2: rgba(34, 34, 52, 0.84);
-  --surface-3: rgba(50, 50, 70, 0.80);
+  --surface-0: #000000;
+  --surface-1: rgba(14, 14, 14, 0.90);
+  --surface-2: rgba(22, 22, 22, 0.88);
+  --surface-3: rgba(32, 32, 32, 0.84);
 
-  /* Animated background gradient */
-  --bg-grad-a: #060810;
-  --bg-grad-b: #090c1c;
-  --bg-grad-c: #06091a;
-  --bg-grad-d: #080610;
-  --bg-grad-e: #0a0820;
+  /* Animated background gradient — pure black in dark mode */
+  --bg-grad-a: #000000;
+  --bg-grad-b: #000000;
+  --bg-grad-c: #000000;
+  --bg-grad-d: #000000;
+  --bg-grad-e: #000000;
 
-  /* Glass — pure frosted, no color tint */
-  --glass-bg: rgba(255, 255, 255, 0.072);
-  --glass-bg-strong: rgba(255, 255, 255, 0.13);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --glass-highlight: rgba(255, 255, 255, 0.16);
-  --glass-shadow: rgba(0, 0, 0, 0.60);
+  /* Glass — pure frosted on black */
+  --glass-bg: rgba(255, 255, 255, 0.082);
+  --glass-bg-strong: rgba(255, 255, 255, 0.14);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-shadow: rgba(0, 0, 0, 0.50);
   --glass-blur: 28px;
 
   /* Separators */
@@ -124,17 +124,20 @@
   --text-3: rgba(255, 255, 255, 0.30);
 
   /* Nav */
-  --nav-bg: rgba(6, 7, 16, 0.88);
-  --nav-border: rgba(255, 255, 255, 0.10);
+  --nav-bg: rgba(18, 18, 20, 0.92);
+  --nav-border: rgba(255, 255, 255, 0.09);
   --nav-active: #3b82f6;
-  --nav-inactive: rgba(255, 255, 255, 0.32);
+  --nav-inactive: rgba(255, 255, 255, 0.30);
   --nav-active-circle: rgba(59, 130, 246, 0.18);
   --nav-active-circle-border: rgba(59, 130, 246, 0.30);
+  --nav-pill-bg: rgba(59, 130, 246, 0.16);
+  --nav-pill-border: rgba(59, 130, 246, 0.28);
+  --nav-pill-shadow: rgba(59, 130, 246, 0.18);
 
   /* Modal / overlay */
-  --modal-bg: rgba(8, 9, 22, 0.96);
-  --modal-border: rgba(255, 255, 255, 0.11);
-  --overlay-bg: rgba(0, 0, 0, 0.76);
+  --modal-bg: rgba(16, 16, 16, 0.97);
+  --modal-border: rgba(255, 255, 255, 0.10);
+  --overlay-bg: rgba(0, 0, 0, 0.72);
 
   /* Dial buttons */
   --dial-btn-bg: rgba(255, 255, 255, 0.09);
@@ -204,12 +207,15 @@
     --text-3: rgba(8, 12, 24, 0.35);
 
     /* Nav */
-    --nav-bg: rgba(238, 244, 255, 0.86);
+    --nav-bg: rgba(248, 250, 255, 0.88);
     --nav-border: rgba(0, 0, 0, 0.08);
     --nav-active: #1a7cff;
     --nav-inactive: rgba(8, 12, 24, 0.32);
     --nav-active-circle: rgba(26, 124, 255, 0.13);
     --nav-active-circle-border: rgba(26, 124, 255, 0.22);
+    --nav-pill-bg: rgba(26, 124, 255, 0.12);
+    --nav-pill-border: rgba(26, 124, 255, 0.22);
+    --nav-pill-shadow: rgba(26, 124, 255, 0.12);
 
     /* Modal / overlay */
     --modal-bg: rgba(240, 246, 255, 0.97);
@@ -256,6 +262,13 @@
     overflow-x: hidden;
     overscroll-behavior: none;
     min-height: 100dvh;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      background: #000000;
+      animation: none;
+    }
   }
 
   h1, h2, h3, h4, h5, h6 {

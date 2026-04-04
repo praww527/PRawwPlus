@@ -14,7 +14,7 @@ import {
 import { format } from "date-fns";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { MODAL_Z } from "@/components/Layout";
+import { MODAL_Z, NAV_H, NAV_BOTTOM_GAP } from "@/components/Layout";
 
 const PLANS = [
   { id: "basic", name: "Basic", price: 59,  maxNumbers: 1 },
@@ -34,6 +34,8 @@ function PayFastRedirect({ data }: { data: any }) {
   );
 }
 
+const SHEET_CLEAR = NAV_H + NAV_BOTTOM_GAP + 10;
+
 /* ── Modal sheet ───────────────────────────────────────────────────── */
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -46,14 +48,15 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
+        paddingBottom: `calc(${SHEET_CLEAR}px + env(safe-area-inset-bottom, 0px))`,
       }}
     >
       <div
         className="modal-surface slide-up"
         style={{
           borderRadius: "24px 24px 0 0",
-          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 24px)",
-          maxHeight: "90dvh",
+          paddingBottom: 24,
+          maxHeight: `calc(100dvh - ${SHEET_CLEAR}px - env(safe-area-inset-bottom, 0px))`,
           overflowY: "auto",
           overflowX: "hidden",
         }}

@@ -8,7 +8,10 @@ import {
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCall } from "@/context/CallContext";
-import { MODAL_Z } from "@/components/Layout";
+import { MODAL_Z, NAV_H, NAV_BOTTOM_GAP } from "@/components/Layout";
+import { avatarGradient } from "@/lib/utils";
+
+const SHEET_CLEAR = NAV_H + NAV_BOTTOM_GAP + 10;
 
 interface PhoneEntry { name: string; number: string; }
 
@@ -66,16 +69,20 @@ function ImportModal({ entries, onImport, onClose }: {
   return (
     <div
       className="overlay-backdrop"
-      style={{ position: "fixed", inset: 0, zIndex: MODAL_Z, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+      style={{
+        position: "fixed", inset: 0, zIndex: MODAL_Z,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+        paddingBottom: `calc(${SHEET_CLEAR}px + env(safe-area-inset-bottom, 0px))`,
+      }}
     >
       <div
         className="modal-surface slide-up"
         style={{
           width: "100%", maxWidth: 480,
           borderRadius: "24px 24px 0 0",
-          paddingBottom: "max(env(safe-area-inset-bottom, 0px), 20px)",
+          paddingBottom: 20,
           display: "flex", flexDirection: "column",
-          maxHeight: "90dvh",
+          maxHeight: `calc(100dvh - ${SHEET_CLEAR}px - env(safe-area-inset-bottom, 0px))`,
         }}
       >
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 8 }}>
@@ -155,14 +162,18 @@ function AddContactModal({ onAdd, onClose }: { onAdd: (name: string, number: str
   return (
     <div
       className="overlay-backdrop"
-      style={{ position: "fixed", inset: 0, zIndex: MODAL_Z, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+      style={{
+        position: "fixed", inset: 0, zIndex: MODAL_Z,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+        paddingBottom: `calc(${SHEET_CLEAR}px + env(safe-area-inset-bottom, 0px))`,
+      }}
     >
       <div
         className="modal-surface slide-up"
         style={{
           width: "100%", maxWidth: 480,
           borderRadius: "24px 24px 0 0",
-          padding: "0 0 max(env(safe-area-inset-bottom, 0px), 20px)",
+          paddingBottom: 20,
         }}
       >
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 8 }}>
@@ -197,15 +208,15 @@ function AddContactModal({ onAdd, onClose }: { onAdd: (name: string, number: str
 
 /* ── Avatar ─────────────────────────────────────────────────────────── */
 function Avatar({ name, number }: { name: string; number: string }) {
+  const seed = name || number;
   return (
     <div style={{
       width: 44, height: 44, borderRadius: "50%",
-      background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      background: avatarGradient(seed),
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: 14, fontWeight: 700, color: "var(--text-1)",
+      fontSize: 14, fontWeight: 700, color: "#fff",
       flexShrink: 0,
-      boxShadow: "0 2px 8px rgba(0,0,0,0.14), 0 1px 0 var(--glass-highlight) inset",
+      boxShadow: "0 2px 10px rgba(0,0,0,0.24)",
     }}>
       {initials(name, number)}
     </div>
