@@ -9,7 +9,7 @@ import {
   ChevronRight, LogOut, Trash2, Phone, Coins, Receipt,
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
-  AlertCircle, Plus, UserCircle2, X, Shuffle,
+  AlertCircle, Plus, X, Shuffle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
@@ -358,35 +358,73 @@ export default function Profile() {
       <PayFastRedirect data={pfData} />
 
       {/* ── User header ──────────────────────────────────── */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 4 }}>
-        <div style={{
-          width: 82, height: 82, borderRadius: "50%",
-          background: "var(--glass-bg)",
-          border: "1.5px solid var(--glass-border)",
-          backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 4px 20px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
-        }}>
-          <UserCircle2 style={{ width: 42, height: 42, color: "var(--text-1)" }} />
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <p style={{ fontSize: 21, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>
-            {user?.name || user?.username || "—"}
-          </p>
-          <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 2 }}>{user?.email ?? user?.username ?? ""}</p>
-          {primaryNumber && <p style={{ fontSize: 13, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>{primaryNumber}</p>}
+      {(() => {
+        const displayName = user?.name || user?.username || "—";
+        const initials = displayName !== "—"
+          ? displayName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
+          : "?";
+        return (
           <div style={{
-            display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8,
-            padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-            background: isActive ? "rgba(48,209,88,0.12)" : "var(--surface-2)",
-            color: isActive ? "#30d158" : "var(--text-3)",
-            border: `1px solid ${isActive ? "rgba(48,209,88,0.22)" : "var(--sep)"}`,
+            display: "flex", alignItems: "center", gap: 16,
+            padding: "18px 20px",
+            borderRadius: 24,
+            background: "var(--glass-bg)",
+            border: "1px solid var(--glass-border)",
+            backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+            boxShadow: "0 4px 28px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
           }}>
-            {isActive ? <CheckCircle2 style={{ width: 11, height: 11 }} /> : <AlertCircle style={{ width: 11, height: 11 }} />}
-            {isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "No Active Plan"}
+            {/* Avatar with initials */}
+            <div style={{
+              width: 64, height: 64, borderRadius: "50%", flexShrink: 0,
+              background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(59,130,246,0.35), 0 1px 0 rgba(255,255,255,0.22) inset",
+              fontSize: 22, fontWeight: 700, color: "#fff",
+              fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
+              border: "2px solid rgba(255,255,255,0.18)",
+            }}>
+              {initials}
+            </div>
+
+            {/* Name / email / status */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{
+                fontSize: 19, fontWeight: 700, color: "var(--text-1)",
+                fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                lineHeight: 1.2,
+              }}>
+                {displayName}
+              </p>
+              <p style={{
+                fontSize: 13, color: "var(--text-2)", marginTop: 3,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {user?.email ?? user?.username ?? ""}
+              </p>
+              {primaryNumber && (
+                <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace", marginTop: 2 }}>
+                  {primaryNumber}
+                </p>
+              )}
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8,
+                padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                background: isActive ? "rgba(48,209,88,0.14)" : "rgba(128,128,128,0.14)",
+                color: isActive ? "#30d158" : "var(--text-3)",
+                border: `1px solid ${isActive ? "rgba(48,209,88,0.25)" : "var(--sep)"}`,
+              }}>
+                {isActive
+                  ? <CheckCircle2 style={{ width: 11, height: 11 }} />
+                  : <AlertCircle style={{ width: 11, height: 11 }} />}
+                {isActive
+                  ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active`
+                  : "No Active Plan"}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* ── Quick stats ──────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
