@@ -1,34 +1,39 @@
 #!/usr/bin/env bash
 # deploy/update.sh
-# Pull latest code, rebuild, and reload PM2 — zero-downtime redeploy.
-# Run on the Oracle VPS as the ubuntu user from inside the repo directory.
-# Usage: bash deploy/update.sh
-set -euo pipefail
+# ─────────────────────────────────────────────────────────────────────────────
+# HOW TO UPDATE PRaww+ on the Oracle VPS
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ⚠️  DO NOT run build commands directly on the VPS.
+#     The Oracle VPS is ARM64 (Ampere A1). Vite's native Rollup module
+#     does not install correctly on ARM64 via pnpm, so frontend builds
+#     will fail on the VPS.
+#
+# ✅  CORRECT update workflow — run ALL of these from REPLIT (not the VPS):
+#
+#   1. Make your code changes in Replit
+#   2. Build locally:
+#        pnpm --filter @workspace/prawwplus run build
+#        pnpm --filter @workspace/api-server run build
+#   3. Deploy to VPS (builds + uploads + restarts PM2):
+#        pnpm --filter @workspace/scripts run deploy-vps
+#
+#   That's it. The deploy-vps script handles everything via SSH/SFTP.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Quick-reference commands to run ON THE VPS (for monitoring only):
+#
+#   pm2 list                      — see app status
+#   pm2 logs prawwplus --lines 50 — tail recent logs
+#   pm2 monit                     — live dashboard
+#   pm2 reload prawwplus          — graceful restart (no redeploy)
+#   sudo systemctl status nginx   — nginx status
+#   sudo systemctl status freeswitch — FreeSWITCH status
+# ─────────────────────────────────────────────────────────────────────────────
 
-DEPLOY_DIR="${DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
-
-echo "===== [1/5] Pull latest code ====="
-git -C "$DEPLOY_DIR" pull
-
-echo "===== [2/5] Install / update dependencies ====="
-cd "$DEPLOY_DIR"
-pnpm install --no-frozen-lockfile
-
-echo "===== [3/5] Build library packages ====="
-pnpm --filter @workspace/db \
-     --filter @workspace/auth-web \
-     --filter @workspace/api-client-react \
-     run build
-
-echo "===== [4/5] Build app packages ====="
-pnpm --filter @workspace/prawwplus run build
-pnpm --filter @workspace/api-server run build
-
-echo "===== [5/5] Reload PM2 (zero-downtime) ====="
-pm2 reload ecosystem.config.cjs --update-env
-pm2 save
-
+echo "⚠️  This script is informational. See comments above."
 echo ""
-echo "===== Update complete ====="
-echo "Check logs: pm2 logs prawwplus --lines 50"
-echo "Monitor:    pm2 monit"
+echo "Run updates from Replit:"
+echo "  pnpm --filter @workspace/prawwplus run build"
+echo "  pnpm --filter @workspace/api-server run build"
+echo "  pnpm --filter @workspace/scripts run deploy-vps"
