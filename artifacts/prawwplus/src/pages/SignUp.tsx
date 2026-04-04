@@ -5,9 +5,11 @@ import logoImg from "/logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@workspace/auth-web";
 
 export default function SignUp() {
   const [, setLocation] = useLocation();
+  const { refetch } = useAuth();
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "", name: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -41,6 +43,16 @@ export default function SignUp() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Sign up failed"); return; }
+
+      // When SMTP is not configured the backend auto-verifies and logs the user
+      // in immediately — the response includes a `user` object. Redirect straight
+      // to the dashboard in that case instead of showing the email-check screen.
+      if (data.user) {
+        refetch();
+        setLocation("/dashboard");
+        return;
+      }
+
       setSuccess(true);
     } catch {
       setError("Network error. Please try again.");
