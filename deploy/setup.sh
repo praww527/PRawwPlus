@@ -34,7 +34,7 @@ echo "===== [5/8] PM2 ====="
 sudo npm install -g pm2
 pm2 startup systemd -u ubuntu --hp /home/ubuntu | tail -1 | sudo bash
 
-echo "===== [6/8] Clone / update repo ====="
+echo "===== [6/8] Clone repo ====="
 if [ -d "$DEPLOY_DIR/.git" ]; then
   echo "Repo already exists — pulling latest"
   git -C "$DEPLOY_DIR" pull
@@ -46,20 +46,27 @@ fi
 echo "===== [7/8] Install dependencies + build ====="
 cd "$DEPLOY_DIR"
 
-# Copy your .env file here before running this step:
-#   scp .env ubuntu@VPS_IP:$DEPLOY_DIR/.env
 if [ ! -f .env ]; then
-  echo "WARNING: .env not found — copy it to $DEPLOY_DIR/.env before starting"
+  echo "WARNING: .env not found — create $DEPLOY_DIR/.env with your secrets before starting"
+  echo "         See .env.example for required variables"
 fi
 
-pnpm install --no-frozen-lockfile
+# Remove lockfile so pnpm resolves packages for this machine's architecture (ARM64).
+# pnpm-workspace.yaml explicitly allows linux-arm64-gnu packages for rollup,
+# esbuild, tailwindcss/oxide, and lightningcss.
+rm -f pnpm-lock.yaml
+CI=true pnpm install --no-frozen-lockfile
 
+# Build shared library packages first
 pnpm --filter @workspace/db \
      --filter @workspace/auth-web \
      --filter @workspace/api-client-react \
      run build
 
+# Build frontend (Vite + Rollup — requires ARM64 native binary)
 pnpm --filter @workspace/prawwplus run build
+
+# Build backend (esbuild — requires ARM64 native binary)
 pnpm --filter @workspace/api-server run build
 
 mkdir -p logs
@@ -78,5 +85,7 @@ sudo systemctl reload nginx
 
 echo ""
 echo "===== Setup complete ====="
-echo "Next: run  sudo certbot --nginx -d ${DOMAIN}  to get SSL certificate"
-echo "Then: set all env vars in ${DEPLOY_DIR}/.env (see .env.example)"
+echo "Next steps:"
+echo "  1. Ensure .env is populated: nano ${DEPLOY_DIR}/.env"
+echo "  2. Get SSL certificate:  sudo certbot --nginx -d ${DOMAIN}"
+echo "  3. Reload PM2 after .env changes: pm2 reload ecosystem.config.cjs --update-env"

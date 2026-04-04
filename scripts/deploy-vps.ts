@@ -1,25 +1,30 @@
 #!/usr/bin/env tsx
 /**
  * scripts/deploy-vps.ts
- * Full Oracle VPS deployment via SSH + SFTP.
+ * Full source push + build on Oracle VPS (ARM64 Ampere A1).
  *
- * Strategy (avoids ARM64 cross-compilation issues):
- *   1. Build frontend + backend LOCALLY (already done via pnpm build)
- *   2. Upload built artifacts + config to VPS via SFTP
- *   3. On VPS: install runtime deps with npm (auto-resolves ARM64 natives)
- *   4. Configure nginx, start/reload PM2
+ * Flow:
+ *   1. Pack source files into a tarball (excludes node_modules / dist / .git)
+ *   2. Upload tarball to VPS via SFTP
+ *   3. Extract on VPS
+ *   4. pnpm install (resolves correct ARM64 native binaries)
+ *   5. Build all packages on VPS
+ *   6. Reload PM2
  *
  * Usage: pnpm --filter @workspace/scripts run deploy-vps
- * Pre-req: run `pnpm --filter @workspace/prawwplus run build` and
- *              `pnpm --filter @workspace/api-server run build` first.
  */
 
 import { Client as SSH, type ClientChannel, type SFTPWrapper } from "ssh2";
-import { readFile, readdir, stat } from "fs/promises";
-import { createReadStream } from "fs";
+import { readFile }  from "fs/promises";
+import { createReadStream, createWriteStream } from "fs";
+import { exec as cpExec }   from "child_process";
+import { promisify }        from "util";
 import path from "path";
+import os   from "os";
 
-// ── Config ─────────────────────────────────────────────────────────────────
+const execAsync = promisify(cpExec);
+
+// ── Config ──────────────────────────────────────────────────────────────────
 const VPS_HOST = process.env.FREESWITCH_DOMAIN ?? "";
 const SSH_USER = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
 const SSH_PORT = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
@@ -34,7 +39,7 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 if (!VPS_HOST) { console.error("FREESWITCH_DOMAIN not set"); process.exit(1); }
 if (!RAW_KEY)  { console.error("FREESWITCH_SSH_KEY not set"); process.exit(1); }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function cleanKey(raw: string): string {
   let s = raw.trim();
   if (s.includes("\\n")) s = s.replace(/\\n/g, "\n");
@@ -54,17 +59,18 @@ function connect(): Promise<SSH> {
     const conn = new SSH();
     conn.on("ready", () => resolve(conn));
     conn.on("error", reject);
-    conn.connect({ host: VPS_HOST, port: SSH_PORT, username: SSH_USER, privateKey: cleanKey(RAW_KEY), readyTimeout: 20_000 });
+    conn.connect({ host: VPS_HOST, port: SSH_PORT, username: SSH_USER, privateKey: cleanKey(RAW_KEY), readyTimeout: 30_000 });
   });
 }
 
 function exec(conn: SSH, cmd: string, label: string, showOutput = true): Promise<string> {
   return new Promise((resolve, reject) => {
+    // Use a long timeout for build steps
     conn.exec(cmd, { pty: false }, (err, stream: ClientChannel) => {
       if (err) { reject(new Error(`${label}: ${err.message}`)); return; }
       let out = ""; let errOut = "";
-      stream.on("data", (d: Buffer) => { out += d.toString(); });
-      stream.stderr.on("data", (d: Buffer) => { errOut += d.toString(); });
+      stream.on("data",         (d: Buffer) => { out    += d.toString(); });
+      stream.stderr.on("data",  (d: Buffer) => { errOut += d.toString(); });
       stream.on("close", (code: number) => {
         const combined = (out + "\n" + errOut).trim();
         if (code !== 0) {
@@ -105,24 +111,6 @@ function sftpWriteContent(sftp: SFTPWrapper, remotePath: string, content: string
     ws.on("error", reject);
     ws.end(content);
   });
-}
-
-async function sftpUploadDir(sftp: SFTPWrapper, localDir: string, remoteDir: string): Promise<number> {
-  await sftpMkdir(sftp, remoteDir);
-  const entries = await readdir(localDir);
-  let count = 0;
-  for (const entry of entries) {
-    const lp = path.join(localDir, entry);
-    const rp = `${remoteDir}/${entry}`;
-    const s = await stat(lp);
-    if (s.isDirectory()) {
-      count += await sftpUploadDir(sftp, lp, rp);
-    } else {
-      await sftpUploadFile(sftp, lp, rp);
-      count++;
-    }
-  }
-  return count;
 }
 
 // ── .env builder ────────────────────────────────────────────────────────────
@@ -177,22 +165,49 @@ function buildDotEnv(): string {
   ].join("\n") + "\n";
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
+// ── Create source tarball ────────────────────────────────────────────────────
+async function createSourceTarball(): Promise<string> {
+  const tarPath = path.join(os.tmpdir(), `prawwplus-src-${Date.now()}.tar.gz`);
+  const cmd = [
+    `tar czf "${tarPath}"`,
+    // Include only the source directories needed to build
+    `--exclude='*/node_modules'`,
+    `--exclude='*/dist'`,
+    `--exclude='*/.git'`,
+    `--exclude='*/logs'`,
+    `--exclude='*/.local'`,
+    `--exclude='*/.cache'`,
+    `--exclude='*/screenshots'`,
+    `--exclude='*.tar.gz'`,
+    `-C "${ROOT}"`,
+    // Paths to include
+    `artifacts`,
+    `lib`,
+    `deploy`,
+    `package.json`,
+    `pnpm-workspace.yaml`,
+    `tsconfig.json`,
+    `ecosystem.config.cjs`,
+    // Include scripts source (not the whole scripts workspace — just key files)
+    `scripts/package.json`,
+  ].join(" ");
+
+  console.log("    Creating tarball...");
+  const { stderr } = await execAsync(cmd);
+  if (stderr) console.log(`    tar warnings: ${stderr}`);
+  return tarPath;
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
 async function deploy() {
   console.log(`\n🚀  Deploying PRaww+ → ${VPS_HOST} (${DOMAIN})\n`);
+  console.log("    Strategy: upload full source → build directly on VPS (ARM64)\n");
 
-  // Verify local builds exist
-  const frontendDist = path.join(ROOT, "artifacts/prawwplus/dist/public");
-  const backendBundle = path.join(ROOT, "artifacts/api-server/dist/index.cjs");
-  try {
-    await stat(frontendDist);
-    await stat(backendBundle);
-  } catch {
-    console.error("❌  Build artifacts missing — run:\n" +
-      "    pnpm --filter @workspace/prawwplus run build\n" +
-      "    pnpm --filter @workspace/api-server run build");
-    process.exit(1);
-  }
+  // ── Pack source ─────────────────────────────────────────────────────────
+  console.log("📦  [1/7] Packing source files...");
+  const tarPath = await createSourceTarball();
+  const { size } = await import("fs").then(m => m.promises.stat(tarPath));
+  console.log(`✅  Tarball ready: ${(size / 1024 / 1024).toFixed(1)} MB\n`);
 
   const conn = await connect();
   console.log("✅  SSH connected\n");
@@ -200,127 +215,99 @@ async function deploy() {
   try {
     const sftp = await getSftp(conn);
 
-    // ── Step 1: System packages ─────────────────────────────────────────
-    console.log("📦  [1/8] Verifying system packages...");
+    // ── Step 2: System packages ────────────────────────────────────────
+    console.log("🔧  [2/7] Verifying system packages...");
     await exec(conn,
       "sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq nginx ufw certbot python3-certbot-nginx 2>&1 | tail -3",
       "apt-get"
     );
-    console.log("✅  System packages ready\n");
-
-    // ── Step 2: Node.js + npm ───────────────────────────────────────────
-    console.log("📦  [2/8] Verifying Node.js...");
-    const nodeVer = await exec(conn, "node --version", "node-version");
+    const nodeVer = await exec(conn, "node --version 2>&1", "node-version");
     console.log(`✅  Node.js ${nodeVer}\n`);
 
-    // ── Step 3: PM2 ─────────────────────────────────────────────────────
-    console.log("📦  [3/8] Verifying PM2...");
+    // ── Step 3: Upload source tarball ──────────────────────────────────
+    console.log("📤  [3/7] Uploading source tarball...");
+    const remoteTar = "/tmp/prawwplus-src.tar.gz";
+    await sftpUploadFile(sftp, tarPath, remoteTar);
+    console.log("    Extracting source on VPS...");
+    await exec(conn,
+      `mkdir -p "${DEPLOY_DIR}" && ` +
+      `tar xzf "${remoteTar}" -C "${DEPLOY_DIR}" && ` +
+      `rm -f "${remoteTar}"`,
+      "extract"
+    );
+    console.log("✅  Source extracted\n");
+
+    // ── Step 4: Write .env ─────────────────────────────────────────────
+    console.log("🔐  [4/7] Writing .env...");
+    await sftpWriteContent(sftp, `${DEPLOY_DIR}/.env`, buildDotEnv(), 0o600);
+    console.log("✅  .env written\n");
+
+    // ── Step 5: pnpm install on VPS ────────────────────────────────────
+    console.log("📦  [5/7] Installing dependencies on VPS...");
+    console.log("    (pnpm resolves linux-arm64-gnu native binaries — takes 1-3 min)\n");
+    await exec(conn,
+      `cd "${DEPLOY_DIR}" && ` +
+      // Remove lockfile so pnpm re-resolves for ARM64; pnpm-workspace.yaml
+      // now allows all linux-arm64-gnu packages (rollup, esbuild, tailwindcss, lightningcss)
+      `rm -f pnpm-lock.yaml && ` +
+      `CI=true pnpm install --no-frozen-lockfile 2>&1`,
+      "pnpm-install"
+    );
+    console.log("\n✅  Dependencies installed\n");
+
+    // ── Step 6: Build on VPS ──────────────────────────────────────────
+    console.log("🔨  [6/7] Building on VPS (all packages)...");
+
+    console.log("    Building shared libraries...");
+    await exec(conn,
+      `cd "${DEPLOY_DIR}" && ` +
+      `pnpm --filter @workspace/db ` +
+      `     --filter @workspace/auth-web ` +
+      `     --filter @workspace/api-client-react ` +
+      `     run build 2>&1`,
+      "build-libs"
+    );
+
+    console.log("    Building frontend (Vite + Rollup ARM64)...");
+    await exec(conn,
+      `cd "${DEPLOY_DIR}" && pnpm --filter @workspace/prawwplus run build 2>&1`,
+      "build-frontend"
+    );
+
+    console.log("    Building backend (esbuild ARM64)...");
+    await exec(conn,
+      `cd "${DEPLOY_DIR}" && pnpm --filter @workspace/api-server run build 2>&1`,
+      "build-backend"
+    );
+    console.log("✅  All packages built\n");
+
+    // ── Step 7: PM2 + nginx ───────────────────────────────────────────
+    console.log("🌐  [7/7] Configuring nginx + PM2...");
+
     await exec(conn, "pm2 --version 2>/dev/null || sudo npm install -g pm2", "pm2");
     await exec(conn,
       "sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu 2>/dev/null | tail -1 | sudo bash || true",
       "pm2-startup", false
     );
-    console.log("✅  PM2 ready\n");
 
-    // ── Step 4: Create directory structure ─────────────────────────────
-    console.log("📂  [4/8] Creating deploy directories...");
-    for (const d of [
-      DEPLOY_DIR,
-      `${DEPLOY_DIR}/artifacts`,
-      `${DEPLOY_DIR}/artifacts/prawwplus`,
-      `${DEPLOY_DIR}/artifacts/prawwplus/dist`,
-      `${DEPLOY_DIR}/artifacts/api-server`,
-      `${DEPLOY_DIR}/artifacts/api-server/dist`,
-      `${DEPLOY_DIR}/deploy`,
-      `${DEPLOY_DIR}/logs`,
-    ]) {
-      await sftpMkdir(sftp, d);
-    }
-    console.log("✅  Directories ready\n");
-
-    // ── Step 5: Upload built artifacts via SFTP ─────────────────────────
-    console.log("📤  [5/8] Uploading built artifacts...");
-
-    // Frontend dist (Vite build output)
-    const frontendCount = await sftpUploadDir(
-      sftp,
-      path.join(ROOT, "artifacts/prawwplus/dist/public"),
-      `${DEPLOY_DIR}/artifacts/prawwplus/dist/public`
-    );
-    console.log(`    ✓ Frontend: ${frontendCount} files uploaded`);
-
-    // Backend bundle (esbuild CJS)
-    await sftpUploadFile(
-      sftp,
-      path.join(ROOT, "artifacts/api-server/dist/index.cjs"),
-      `${DEPLOY_DIR}/artifacts/api-server/dist/index.cjs`
-    );
-    console.log("    ✓ Backend bundle uploaded");
-
-    // api-server package.json — strip workspace:* and catalog: deps (already bundled into CJS)
-    const rawPkg = JSON.parse(await readFile(path.join(ROOT, "artifacts/api-server/package.json"), "utf-8"));
-    const cleanDeps: Record<string, string> = {};
-    for (const [k, v] of Object.entries(rawPkg.dependencies ?? {})) {
-      const ver = v as string;
-      if (!ver.startsWith("workspace:") && !ver.startsWith("catalog:")) cleanDeps[k] = ver;
-    }
-    const prodPkg = JSON.stringify({ name: rawPkg.name, version: rawPkg.version, dependencies: cleanDeps }, null, 2);
-    await sftpWriteContent(sftp, `${DEPLOY_DIR}/artifacts/api-server/package.json`, prodPkg);
-
-    // ecosystem.config.cjs
-    await sftpUploadFile(
-      sftp,
-      path.join(ROOT, "ecosystem.config.cjs"),
-      `${DEPLOY_DIR}/ecosystem.config.cjs`
-    );
-
-    // nginx config
-    await sftpUploadFile(
-      sftp,
-      path.join(ROOT, "deploy/nginx.conf"),
-      `${DEPLOY_DIR}/deploy/nginx.conf`
-    );
-    console.log("✅  All artifacts uploaded\n");
-
-    // ── Step 6: Write .env ──────────────────────────────────────────────
-    console.log("🔐  [6/8] Writing .env...");
-    await sftpWriteContent(sftp, `${DEPLOY_DIR}/.env`, buildDotEnv(), 0o600);
-    console.log("✅  .env written\n");
-
-    // ── Step 7: Install production runtime deps ─────────────────────────
-    // Uses npm (not pnpm) in the api-server dir — npm auto-resolves ARM64 natives
-    console.log("📦  [7/8] Installing production runtime deps (npm)...");
-    const npmInstallCmd =
-      `cd "${DEPLOY_DIR}/artifacts/api-server" && ` +
-      `npm install --production --legacy-peer-deps --loglevel=error 2>&1`;
-    await exec(conn, npmInstallCmd, "npm-install");
-    console.log("✅  Runtime deps installed\n");
-
-    // ── Step 8: Configure nginx + PM2 ─────────────────────────────────
-    console.log("🌐  [8/8] Configuring nginx and starting PM2...");
-
-    // Create webroot dir for certbot ACME challenge
     await exec(conn, "sudo mkdir -p /var/www/certbot", "mkdir-certbot", false);
 
-    // Nginx
+    const nginxConf = `/etc/nginx/sites-available/prawwplus`;
     await exec(conn,
-      `sudo cp "${DEPLOY_DIR}/deploy/nginx.conf" /etc/nginx/sites-available/prawwplus && ` +
-      `sudo ln -sf /etc/nginx/sites-available/prawwplus /etc/nginx/sites-enabled/prawwplus && ` +
+      `sudo cp "${DEPLOY_DIR}/deploy/nginx.conf" ${nginxConf} && ` +
+      `sudo ln -sf ${nginxConf} /etc/nginx/sites-enabled/prawwplus && ` +
       `sudo rm -f /etc/nginx/sites-enabled/default && ` +
       `sudo nginx -t 2>&1 && sudo systemctl reload nginx`,
       "nginx"
     );
 
-    // Load .env into the PM2 process (ecosystem reads it via dotenv)
     await exec(conn,
-      `cd "${DEPLOY_DIR}" && ` +
+      `cd "${DEPLOY_DIR}" && mkdir -p logs && ` +
       `(pm2 reload ecosystem.config.cjs --update-env 2>/dev/null || ` +
-       `pm2 start ecosystem.config.cjs --env production) && ` +
-      `pm2 save`,
+       `pm2 start ecosystem.config.cjs --env production) && pm2 save`,
       "pm2-start"
     );
 
-    // UFW firewall
     await exec(conn,
       "sudo ufw allow 22/tcp 2>/dev/null; sudo ufw allow 80/tcp; " +
       "sudo ufw allow 443/tcp; sudo ufw allow 16384:32768/udp; " +
@@ -332,11 +319,13 @@ async function deploy() {
     console.log(`\n${pm2Status}\n`);
 
     console.log("╔══════════════════════════════════════════════════════════╗");
-    console.log("║  ✅  PRaww+ deployed to Oracle VPS                       ║");
+    console.log("║  ✅  PRaww+ deployed — built on VPS (ARM64)              ║");
     console.log(`║  🌍  URL:  https://${DOMAIN.padEnd(36)}║`);
-    console.log("║  ⚠️   SSL:  sudo certbot --nginx -d " + DOMAIN + " ║");
+    console.log("║  🔒  SSL:  sudo certbot --nginx -d " + DOMAIN + "  ║");
     console.log("║  📋  Logs: pm2 logs prawwplus                            ║");
     console.log("╚══════════════════════════════════════════════════════════╝\n");
+    console.log("Future updates from the VPS:");
+    console.log("  git pull && bash deploy/update.sh\n");
 
   } finally {
     conn.end();

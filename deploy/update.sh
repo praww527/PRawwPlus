@@ -1,39 +1,44 @@
 #!/usr/bin/env bash
 # deploy/update.sh
-# ─────────────────────────────────────────────────────────────────────────────
-# HOW TO UPDATE PRaww+ on the Oracle VPS
-# ─────────────────────────────────────────────────────────────────────────────
+# Pull latest code, reinstall, rebuild, and reload PM2.
+# Run directly on the Oracle VPS as the ubuntu user.
 #
-# ⚠️  DO NOT run build commands directly on the VPS.
-#     The Oracle VPS is ARM64 (Ampere A1). Vite's native Rollup module
-#     does not install correctly on ARM64 via pnpm, so frontend builds
-#     will fail on the VPS.
-#
-# ✅  CORRECT update workflow — run ALL of these from REPLIT (not the VPS):
-#
-#   1. Make your code changes in Replit
-#   2. Build locally:
-#        pnpm --filter @workspace/prawwplus run build
-#        pnpm --filter @workspace/api-server run build
-#   3. Deploy to VPS (builds + uploads + restarts PM2):
-#        pnpm --filter @workspace/scripts run deploy-vps
-#
-#   That's it. The deploy-vps script handles everything via SSH/SFTP.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# Quick-reference commands to run ON THE VPS (for monitoring only):
-#
-#   pm2 list                      — see app status
-#   pm2 logs prawwplus --lines 50 — tail recent logs
-#   pm2 monit                     — live dashboard
-#   pm2 reload prawwplus          — graceful restart (no redeploy)
-#   sudo systemctl status nginx   — nginx status
-#   sudo systemctl status freeswitch — FreeSWITCH status
-# ─────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   ssh ubuntu@rtc.praww.co.za
+#   cd /home/ubuntu/PRawwPlus
+#   bash deploy/update.sh
+set -euo pipefail
 
-echo "⚠️  This script is informational. See comments above."
+DEPLOY_DIR="${DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
+
+echo "===== [1/6] Pull latest code ====="
+git -C "$DEPLOY_DIR" pull
+
+echo "===== [2/6] Install / update dependencies ====="
+cd "$DEPLOY_DIR"
+# Clear lockfile so pnpm re-resolves for this machine's architecture (ARM64).
+# pnpm-workspace.yaml allows linux-arm64-gnu packages — safe to reinstall.
+rm -f pnpm-lock.yaml
+CI=true pnpm install --no-frozen-lockfile
+
+echo "===== [3/6] Build shared library packages ====="
+pnpm --filter @workspace/db \
+     --filter @workspace/auth-web \
+     --filter @workspace/api-client-react \
+     run build
+
+echo "===== [4/6] Build frontend (Vite) ====="
+pnpm --filter @workspace/prawwplus run build
+
+echo "===== [5/6] Build backend (esbuild) ====="
+pnpm --filter @workspace/api-server run build
+
+echo "===== [6/6] Reload PM2 (zero-downtime) ====="
+mkdir -p logs
+pm2 reload ecosystem.config.cjs --update-env
+pm2 save
+
 echo ""
-echo "Run updates from Replit:"
-echo "  pnpm --filter @workspace/prawwplus run build"
-echo "  pnpm --filter @workspace/api-server run build"
-echo "  pnpm --filter @workspace/scripts run deploy-vps"
+echo "✅  Update complete"
+echo "    Logs:    pm2 logs prawwplus --lines 50"
+echo "    Monitor: pm2 monit"
