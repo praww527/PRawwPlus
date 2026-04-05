@@ -137,6 +137,7 @@ EnvironmentFile=-/etc/default/freeswitch
 ExecStart=${FS_PREFIX}/bin/freeswitch \\
   -ncwait \\
   -nonat \\
+  -conf ${FS_PREFIX}/conf \\
   -log /var/log/freeswitch \\
   -run ${FS_PREFIX}/run \\
   -db  ${FS_PREFIX}/db \\
