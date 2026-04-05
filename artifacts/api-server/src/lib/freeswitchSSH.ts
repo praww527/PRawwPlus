@@ -24,10 +24,11 @@ import {
   sipProfileXml,
 } from "./freeswitchConfig";
 
-const FS_DOMAIN   = process.env.FREESWITCH_DOMAIN ?? "";
-const FS_SSH_PORT = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
-const FS_SSH_USER = process.env.FREESWITCH_SSH_USER ?? "root";
-const FS_CONF_DIR = process.env.FREESWITCH_CONF_DIR ?? "/usr/local/freeswitch/conf";
+const FS_DOMAIN    = process.env.FREESWITCH_DOMAIN ?? "";
+const FS_SSH_PORT  = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
+const FS_SSH_USER  = process.env.FREESWITCH_SSH_USER ?? "root";
+const FS_CONF_DIR  = process.env.FREESWITCH_CONF_DIR ?? "/usr/local/freeswitch/conf";
+const FS_ESL_PASS  = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
 
 /** Strip protocol (wss://, ws://, https://, http://) and path/port for SSH/TCP use. */
 function bareHost(raw: string): string {
@@ -135,13 +136,16 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     conn = await sshConnect(rawKey);
     steps.push(`SSH connected to ${FS_HOST}`);
 
-    // Detect FreeSWITCH config root
+    // Detect FreeSWITCH config root.
+    // Only probe if the env var was not explicitly set (i.e. still the default).
     let confDir = FS_CONF_DIR;
-    try {
-      const alt = await execCommand(conn, "[ -d /usr/local/freeswitch/conf ] && echo /usr/local/freeswitch/conf || echo /etc/freeswitch");
-      if (alt) confDir = alt.trim();
-    } catch (err) {
-      logger.debug({ err }, "[FSH] conf dir probe failed — using default");
+    if (!process.env.FREESWITCH_CONF_DIR) {
+      try {
+        const alt = await execCommand(conn, "[ -d /usr/local/freeswitch/conf ] && echo /usr/local/freeswitch/conf || echo /etc/freeswitch");
+        if (alt) confDir = alt.trim();
+      } catch (err) {
+        logger.debug({ err }, "[FSH] conf dir probe failed — using default");
+      }
     }
     steps.push(`Config dir: ${confDir}`);
 
@@ -220,52 +224,73 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     if (!fsCli) {
       steps.push("fs_cli not found — skipping reload (FreeSWITCH will pick up changes on next restart)");
     } else {
-      // Reload FreeSWITCH XML config
+      // Build a helper that always includes the ESL password.
+      // Running fs_cli without -p fails authentication when a non-default password is set.
+      const eslPassword = FS_ESL_PASS.replace(/'/g, "'\\''");
+      const cli = `${fsCli} -p '${eslPassword}'`;
+
+      // 1. Reload FreeSWITCH XML config — must happen FIRST so subsequent module
+      //    reloads read the new files from the XML cache, not the stale in-memory copy.
       try {
-        await execCommand(conn, `${fsCli} -x 'reloadxml'`);
+        await execCommand(conn, `${cli} -x 'reloadxml'`);
         steps.push("reloadxml OK");
       } catch (e) {
         steps.push(`reloadxml failed: ${(e as Error).message}`);
       }
 
-      // Reload mod_xml_curl so it picks up the new gateway URL
+      // 2. Reload mod_xml_curl so it picks up the new gateway URL
       try {
-        await execCommand(conn, `${fsCli} -x 'reload mod_xml_curl'`);
+        await execCommand(conn, `${cli} -x 'reload mod_xml_curl'`);
         steps.push("reload mod_xml_curl OK");
       } catch (e) {
         steps.push(`reload mod_xml_curl failed: ${(e as Error).message}`);
       }
 
-      // Reload mod_event_socket so the new ESL password takes effect immediately
+      // 3. Reload mod_event_socket so the new ESL password takes effect immediately.
+      //    Note: if the password changes this reload will succeed using the OLD password;
+      //    the new password is active from the next connection onwards.
       try {
-        await execCommand(conn, `${fsCli} -x 'reload mod_event_socket'`);
+        await execCommand(conn, `${cli} -x 'reload mod_event_socket'`);
         steps.push("reload mod_event_socket OK");
       } catch (e) {
         steps.push(`reload mod_event_socket failed (may not be critical): ${(e as Error).message}`);
       }
 
-      // Reload mod_verto to pick up the new verto.conf (port binding)
+      // 4. Reload mod_verto to pick up the new verto.conf.
+      //    `reload mod_verto` does NOT reliably reload profile bindings — only a full
+      //    unload + load cycle does.  We do reloadxml first so the freshly written
+      //    verto.conf.xml is in the XML cache before mod_verto re-reads it.
       try {
-        await execCommand(conn, `${fsCli} -x 'reload mod_verto'`);
-        steps.push("reload mod_verto OK");
+        await execCommand(conn, `${cli} -x 'unload mod_verto'`);
+        await new Promise((r) => setTimeout(r, 1000));
+        await execCommand(conn, `${cli} -x 'load mod_verto'`);
+        steps.push("mod_verto unload+load OK");
       } catch (e) {
-        steps.push(`reload mod_verto failed: ${(e as Error).message}`);
+        steps.push(`mod_verto unload+load failed: ${(e as Error).message}`);
       }
 
-      // Reload mod_voicemail to pick up voicemail.conf
+      // 5. Reload mod_voicemail to pick up voicemail.conf
       try {
-        await execCommand(conn, `${fsCli} -x 'reload mod_voicemail'`);
+        await execCommand(conn, `${cli} -x 'reload mod_voicemail'`);
         steps.push("reload mod_voicemail OK");
       } catch (e) {
         steps.push(`reload mod_voicemail failed (may not be critical): ${(e as Error).message}`);
       }
 
-      // Reload/start the SIP/WS profile for mobile clients
+      // 6. Handle the SIP/WS mobile profile.
+      //    `reload mod_sofia` reloads existing profiles but does NOT start new ones.
+      //    We attempt to start the profile first; if it's already running, rescan it.
       try {
-        await execCommand(conn, `${fsCli} -x 'reload mod_sofia'`);
-        steps.push("reload mod_sofia OK");
+        await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile start'`);
+        steps.push("sofia profile prawwplus_mobile start OK");
       } catch (e) {
-        steps.push(`reload mod_sofia failed (may not be critical): ${(e as Error).message}`);
+        // Profile may already be running — try a rescan instead
+        try {
+          await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile rescan'`);
+          steps.push("sofia profile prawwplus_mobile rescan OK");
+        } catch (e2) {
+          steps.push(`sofia profile prawwplus_mobile start/rescan failed (may not be critical): ${(e2 as Error).message}`);
+        }
       }
     }
 
@@ -288,7 +313,12 @@ export async function testSSHConnection(): Promise<{ ok: boolean; error?: string
 
   try {
     const conn = await sshConnect(rawKey);
-    const out  = await execCommand(conn, "fs_cli -x 'status' 2>/dev/null || echo 'freeswitch running'");
+    const fsCli = await execCommand(
+      conn,
+      "command -v fs_cli 2>/dev/null || ls /usr/local/freeswitch/bin/fs_cli /usr/bin/fs_cli 2>/dev/null | head -1 || echo ''",
+    ).then((p) => p.trim()).catch(() => "fs_cli");
+    const eslPassword = FS_ESL_PASS.replace(/'/g, "'\\''");
+    const out = await execCommand(conn, `${fsCli} -p '${eslPassword}' -x 'status' 2>/dev/null || echo 'freeswitch running'`);
     conn.end();
     return { ok: true, error: out };
   } catch (err: unknown) {
