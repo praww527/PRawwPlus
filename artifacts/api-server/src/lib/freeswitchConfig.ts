@@ -86,11 +86,11 @@ export function vertoConf(fsIp: string): string {
 
       <param name="dialplan" value="XML"/>
       <!--
-        Use the dedicated "call_manager" context so calls are routed by OUR
+        Use the dedicated "prawwplus" context so calls are routed by OUR
         dialplan only, completely isolated from the default FreeSWITCH dialplan
         (which has its own 4-digit extension handlers that would match first).
       -->
-      <param name="context" value="call_manager"/>
+      <param name="context" value="prawwplus"/>
 
       <!--
         Codecs: Opus first (WebRTC / browser / mobile), G722 for HD voice on
@@ -123,7 +123,7 @@ export function dialplanXml(fsDomain: string): string {
   <!--
     PRawwPlus Dialplan — domain: ${fsDomain}
 
-    Context: "call_manager" — completely isolated from FreeSWITCH's built-in
+    Context: "prawwplus" — completely isolated from FreeSWITCH's built-in
     "default" context. Both the Verto profile (port 8081) and the SIP/WS
     profile (port 5066) are configured to use this context, so calls ALWAYS
     land here and never hit the default FreeSWITCH extension handlers.
@@ -136,7 +136,7 @@ export function dialplanXml(fsDomain: string): string {
     Every failure path plays a TTS announcement then hangs up with the correct
     SIP cause code so the caller's UI shows the right reason.
   -->
-  <context name="call_manager">
+  <context name="prawwplus">
 
     <extension name="dnd_reject" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="never">
@@ -339,7 +339,7 @@ export function dialplanXml(fsDomain: string): string {
 /**
  * Sofia SIP profile with WebSocket transport (mod_sofia).
  * Mobile clients connect via wss://APP_URL/api/sip/ws → ws://fs:5066
- * This profile is written to sip_profiles/call_manager_ws.xml
+ * This profile is written to sip_profiles/prawwplus_mobile.xml
  *
  * Port notes:
  *  - SIP-over-TCP/UDP uses port 5068 (non-standard) to avoid clashing with
@@ -348,13 +348,13 @@ export function dialplanXml(fsDomain: string): string {
  *    forwards wss://APP/api/sip/ws → ws://FS:5066.
  */
 export function sipProfileXml(fsIp: string, _appUrl: string): string {
-  return `<profile name="call_manager_ws">
+  return `<profile name="prawwplus_mobile">
   <settings>
     <!--
-      Use the dedicated "call_manager" context — same as the Verto profile —
+      Use the dedicated "prawwplus" context — same as the Verto profile —
       so SIP/WS mobile clients are routed by our dialplan, not the default one.
     -->
-    <param name="context" value="call_manager"/>
+    <param name="context" value="prawwplus"/>
     <param name="dialplan" value="XML"/>
 
     <!-- Bind SIP to a non-standard port to avoid conflicts with internal/external profiles -->
