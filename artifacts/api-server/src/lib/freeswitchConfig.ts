@@ -169,8 +169,8 @@ export function dialplanXml(fsDomain: string): string {
 
         <!-- Always-forward happens before ringing the extension. -->
         <action application="set" data="should_forward=${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$)}"/>
-        <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} && ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 && ${FS_VAR}forward_depth} &lt; 3)}"/>
-        <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} && '${FS_VAR}forward_target}' != '$1')}"/>
+        <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3)}"/>
+        <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
         <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}should_forward})"/>
 
