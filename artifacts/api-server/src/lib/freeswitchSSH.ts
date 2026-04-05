@@ -136,16 +136,24 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
     conn = await sshConnect(rawKey);
     steps.push(`SSH connected to ${FS_HOST}`);
 
-    // Detect FreeSWITCH config root.
-    // Only probe if the env var was not explicitly set (i.e. still the default).
-    let confDir = FS_CONF_DIR;
-    if (!process.env.FREESWITCH_CONF_DIR) {
-      try {
-        const alt = await execCommand(conn, "[ -d /usr/local/freeswitch/conf ] && echo /usr/local/freeswitch/conf || echo /etc/freeswitch");
-        if (alt) confDir = alt.trim();
-      } catch (err) {
-        logger.debug({ err }, "[FSH] conf dir probe failed — using default");
-      }
+    // Detect the actual FreeSWITCH config root by probing the filesystem.
+    // We always probe — the env var FREESWITCH_CONF_DIR may be stale or wrong
+    // (e.g. set to /etc/freeswitch on a source-compiled install that uses
+    // /usr/local/freeswitch/conf). The probe checks for freeswitch.xml, which
+    // is the canonical marker of the real config root.
+    let confDir = FS_CONF_DIR; // fallback if probe fails
+    try {
+      const probed = await execCommand(
+        conn,
+        // Check for freeswitch.xml in both common locations; prefer the one that exists.
+        "if [ -f /usr/local/freeswitch/conf/freeswitch.xml ]; then echo /usr/local/freeswitch/conf; " +
+        "elif [ -f /etc/freeswitch/freeswitch.xml ]; then echo /etc/freeswitch; " +
+        "elif [ -d /usr/local/freeswitch/conf ]; then echo /usr/local/freeswitch/conf; " +
+        "else echo /etc/freeswitch; fi",
+      );
+      if (probed) confDir = probed.trim();
+    } catch (err) {
+      logger.debug({ err }, "[FSH] conf dir probe failed — using default");
     }
     steps.push(`Config dir: ${confDir}`);
 
@@ -249,12 +257,17 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
       // 3. Reload mod_event_socket so the new ESL password takes effect immediately.
       //    Note: if the password changes this reload will succeed using the OLD password;
       //    the new password is active from the next connection onwards.
+      //    IMPORTANT: reloading mod_event_socket briefly restarts the ESL listener —
+      //    the next fs_cli connection attempt immediately after gets "Error Connecting".
+      //    We must wait a few seconds for ESL to come back up before continuing.
       try {
         await execCommand(conn, `${cli} -x 'reload mod_event_socket'`);
         steps.push("reload mod_event_socket OK");
       } catch (e) {
         steps.push(`reload mod_event_socket failed (may not be critical): ${(e as Error).message}`);
       }
+      // Wait for ESL to finish restarting before sending more commands
+      await new Promise((r) => setTimeout(r, 3000));
 
       // 4. Reload mod_verto to pick up the new verto.conf.
       //    `reload mod_verto` does NOT reliably reload profile bindings — only a full
