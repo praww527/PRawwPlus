@@ -254,22 +254,15 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
         steps.push(`reload mod_xml_curl failed: ${(e as Error).message}`);
       }
 
-      // 3. Reload mod_event_socket so the new ESL password takes effect immediately.
-      //    Note: if the password changes this reload will succeed using the OLD password;
-      //    the new password is active from the next connection onwards.
-      //    IMPORTANT: reloading mod_event_socket briefly restarts the ESL listener —
-      //    the next fs_cli connection attempt immediately after gets "Error Connecting".
-      //    We must wait a few seconds for ESL to come back up before continuing.
-      try {
-        await execCommand(conn, `${cli} -x 'reload mod_event_socket'`);
-        steps.push("reload mod_event_socket OK");
-      } catch (e) {
-        steps.push(`reload mod_event_socket failed (may not be critical): ${(e as Error).message}`);
-      }
-      // Wait for ESL to finish restarting before sending more commands
-      await new Promise((r) => setTimeout(r, 3000));
+      // NOTE: We intentionally do NOT reload mod_event_socket here.
+      // Reloading it via its own socket (fs_cli) causes the module to enter a bad state
+      // where ESL stops accepting connections entirely, breaking all subsequent fs_cli calls
+      // and requiring a full FreeSWITCH restart to recover.
+      // The event_socket.conf.xml is written above so it will be used on the next
+      // FreeSWITCH restart. The ESL password is set once and rarely changes.
+      steps.push("event_socket.conf.xml written (reload skipped — requires FS restart to take effect)");
 
-      // 4. Reload mod_verto to pick up the new verto.conf.
+      // 3. Reload mod_verto to pick up the new verto.conf.
       //    `reload mod_verto` does NOT reliably reload profile bindings — only a full
       //    unload + load cycle does.  We do reloadxml first so the freshly written
       //    verto.conf.xml is in the XML cache before mod_verto re-reads it.
