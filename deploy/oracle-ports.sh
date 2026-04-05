@@ -45,7 +45,7 @@ sudo ufw allow 16384:32768/udp comment "FreeSWITCH RTP media"
 # These are proxied by nginx and MUST NOT be reachable from the internet.
 # They are listed here for documentation only — UFW rules are NOT added.
 #
-#   Port 3000  — Node.js / PM2 (nginx → upstream prawwplus_api)
+#   Port 3000  — Node.js API (nginx → upstream prawwplus_api)
 #   Port 5066  — FreeSWITCH SIP/WS (nginx → /api/sip/ws proxy)
 #   Port 5068  — FreeSWITCH SIP/TCP (not exposed externally)
 #   Port 8021  — FreeSWITCH ESL (server → FreeSWITCH, localhost only)

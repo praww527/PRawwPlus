@@ -87,7 +87,7 @@ jobs:
             echo "==> Building API server"
             pnpm --filter @workspace/api-server run build
 
-            echo "==> Restarting API server with PM2"
-            pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+            echo "==> Restarting API server with systemd"
+            sudo systemctl restart prawwplus-api
 
             echo "==> Done — $(date)"

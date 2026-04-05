@@ -1,0 +1,16 @@
+[Unit]
+Description=PRawwPlus API Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/PRawwPlus
+EnvironmentFile=/home/ubuntu/PRawwPlus/.env
+ExecStart=/usr/bin/node /home/ubuntu/PRawwPlus/artifacts/api-server/dist/index.cjs
+Restart=always
+RestartSec=5
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target

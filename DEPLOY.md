@@ -1,7 +1,7 @@
 # PRaww+ — Oracle VPS Deployment Guide
 
 > **Platform:** Ubuntu 22.04 LTS on Oracle Cloud (ARM64 Ampere A1 or AMD64 x86_64)  
-> **Stack:** Node.js 22 + PM2 · Nginx · MongoDB · FreeSWITCH · Firebase FCM · PayFast
+> **Stack:** Node.js 22 + systemd · Nginx · MongoDB · FreeSWITCH · Firebase FCM · PayFast
 
 ---
 
@@ -63,8 +63,8 @@ Fill in all other variables from `.env.example` for full functionality (FreeSWIT
 sudo bash deploy/setup.sh
 ```
 
-This installs Node.js 22, pnpm, PM2, nginx, certbot, installs all dependencies,
-builds the app, starts it with PM2, and configures nginx.
+This installs Node.js 22, pnpm, nginx, certbot, installs all dependencies,
+builds the app, starts it with systemd, and configures nginx.
 
 ### 5. Get a free SSL certificate
 
@@ -76,7 +76,7 @@ sudo certbot --nginx -d rtc.praww.co.za
 
 ```bash
 sudo systemctl reload nginx
-pm2 reload ecosystem.config.cjs --update-env && pm2 save
+sudo systemctl restart prawwplus-api
 ```
 
 ---
@@ -107,9 +107,9 @@ FREESWITCH_WEBHOOK_SECRET=change_me_random_secret
 FREESWITCH_SSH_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END OPENSSH PRIVATE KEY-----\n"
 ```
 
-Then reload PM2:
+Then restart the service:
 ```bash
-pm2 reload ecosystem.config.cjs --update-env && pm2 save
+sudo systemctl restart prawwplus-api
 ```
 
 ---
@@ -143,7 +143,7 @@ cd /home/ubuntu/PRawwPlus
 bash deploy/update.sh
 ```
 
-Pulls latest code, rebuilds everything, reloads PM2 with zero downtime.
+Pulls latest code, rebuilds everything, restarts the systemd service.
 
 ---
 
@@ -179,13 +179,13 @@ Ensure your VPS public IP is whitelisted in MongoDB Atlas → Network Access.
 
 ---
 
-## PM2 Commands
+## API Service Commands
 
 ```bash
-pm2 logs prawwplus --lines 100          # Live logs
-pm2 status                              # Process status
-pm2 reload ecosystem.config.cjs --update-env && pm2 save  # Reload with new env
-pm2 monit                               # CPU/memory monitor
+sudo systemctl status prawwplus-api --no-pager
+sudo journalctl -u prawwplus-api -n 200 --no-pager
+sudo journalctl -u prawwplus-api -f
+sudo systemctl restart prawwplus-api
 ```
 
 ---
@@ -236,7 +236,7 @@ Internet (HTTPS :443)
     │  /api/*  →  localhost:3000 (Node.js API)
     │  /       →  Static files (dist/public)
     │
- PM2 → Node.js API (Express, port 3000)
+ systemd → Node.js API (Express, port 3000)
     ├── MongoDB Atlas  (user data, sessions, calls)
     ├── FreeSWITCH ESL (127.0.0.1:8021)  — call control
     ├── Verto WS Proxy (127.0.0.1:8081)  — browser WebRTC

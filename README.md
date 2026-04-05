@@ -11,7 +11,7 @@
 - FreeSWITCH telephony integration (provisioning, call control, voicemail)
 - PayFast payment gateway (subscriptions + coin top-ups)
 - Firebase Cloud Messaging push notifications
-- PM2-managed deployment on Oracle Cloud Ubuntu AMD64
+- systemd-managed deployment on Oracle Cloud Ubuntu (ARM64 or AMD64)
 
 ---
 
@@ -26,7 +26,7 @@
 | Auth | JWT, httpOnly cookies, bcrypt |
 | Payments | PayFast (subscriptions + one-time) |
 | Push | Firebase Admin SDK (FCM) |
-| Process | PM2 with systemd integration |
+| Process | systemd |
 | Proxy | Nginx (TLS termination, WebSocket upgrade, static files) |
 
 ---
@@ -51,13 +51,13 @@ deploy/             # Oracle VPS deployment scripts
   freeswitch.sh     # FreeSWITCH 1.10 install on Ubuntu
   oracle-ports.sh   # UFW + Oracle Console firewall guide
   nginx.conf        # Nginx reverse proxy config
+  prawwplus-api.service # systemd unit file (API server)
 .env.example        # Template for all required environment variables
-ecosystem.config.cjs # PM2 process config
 ```
 
 ---
 
-## Deployment — Oracle VPS (Ubuntu 22.04 AMD64)
+## Deployment — Oracle VPS (Ubuntu 22.04)
 
 See [DEPLOY.md](./DEPLOY.md) for the complete step-by-step guide.
 
@@ -67,16 +67,15 @@ See [DEPLOY.md](./DEPLOY.md) for the complete step-by-step guide.
 # 1. Build and install FreeSWITCH from source (takes 20-40 min)
 sudo bash deploy/freeswitch.sh
 
-# 2. Bootstrap VPS (Node.js 22, pnpm, PM2, nginx, certbot)
+# 2. Bootstrap VPS (Node.js 22, pnpm, nginx, certbot)
 bash deploy/setup.sh
 
 # 3. Copy and fill in your secrets
 cp .env.example .env
 nano .env
 
-# 4. Start with PM2
-pm2 start ecosystem.config.cjs
-pm2 save
+# 4. Start API server
+sudo systemctl restart prawwplus-api
 
 # 5. SSL certificate
 sudo certbot --nginx -d your-domain.com

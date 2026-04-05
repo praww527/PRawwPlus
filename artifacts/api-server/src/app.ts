@@ -27,7 +27,7 @@ function findStaticDirFromRoot(root: string): string {
 function resolveStaticDir(): string {
   if (process.env.STATIC_DIR) return process.env.STATIC_DIR;
 
-  // Oracle VPS (PM2) may start the server with a cwd that is *not* the repo root
+  // Oracle VPS may start the server with a cwd that is *not* the repo root
   // (e.g. artifacts/api-server). Try a few likely roots.
   const cwd = process.cwd();
   const candidates: string[] = [

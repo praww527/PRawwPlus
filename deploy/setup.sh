@@ -35,9 +35,8 @@ echo "===== [4/8] corepack + pnpm ====="
 sudo corepack enable
 sudo corepack prepare pnpm@${PNPM_VERSION} --activate
 
-echo "===== [5/8] PM2 ====="
-sudo npm install -g pm2
-pm2 startup systemd -u ubuntu --hp /home/ubuntu | tail -1 | sudo bash
+echo "===== [5/8] systemd service ====="
+sudo mkdir -p /etc/systemd/system
 
 echo "===== [6/8] Clone repo ====="
 if [ -d "$DEPLOY_DIR/.git" ]; then
@@ -85,11 +84,12 @@ pnpm --filter @workspace/api-server run build
 
 mkdir -p logs
 
-echo "===== [8/8] Start app with PM2 + configure Nginx ====="
+echo "===== [8/8] Start app with systemd + configure Nginx ====="
 
-# PM2 reads secrets from the .env file at startup — ensure it loads them
-pm2 start ecosystem.config.cjs
-pm2 save
+sudo cp deploy/prawwplus-api.service /etc/systemd/system/prawwplus-api.service
+sudo systemctl daemon-reload
+sudo systemctl enable prawwplus-api
+sudo systemctl restart prawwplus-api
 
 # Nginx
 sudo cp deploy/nginx.conf /etc/nginx/sites-available/prawwplus
@@ -103,8 +103,8 @@ echo ""
 echo "===== Setup complete ====="
 echo "Next steps:"
 echo "  1. Ensure .env is populated: nano ${DEPLOY_DIR}/.env"
-echo "  2. Reload PM2 after .env changes:"
-echo "       pm2 reload ecosystem.config.cjs --update-env && pm2 save"
+echo "  2. Restart service after .env changes:"
+echo "       sudo systemctl restart prawwplus-api"
 echo "  3. Get SSL certificate:  sudo certbot --nginx -d ${DOMAIN}"
 echo "  4. Reload nginx after certbot: sudo systemctl reload nginx"
 echo ""

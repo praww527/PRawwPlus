@@ -9,7 +9,7 @@
  *   3. Extract on VPS
  *   4. pnpm install (resolves correct ARM64 native binaries)
  *   5. Build all packages on VPS
- *   6. Reload PM2
+ *   6. Install/restart systemd service
  *
  * Usage: pnpm --filter @workspace/scripts run deploy-vps
  */
@@ -187,7 +187,7 @@ async function createSourceTarball(): Promise<string> {
     `package.json`,
     `pnpm-workspace.yaml`,
     `tsconfig.json`,
-    `ecosystem.config.cjs`,
+    `deploy/prawwplus-api.service`,
     // Include scripts source (not the whole scripts workspace — just key files)
     `scripts/package.json`,
   ].join(" ");
@@ -281,14 +281,8 @@ async function deploy() {
     );
     console.log("✅  All packages built\n");
 
-    // ── Step 7: PM2 + nginx ───────────────────────────────────────────
-    console.log("🌐  [7/7] Configuring nginx + PM2...");
-
-    await exec(conn, "pm2 --version 2>/dev/null || sudo npm install -g pm2", "pm2");
-    await exec(conn,
-      "sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu 2>/dev/null | tail -1 | sudo bash || true",
-      "pm2-startup", false
-    );
+    // ── Step 7: systemd + nginx ───────────────────────────────────────
+    console.log("🌐  [7/7] Configuring nginx + systemd...");
 
     await exec(conn, "sudo mkdir -p /var/www/certbot", "mkdir-certbot", false);
 
@@ -302,10 +296,11 @@ async function deploy() {
     );
 
     await exec(conn,
-      `cd "${DEPLOY_DIR}" && mkdir -p logs && ` +
-      `(pm2 reload ecosystem.config.cjs --update-env 2>/dev/null || ` +
-       `pm2 start ecosystem.config.cjs --env production) && pm2 save`,
-      "pm2-start"
+      `sudo cp "${DEPLOY_DIR}/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service && ` +
+      `sudo systemctl daemon-reload && ` +
+      `sudo systemctl enable prawwplus-api && ` +
+      `sudo systemctl restart prawwplus-api`,
+      "systemd"
     );
 
     await exec(conn,
@@ -315,14 +310,14 @@ async function deploy() {
       "ufw"
     );
 
-    const pm2Status = await exec(conn, "pm2 list --no-color 2>&1", "pm2-list");
-    console.log(`\n${pm2Status}\n`);
+    const svcStatus = await exec(conn, "sudo systemctl --no-pager --full status prawwplus-api 2>&1 | tail -80", "service-status");
+    console.log(`\n${svcStatus}\n`);
 
     console.log("╔══════════════════════════════════════════════════════════╗");
     console.log("║  ✅  PRaww+ deployed — built on VPS (ARM64)              ║");
     console.log(`║  🌍  URL:  https://${DOMAIN.padEnd(36)}║`);
     console.log("║  🔒  SSL:  sudo certbot --nginx -d " + DOMAIN + "  ║");
-    console.log("║  📋  Logs: pm2 logs prawwplus                            ║");
+    console.log("║  📋  Logs: sudo journalctl -u prawwplus-api -f           ║");
     console.log("╚══════════════════════════════════════════════════════════╝\n");
     console.log("Future updates from the VPS:");
     console.log("  git pull && bash deploy/update.sh\n");

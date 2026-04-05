@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy/update.sh
-# Pull latest code, reinstall, rebuild, and reload PM2.
+# Pull latest code, reinstall, rebuild, and restart the API service.
 # Platform: Oracle Ubuntu 22.04 LTS — ARM64 (Ampere A1) or AMD64
 #
 # Usage (run directly on the VPS as the ubuntu user):
@@ -32,15 +32,14 @@ pnpm --filter @workspace/prawwplus run build
 echo "===== [5/6] Build backend (esbuild) ====="
 pnpm --filter @workspace/api-server run build
 
-echo "===== [6/6] Reload PM2 (zero-downtime) ====="
+echo "===== [6/6] Restart systemd service ====="
 mkdir -p logs
-pm2 reload ecosystem.config.cjs --update-env
-pm2 save
+sudo systemctl restart prawwplus-api
 
 echo ""
 echo "Update complete"
-echo "  Logs:    pm2 logs prawwplus --lines 50"
-echo "  Monitor: pm2 monit"
+echo "  Logs:    sudo journalctl -u prawwplus-api -n 200 --no-pager"
+echo "  Follow:  sudo journalctl -u prawwplus-api -f"
 echo ""
 echo "  To verify an unverified user (if needed):"
 echo "    pnpm tsx scripts/verify-user.ts --list"

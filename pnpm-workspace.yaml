@@ -62,7 +62,7 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
-  # linux-arm64-gnu and linux-x64-gnu are NOT excluded — needed by VPS (ARM64) and Replit (x64)
+  # linux-arm64-gnu and linux-x64-gnu are NOT excluded — needed by VPS (ARM64) and x64 builds
 
   # ── esbuild — keep only linux-x64 and linux-arm64 ────────────────────────
   esbuild: 0.27.3
@@ -101,7 +101,7 @@ overrides:
   lightningcss>lightningcss-linux-x64-musl: '-'
   lightningcss>lightningcss-win32-arm64-msvc: '-'
   lightningcss>lightningcss-win32-x64-msvc: '-'
-  # linux-arm64-gnu and linux-x64-gnu are NOT excluded — needed by VPS and Replit
+  # linux-arm64-gnu and linux-x64-gnu are NOT excluded — needed by VPS and local/dev builds
 
   # ── rollup — keep only linux-x64-gnu and linux-arm64-gnu ─────────────────
   rollup>@rollup/rollup-android-arm-eabi: '-'
