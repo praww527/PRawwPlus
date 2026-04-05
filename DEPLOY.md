@@ -1,7 +1,31 @@
 # PRaww+ — Oracle VPS Deployment Guide
 
-> **Platform:** Ubuntu 22.04 LTS on Oracle Cloud (ARM64 Ampere A1 or AMD64 x86_64)  
+> **Platform:** Ubuntu 22.04 LTS on Oracle Cloud (ARM64 Ampere A1 or AMD64 x86_64)
 > **Stack:** Node.js 22 + systemd · Nginx · MongoDB · FreeSWITCH · Firebase FCM · PayFast
+
+---
+
+## IMPORTANT: Migrating from call-manager / call-manager-mobile
+
+If you previously had `call-manager` or `call-manager-mobile` deployed on this VPS, you MUST
+remove those old services first. They will hold port 3000 hostage, prevent `prawwplus-api`
+from starting, and cause login to return **"Network error"** in the browser.
+
+Run this cleanup script **once** on your VPS before deploying PRaww+:
+
+```bash
+cd /home/ubuntu/PRawwPlus
+bash deploy/cleanup-old-services.sh
+```
+
+What it does:
+- Stops and disables all `call-manager*` systemd services
+- Removes their unit files from `/etc/systemd/system/`
+- Removes stale nginx site configs for `call-manager*`
+- Reloads nginx
+- Confirms port 3000 is free
+
+After running it, proceed with the normal setup steps below.
 
 ---
 
@@ -33,7 +57,13 @@ git clone https://github.com/praww527/PRawwPlus.git /home/ubuntu/PRawwPlus
 cd /home/ubuntu/PRawwPlus
 ```
 
-### 3. Create your `.env` file
+### 3. Remove old call-manager services (if present)
+
+```bash
+bash deploy/cleanup-old-services.sh
+```
+
+### 4. Create your `.env` file
 
 ```bash
 cp .env.example .env
@@ -57,7 +87,7 @@ Fill in all other variables from `.env.example` for full functionality (FreeSWIT
 > new accounts are **automatically verified** on signup — users can log in immediately
 > without needing email confirmation.
 
-### 4. Run the setup script
+### 5. Run the setup script
 
 ```bash
 sudo bash deploy/setup.sh
@@ -66,13 +96,13 @@ sudo bash deploy/setup.sh
 This installs Node.js 22, pnpm, nginx, certbot, installs all dependencies,
 builds the app, starts it with systemd, and configures nginx.
 
-### 5. Get a free SSL certificate
+### 6. Get a free SSL certificate
 
 ```bash
 sudo certbot --nginx -d rtc.praww.co.za
 ```
 
-### 6. Reload services
+### 7. Reload services
 
 ```bash
 sudo systemctl reload nginx
@@ -148,6 +178,15 @@ Pulls latest code, rebuilds everything, restarts the systemd service.
 ---
 
 ## Fixing Login Issues
+
+### "Network error" on login
+
+This almost always means one of these:
+
+1. **Old call-manager service is still running on port 3000** — run `bash deploy/cleanup-old-services.sh`
+2. **prawwplus-api failed to start** — check: `sudo journalctl -u prawwplus-api -n 50 --no-pager`
+3. **MongoDB URI not set** — ensure `MONGODB_URI` is in your `.env`
+4. **MongoDB Atlas IP not whitelisted** — whitelist your VPS public IP in Atlas → Network Access
 
 ### Users can't log in — email not verified
 

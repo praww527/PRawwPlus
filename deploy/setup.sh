@@ -35,8 +35,22 @@ echo "===== [4/8] corepack + pnpm ====="
 sudo corepack enable
 sudo corepack prepare pnpm@${PNPM_VERSION} --activate
 
-echo "===== [5/8] systemd service ====="
-sudo mkdir -p /etc/systemd/system
+echo "===== [5/8] Remove old call-manager / call-manager-mobile services ====="
+# These old services squatted on port 3000 and cause login "Network error" if left running.
+for SVC in call-manager call-manager-api call-manager-mobile call_manager callmanager; do
+    if systemctl list-units --full -all 2>/dev/null | grep -q "${SVC}.service"; then
+        echo "  Stopping/disabling ${SVC}..."
+        sudo systemctl stop    "${SVC}" 2>/dev/null || true
+        sudo systemctl disable "${SVC}" 2>/dev/null || true
+        for UNIT_DIR in /etc/systemd/system /lib/systemd/system; do
+            [ -f "${UNIT_DIR}/${SVC}.service" ] && sudo rm -f "${UNIT_DIR}/${SVC}.service" && echo "  Removed ${UNIT_DIR}/${SVC}.service"
+        done
+    fi
+    for SITE in "/etc/nginx/sites-enabled/${SVC}" "/etc/nginx/sites-available/${SVC}"; do
+        [ -f "$SITE" ] && sudo rm -f "$SITE" && echo "  Removed nginx site: $SITE"
+    done
+done
+sudo systemctl daemon-reload
 
 echo "===== [6/8] Clone repo ====="
 if [ -d "$DEPLOY_DIR/.git" ]; then
