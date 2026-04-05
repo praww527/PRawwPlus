@@ -236,6 +236,14 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
         steps.push(`reload mod_xml_curl failed: ${(e as Error).message}`);
       }
 
+      // Reload mod_event_socket so the new ESL password takes effect immediately
+      try {
+        await execCommand(conn, `${fsCli} -x 'reload mod_event_socket'`);
+        steps.push("reload mod_event_socket OK");
+      } catch (e) {
+        steps.push(`reload mod_event_socket failed (may not be critical): ${(e as Error).message}`);
+      }
+
       // Reload mod_verto to pick up the new verto.conf (port binding)
       try {
         await execCommand(conn, `${fsCli} -x 'reload mod_verto'`);
