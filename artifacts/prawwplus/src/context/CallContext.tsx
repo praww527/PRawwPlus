@@ -208,7 +208,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // Poll the call record (every 2 s) until FreeSWITCH confirms the callee
   // answered (CHANNEL_ANSWER → status "answered" in DB), then go to
-  // "connected".  Falls back after 30 s regardless.
+  // "connected".  No timeout fallback — the Verto onHangup will fire and
+  // end the call naturally if the callee never picks up.
   // This effect only runs in the unique state: active+ringing, which only
   // occurs for outbound calls after verto.answer fires prematurely.
   useEffect(() => {
@@ -227,20 +228,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     pollIntervalRef.current = setInterval(async () => {
       pollAttemptsRef.current += 1;
-      if (pollAttemptsRef.current > 15) {
-        clearInterval(pollIntervalRef.current!);
-        pollIntervalRef.current = null;
-        setCallPhase("connected");
-        return;
-      }
       try {
         const res = await fetch(`/api/calls/${dbCallId}`);
         if (!res.ok) return;
         const data = await res.json() as { status?: string };
-        if (data.status === "answered" || data.status === "completed") {
+        if (data.status === "answered") {
           clearInterval(pollIntervalRef.current!);
           pollIntervalRef.current = null;
           setCallPhase("connected");
+        } else if (data.status === "completed" || data.status === "missed" || data.status === "failed" || data.status === "cancelled") {
+          // Call ended on the server side — stop polling; onHangup will handle the UI
+          clearInterval(pollIntervalRef.current!);
+          pollIntervalRef.current = null;
         }
       } catch { /* network error — will retry */ }
     }, 2000);
