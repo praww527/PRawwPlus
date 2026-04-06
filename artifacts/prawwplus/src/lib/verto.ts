@@ -231,6 +231,13 @@ export class VertoClient {
     console.log("[Verto] WebSocket closed", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
     this.callbacks.onDisconnected();
     this.clearAllPending(new Error("WebSocket closed"));
+    // Reset call state so stale IDs don't block new incoming calls after reconnect
+    if (this.currentCallId) {
+      this.callbacks.onHangup(this.currentCallId, { cause: "NORMAL_CLEARING", causeCode: 16 });
+    }
+    this.currentCallId = null;
+    this.remoteSdpSet  = false;
+    this.cleanupMedia();
     if (!this.destroyed) {
       console.log(`[Verto] Reconnecting in ${RECONNECT_MS}ms`);
       this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_MS);
@@ -241,7 +248,7 @@ export class VertoClient {
     let msg: Record<string, unknown>;
     try { msg = JSON.parse(e.data as string); } catch { return; }
 
-    // JSON-RPC response (has numeric id)
+    // JSON-RPC response (has numeric id AND we are waiting for it)
     if (typeof msg.id === "number" && this.pending.has(msg.id)) {
       const p = this.pending.get(msg.id)!;
       this.pending.delete(msg.id);
@@ -250,6 +257,14 @@ export class VertoClient {
       else           p.resolve(msg.result);
       return;
     }
+
+    // Server-initiated JSON-RPC request (has id but we did NOT send it).
+    // FreeSWITCH sends verto.invite / verto.bye / verto.info as requests
+    // expecting a JSON-RPC 2.0 acknowledgment. Without the ack FreeSWITCH
+    // considers delivery failed and the callee never rings.
+    const serverRequestId = (typeof msg.id === "number" && !this.pending.has(msg.id))
+      ? msg.id as number
+      : null;
 
     const method = (msg.method as string) ?? "";
     const params  = (msg.params as Record<string, unknown>) ?? {};
@@ -266,6 +281,10 @@ export class VertoClient {
         const callerNum = dp.caller_id_number ?? dp.from ?? "Unknown";
         this.currentCallId = callId;
         this.remoteSdpSet  = false;
+        // Acknowledge the invite so FreeSWITCH knows we received it.
+        if (serverRequestId !== null) {
+          this.sendRaw(JSON.stringify({ jsonrpc: "2.0", id: serverRequestId, result: { method } }));
+        }
         this.callbacks.onIncoming(callId, callerNum, sdp);
         break;
       }
@@ -322,6 +341,9 @@ export class VertoClient {
         const causeCode = typeof params.causeCode === "number"
           ? params.causeCode
           : (typeof params.cause_code === "number" ? params.cause_code : 16);
+        if (serverRequestId !== null) {
+          this.sendRaw(JSON.stringify({ jsonrpc: "2.0", id: serverRequestId, result: { method } }));
+        }
         this.callbacks.onHangup(callId, { cause, causeCode });
         this.cleanupMedia();
         this.currentCallId = null;
@@ -330,9 +352,15 @@ export class VertoClient {
       }
 
       case "verto.info":
+        if (serverRequestId !== null) {
+          this.sendRaw(JSON.stringify({ jsonrpc: "2.0", id: serverRequestId, result: { method } }));
+        }
         break;
 
       default:
+        if (serverRequestId !== null) {
+          this.sendRaw(JSON.stringify({ jsonrpc: "2.0", id: serverRequestId, result: { method } }));
+        }
         break;
     }
   }
@@ -369,6 +397,11 @@ export class VertoClient {
     try {
       this.ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
     } catch {}
+  }
+
+  private sendRaw(data: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try { this.ws.send(data); } catch {}
   }
 
   private clearAllPending(err: Error) {
