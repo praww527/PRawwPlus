@@ -135,7 +135,7 @@ PIDFile=${FS_PREFIX}/run/freeswitch.pid
 EnvironmentFile=-/etc/default/freeswitch
 
 ExecStart=${FS_PREFIX}/bin/freeswitch \\
-  -ncwait \\
+  -nc \\
   -nonat \\
   -conf ${FS_PREFIX}/conf \\
   -log /var/log/freeswitch \\
