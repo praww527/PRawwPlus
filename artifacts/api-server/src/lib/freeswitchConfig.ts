@@ -241,20 +241,11 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
+      <!-- NO_ANSWER terminal: voicemail plays greeting then records message. -->
+      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
         <action application="voicemail" data="default ${fsDomain} $1"/>
         <action application="hangup" data="NORMAL_CLEARING"/>
-      </condition>
-
-      <!-- Reorder / fast-busy tone: 480+620 Hz, 250ms on / 250ms off, 6 cycles (~3 s).
-           Only reached if neither forwarding nor voicemail handled the call. -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
-        <action application="answer"/>
-        <action application="playback" data="tone_stream://%(250,250,480,620);loops=6"/>
-        <action application="speak" data="flite|kal|The person you are calling is not available. Please try again later."/>
-        <action application="sleep" data="300"/>
-        <action application="hangup" data="NO_ANSWER"/>
       </condition>
 
       <!-- Caller cancelled before answer — just hang up, no announcement needed -->
@@ -264,8 +255,8 @@ export function dialplanXml(fsDomain: string): string {
 
       <!--
         Callee offline / not registered (cause 20).
-        Same ordering rule as NO_ANSWER: forwarding and voicemail first
-        (break="never"), terminal SIT announcement last (break="on-true").
+        Try call-forward-unavailable first, then play the SIT "disconnected"
+        tone so the caller hears a real phone signal.
       -->
       <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
         <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
@@ -281,17 +272,10 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
-        <action application="answer"/>
-        <action application="voicemail" data="default ${fsDomain} $1"/>
-        <action application="hangup" data="NORMAL_CLEARING"/>
-      </condition>
-
-      <!-- SIT tone (Special Information Tone): 913→1370→1776 Hz, 274ms each, 2 repeats.
-           Only reached if neither forwarding nor voicemail handled the call. -->
+      <!-- UNREGISTERED terminal: SIT tone (913→1370→1776 Hz) + voice announcement. -->
       <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
-        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
+        <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
         <action application="sleep" data="300"/>
         <action application="hangup" data="UNREGISTERED"/>
