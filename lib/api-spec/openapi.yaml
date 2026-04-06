@@ -899,6 +899,10 @@ components:
           type: string
           nullable: true
           description: Human-readable reason for non-completed calls (set by ESL orchestrator)
+        hangupCause:
+          type: string
+          nullable: true
+          description: Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)
         startedAt:
           type: string
           format: date-time

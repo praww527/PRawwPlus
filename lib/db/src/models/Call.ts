@@ -13,6 +13,7 @@ export interface ICall extends Document<string> {
   fsCallId?: string;
   notes?: string;
   failReason?: string;
+  hangupCause?: string;
   startedAt?: Date;
   endedAt?: Date;
   createdAt: Date;
@@ -33,6 +34,7 @@ const CallSchema = new Schema<ICall>(
     fsCallId: { type: String, index: true, sparse: true },
     notes: { type: String },
     failReason: { type: String },
+    hangupCause: { type: String },
     startedAt: { type: Date },
     endedAt: { type: Date },
   },

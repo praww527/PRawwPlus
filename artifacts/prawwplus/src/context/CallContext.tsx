@@ -54,10 +54,13 @@ function resolveHangupInfo(hc: HangupCause): HangupInfo {
       return { cause, causeCode, message: "Number does not exist", icon: "unavailable" };
 
     case "ALLOTTED_TIMEOUT":
-      return { cause, causeCode, message: "Call time limit reached", icon: "ended" };
+      return { cause, causeCode, message: "Insufficient balance", icon: "ended" };
 
     case "CALL_REJECTED":
       return { cause, causeCode, message: "Call rejected", icon: "unavailable" };
+
+    case "ATTENDED_TRANSFER":
+      return { cause, causeCode, message: "Went to voicemail", icon: "voicemail" };
 
     case "RECOVERY_ON_TIMER_EXPIRE":
     case "RECOVERY_ON_TIMER_EXPIRY":

@@ -241,11 +241,13 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
-      <!-- NO_ANSWER terminal: voicemail plays greeting then records message. -->
+      <!-- NO_ANSWER terminal: voicemail plays greeting then records message.
+           ATTENDED_TRANSFER is used as hangup cause so the caller's UI shows
+           "Went to voicemail" rather than "Call ended". -->
       <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
         <action application="voicemail" data="default ${fsDomain} $1"/>
-        <action application="hangup" data="NORMAL_CLEARING"/>
+        <action application="hangup" data="ATTENDED_TRANSFER"/>
       </condition>
 
       <!-- Caller cancelled before answer — just hang up, no announcement needed -->

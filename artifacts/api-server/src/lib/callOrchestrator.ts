@@ -412,10 +412,11 @@ export async function finalizeCall(
   const coinsUsed   = call.callType === "external" ? calcCoins(safeBillsec, coinsPerMinute || COINS_PER_MINUTE) : 0;
 
   const update: Record<string, unknown> = {
-    status:   finalStatus,
-    duration: safeBillsec,
-    cost:     coinsUsed,
-    endedAt:  new Date(),
+    status:      finalStatus,
+    duration:    safeBillsec,
+    cost:        coinsUsed,
+    endedAt:     new Date(),
+    hangupCause: hangupCause,
   };
   if (finalStatus !== "completed") {
     update.failReason = causeToLabel(hangupCause);

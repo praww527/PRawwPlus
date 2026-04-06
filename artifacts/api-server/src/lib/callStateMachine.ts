@@ -69,6 +69,7 @@ export function causeToStatus(cause: string): CallStatus {
     case "NORMAL_CLEARING":
     case "ALLOTTED_TIMEOUT":
     case "NORMAL_UNSPECIFIED":
+    case "ATTENDED_TRANSFER":
       return "completed";
 
     case "UNREGISTERED":
@@ -114,7 +115,9 @@ export function causeToLabel(cause: string): string {
     case "NORMAL_UNSPECIFIED":
       return "Call ended normally";
     case "ALLOTTED_TIMEOUT":
-      return "Balance exhausted";
+      return "Insufficient balance";
+    case "ATTENDED_TRANSFER":
+      return "Went to voicemail";
     case "UNREGISTERED":
     case "USER_NOT_REGISTERED":
       return "Extension not registered";

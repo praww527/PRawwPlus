@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import {
   PhoneOutgoing, ChevronLeft, ChevronRight,
   PhoneMissed, PhoneOff, Phone, Trash2, ChevronDown, ChevronUp,
+  PhoneIncoming, Voicemail, WifiOff, PhoneCall,
 } from "lucide-react";
 import { useCall } from "@/context/CallContext";
 import { useToast } from "@/hooks/use-toast";
@@ -18,22 +19,37 @@ const FILTERS: { key: FilterType; label: string }[] = [
   { key: "outgoing", label: "Outgoing" },
 ];
 
-function StatusIcon({ status }: { status: string }) {
-  if (status === "completed") return <PhoneOutgoing className="h-4 w-4" style={{ color: "#30d158" }} />;
-  if (status === "failed")    return <PhoneOff      className="h-4 w-4" style={{ color: "#ff453a" }} />;
-  return                             <PhoneMissed   className="h-4 w-4" style={{ color: "#ffd60a" }} />;
-}
+function resolveCallDisplay(call: any) {
+  const { status, hangupCause, direction } = call;
 
-function statusColors(status: string) {
-  if (status === "completed") return { bg: "rgba(48,209,88,0.14)",  label: "#30d158" };
-  if (status === "failed")    return { bg: "rgba(255,69,58,0.14)",  label: "#ff453a" };
-  return                             { bg: "rgba(255,214,10,0.14)", label: "#ffd60a" };
-}
-
-function statusLabel(status: string) {
-  if (status === "completed") return "Completed";
-  if (status === "failed")    return "Failed";
-  return "Missed";
+  if (status === "completed") {
+    if (hangupCause === "ATTENDED_TRANSFER") {
+      return { color: "#636366", bg: "rgba(99,99,102,0.14)", label: "Voicemail",   Icon: Voicemail };
+    }
+    if (hangupCause === "ALLOTTED_TIMEOUT") {
+      return { color: "#ff9f0a", bg: "rgba(255,159,10,0.14)", label: "Low balance", Icon: PhoneOff };
+    }
+    if (direction === "inbound") {
+      return { color: "#30d158", bg: "rgba(48,209,88,0.14)", label: "Answered",    Icon: PhoneIncoming };
+    }
+    return { color: "#30d158", bg: "rgba(48,209,88,0.14)", label: "Completed",     Icon: PhoneOutgoing };
+  }
+  if (status === "missed")    return { color: "#ffd60a", bg: "rgba(255,214,10,0.14)", label: "Missed",     Icon: PhoneMissed };
+  if (status === "cancelled") return { color: "#ff9f0a", bg: "rgba(255,159,10,0.14)", label: "Cancelled",  Icon: PhoneOff };
+  if (status === "failed") {
+    if (hangupCause === "UNREGISTERED" || hangupCause === "USER_NOT_REGISTERED" ||
+        hangupCause === "SUBSCRIBER_ABSENT" || hangupCause === "DESTINATION_OUT_OF_ORDER") {
+      return { color: "#ff453a", bg: "rgba(255,69,58,0.14)", label: "Unavailable",         Icon: WifiOff };
+    }
+    if (hangupCause === "NO_ROUTE_DESTINATION" || hangupCause === "UNALLOCATED_NUMBER") {
+      return { color: "#ff453a", bg: "rgba(255,69,58,0.14)", label: "Doesn't exist",        Icon: WifiOff };
+    }
+    if (hangupCause === "USER_BUSY") {
+      return { color: "#ff9f0a", bg: "rgba(255,159,10,0.14)", label: "Busy",                Icon: PhoneCall };
+    }
+    return { color: "#ff453a", bg: "rgba(255,69,58,0.14)", label: "Failed",                 Icon: PhoneOff };
+  }
+  return { color: "#ffd60a", bg: "rgba(255,214,10,0.14)", label: "Missed", Icon: PhoneMissed };
 }
 
 function isInternalNum(num: string): boolean {
@@ -169,7 +185,7 @@ export default function CallHistory() {
         <div className="section-card">
           {filteredCalls.map((c: any, i: number, arr: any[]) => {
             const isExpanded = expandedId === c.id;
-            const colors = statusColors(c.status);
+            const { color, bg, label, Icon } = resolveCallDisplay(c);
             const dateStr = c.startedAt ?? c.createdAt ?? c.date;
             const displayNum = c.recipientNumber ?? c.callerNumber ?? c.number ?? "Unknown";
 
@@ -186,10 +202,10 @@ export default function CallHistory() {
                     {/* Avatar circle */}
                     <div style={{
                       width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
-                      background: colors.bg, border: `1.5px solid ${colors.label}44`,
+                      background: bg, border: `1.5px solid ${color}44`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>
-                      <StatusIcon status={c.status} />
+                      <Icon className="h-4 w-4" style={{ color }} />
                     </div>
 
                     {/* Info */}
@@ -214,9 +230,9 @@ export default function CallHistory() {
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{
                         fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 8,
-                        background: colors.bg, color: colors.label, whiteSpace: "nowrap",
+                        background: bg, color, whiteSpace: "nowrap",
                       }}>
-                        {statusLabel(c.status)}
+                        {label}
                       </span>
                       {isExpanded
                         ? <ChevronUp  style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />

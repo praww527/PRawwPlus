@@ -22,6 +22,8 @@ export interface CallRecord {
   notes?: string | null;
   /** Human-readable reason for non-completed calls (set by ESL orchestrator) */
   failReason?: string | null;
+  /** Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT) */
+  hangupCause?: string | null;
   startedAt?: Date | null;
   endedAt?: Date | null;
   createdAt: Date;

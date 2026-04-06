@@ -196,6 +196,12 @@ export const ListCallsResponse = zod.object({
         .describe(
           "Human-readable reason for non-completed calls (set by ESL orchestrator)",
         ),
+      hangupCause: zod
+        .string()
+        .nullish()
+        .describe(
+          "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
+        ),
       startedAt: zod.date().nullish(),
       endedAt: zod.date().nullish(),
       createdAt: zod.date(),
@@ -244,6 +250,12 @@ export const MakeCallResponse = zod.object({
     .describe(
       "Human-readable reason for non-completed calls (set by ESL orchestrator)",
     ),
+  hangupCause: zod
+    .string()
+    .nullish()
+    .describe(
+      "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
+    ),
   startedAt: zod.date().nullish(),
   endedAt: zod.date().nullish(),
   createdAt: zod.date(),
@@ -283,6 +295,12 @@ export const GetCallResponse = zod.object({
     .nullish()
     .describe(
       "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+    ),
+  hangupCause: zod
+    .string()
+    .nullish()
+    .describe(
+      "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
     ),
   startedAt: zod.date().nullish(),
   endedAt: zod.date().nullish(),
@@ -328,6 +346,12 @@ export const EndCallResponse = zod.object({
     .nullish()
     .describe(
       "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+    ),
+  hangupCause: zod
+    .string()
+    .nullish()
+    .describe(
+      "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
     ),
   startedAt: zod.date().nullish(),
   endedAt: zod.date().nullish(),
@@ -620,6 +644,12 @@ export const AdminListCallsResponse = zod.object({
         .nullish()
         .describe(
           "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+        ),
+      hangupCause: zod
+        .string()
+        .nullish()
+        .describe(
+          "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
         ),
       startedAt: zod.date().nullish(),
       endedAt: zod.date().nullish(),
