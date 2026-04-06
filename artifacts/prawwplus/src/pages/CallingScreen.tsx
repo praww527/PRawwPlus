@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
 import { useEndCall, getGetMeQueryKey, type EndCallRequestStatus } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
+import { phoneAudio } from "@/lib/phoneAudio";
 
 const DTMF_KEYS = [
   { key: "1", sub: "" },
@@ -50,6 +51,35 @@ export default function CallingScreen() {
   const startTimeRef = useRef<number>(0);
   const elapsedRef   = useRef<number>(0);
   const signalledRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (callPhase === "calling" || callPhase === "ringing") {
+      phoneAudio.startRingback();
+    } else if (callPhase === "connected") {
+      phoneAudio.stopAll();
+      phoneAudio.playConnected();
+    } else if (callPhase === "ended") {
+      phoneAudio.stopAll();
+      const icon = hangupInfo?.icon;
+      if (icon === "busy") {
+        phoneAudio.playBusy();
+      } else if (icon === "unavailable" || icon === "error") {
+        phoneAudio.playCongestion();
+      } else {
+        phoneAudio.playEnded();
+      }
+    }
+    return () => {
+      if (callPhase === "calling" || callPhase === "ringing") {
+        phoneAudio.stopAll();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callPhase]);
+
+  useEffect(() => {
+    return () => { phoneAudio.stopAll(); };
+  }, []);
 
   useEffect(() => {
     if (callPhase === "connected") {
@@ -134,6 +164,7 @@ export default function CallingScreen() {
   };
 
   const handleDtmf = (digit: string) => {
+    phoneAudio.playDtmf(digit);
     sendDtmf(digit);
     setDtmfBuffer((b) => (b + digit).slice(-12));
   };
