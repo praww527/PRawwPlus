@@ -117,12 +117,32 @@ class PhoneAudio {
   }
 
   /**
-   * South African ringback tone:
+   * South African ringback tone (heard by the CALLER while the remote side rings):
    * 400 Hz + 450 Hz — 0.4 s on · 0.2 s off · 0.4 s on · 2.0 s off  (double ring pattern)
    */
   startRingback(): void {
     this.stopCadenced();
     this.startCadencedTone([400, 450], [400, 200, 400, 2000], 0.25);
+  }
+
+  /**
+   * Dialling / connecting tone (heard by the CALLER before ringback starts):
+   * A very soft, slow pulse at 350 Hz — subtle indicator that the call is being set up.
+   * 0.6 s on · 0.4 s off
+   */
+  startDialTone(): void {
+    this.stopCadenced();
+    this.startCadencedTone([350], [600, 400], 0.10);
+  }
+
+  /**
+   * Incoming ringtone (heard by the RECEIVER on their own device):
+   * 800 Hz + 1050 Hz — 0.8 s on · 0.4 s off · 0.8 s on · 2.0 s off  (double ring)
+   * Higher pitch than ringback so it's clearly a local ring, not a remote cue.
+   */
+  startRingtone(): void {
+    this.stopCadenced();
+    this.startCadencedTone([800, 1050], [800, 400, 800, 2000], 0.30);
   }
 
   /**

@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { Phone, PhoneOff } from "lucide-react";
 import { useCall } from "@/context/CallContext";
+import { phoneAudio } from "@/lib/phoneAudio";
 
 function avatarInitials(info: { number: string; name?: string } | null) {
   if (!info) return "?";
@@ -12,6 +14,24 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 
 export default function IncomingCallScreen() {
   const { callInfo, acceptCall, declineCall } = useCall();
+
+  useEffect(() => {
+    phoneAudio.startRingtone();
+    return () => { phoneAudio.stopAll(); };
+  }, []);
+
+  const handleAccept = () => {
+    phoneAudio.stopAll();
+    acceptCall();
+  };
+
+  const handleDecline = () => {
+    phoneAudio.stopAll();
+    declineCall();
+  };
+
+  const isInternal = callInfo?.callType === "internal" ||
+    (callInfo?.number?.replace(/\D/g, "").length === 4);
 
   return (
     <div
@@ -32,6 +52,14 @@ export default function IncomingCallScreen() {
         </p>
         {callInfo?.name && (
           <p className="text-white/40 text-sm font-mono mt-1">{callInfo.number}</p>
+        )}
+        {isInternal && (
+          <span style={{
+            marginTop: 6, fontSize: 11, fontWeight: 600,
+            color: "#30d158", letterSpacing: "0.06em", textTransform: "uppercase",
+          }}>
+            Internal · Free
+          </span>
         )}
       </div>
 
@@ -68,7 +96,7 @@ export default function IncomingCallScreen() {
         {/* Decline */}
         <div className="flex flex-col items-center gap-3">
           <button
-            onClick={declineCall}
+            onClick={handleDecline}
             className="flex items-center justify-center rounded-full transition-all active:scale-90"
             style={{
               width: 82,
@@ -85,7 +113,7 @@ export default function IncomingCallScreen() {
         {/* Accept */}
         <div className="flex flex-col items-center gap-3">
           <button
-            onClick={acceptCall}
+            onClick={handleAccept}
             className="relative flex items-center justify-center rounded-full transition-all active:scale-90"
             style={{
               width: 82,

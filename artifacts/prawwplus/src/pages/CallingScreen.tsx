@@ -53,7 +53,11 @@ export default function CallingScreen() {
   const signalledRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (callPhase === "calling" || callPhase === "ringing") {
+    if (callPhase === "calling") {
+      // Connecting — play a soft dial/setup pulse while the call is being established
+      phoneAudio.startDialTone();
+    } else if (callPhase === "ringing") {
+      // Remote side is ringing — play SA ringback tone
       phoneAudio.startRingback();
     } else if (callPhase === "connected") {
       phoneAudio.stopAll();
