@@ -18,7 +18,8 @@
 import net from "net";
 import { Client as SSHClient, type ClientChannel } from "ssh2";
 import { logger } from "./logger";
-import { connectDB, UserModel } from "@workspace/db";
+import { connectDB, UserModel, CallModel } from "@workspace/db";
+import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
 import { ringingCall, answerCall, finalizeCall, setEslCommandFn, clearAllHangupTimers } from "./callOrchestrator";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
@@ -205,8 +206,8 @@ class FreeSwitchESL {
   private destroyed =      false;
   private reconnectTimer:  ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
-  /** Maps B-leg UUID → destination extension for missed-call push notifications */
-  private originateDestMap = new Map<string, string>();
+  /** Maps B-leg UUID → { destExt, callerExt } for missed-call push + DB record */
+  private originateDestMap = new Map<string, { destExt: string; callerExt: string }>();
 
   connect() {
     if (!ESL_HOST) {
@@ -508,16 +509,26 @@ class FreeSwitchESL {
         const hangupCause = body["Hangup-Cause"] ?? body["variable_hangup_cause"] ?? "";
 
         if (uuid) {
-          // Send missed-call push before handing off to orchestrator
-          const destExt = this.originateDestMap.get(uuid) ?? this.originateDestMap.get(otherLegUuid);
-          if (destExt) {
+          // Send missed-call push + create callee DB record before handing off to orchestrator
+          const origEntry = this.originateDestMap.get(uuid) ?? this.originateDestMap.get(otherLegUuid);
+          if (origEntry) {
             this.originateDestMap.delete(uuid);
             this.originateDestMap.delete(otherLegUuid);
           }
-          if (destExt && (hangupCause === "NO_ANSWER" || hangupCause === "ORIGINATOR_CANCEL")) {
-            this.sendMissedCallPush(
-              uuid, destExt, body["Caller-Caller-ID-Number"] ?? "Unknown",
-            ).catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
+          // Treat NO_ANSWER, ORIGINATOR_CANCEL (caller hung up) and ATTENDED_TRANSFER
+          // (went to voicemail) all as "missed" for the callee.
+          const isMissedForCallee = (
+            hangupCause === "NO_ANSWER" ||
+            hangupCause === "ORIGINATOR_CANCEL" ||
+            hangupCause === "ATTENDED_TRANSFER" ||
+            hangupCause === "RECOVERY_ON_TIMER_EXPIRE"
+          );
+          if (origEntry && isMissedForCallee) {
+            const { destExt, callerExt } = origEntry;
+            this.sendMissedCallPush(uuid, destExt, callerExt)
+              .catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
+            this.createMissedCallRecordForCallee(uuid, destExt, callerExt, hangupCause)
+              .catch((e) => logger.error({ err: e }, "[ESL] Missed call record error"));
           }
 
           enqueueEslEvent(
@@ -610,7 +621,7 @@ class FreeSwitchESL {
     if (!bLegUuid || !destExt) return;
     if (!/^[1-9]\d{3}$/.test(destExt)) return;
 
-    this.originateDestMap.set(bLegUuid, destExt);
+    this.originateDestMap.set(bLegUuid, { destExt, callerExt });
     logger.info({ bLegUuid, aLegUuid, destExt, callerExt }, "[ESL] CHANNEL_ORIGINATE — checking push token");
 
     await connectDB();
@@ -642,6 +653,53 @@ class FreeSwitchESL {
         `Extension ${callerExt} is calling you`,
         pushData,
       );
+    }
+  }
+
+  /**
+   * Creates a "missed" inbound call record in MongoDB for the callee so the
+   * call appears in their Recent Calls history even when they never picked up.
+   */
+  private async createMissedCallRecordForCallee(
+    bLegUuid: string,
+    destExt: string,
+    callerExt: string,
+    hangupCause: string,
+  ): Promise<void> {
+    try {
+      await connectDB();
+      const destUser = await UserModel.findOne({ extension: parseInt(destExt, 10) })
+        .select("_id")
+        .lean();
+      if (!destUser) {
+        logger.debug({ destExt }, "[ESL] Callee not found — skipping missed call record");
+        return;
+      }
+      // Avoid duplicate if the callee already has a record for this B-leg UUID
+      const existing = await CallModel.findOne({ fsCallId: bLegUuid, userId: String(destUser._id) }).lean();
+      if (existing) {
+        logger.debug({ bLegUuid }, "[ESL] Missed call record already exists — skipping");
+        return;
+      }
+      const now = new Date();
+      await CallModel.create({
+        _id: randomUUID(),
+        userId:          String(destUser._id),
+        callerNumber:    callerExt,
+        recipientNumber: destExt,
+        callType:        "internal",
+        direction:       "inbound",
+        status:          "missed",
+        duration:        0,
+        cost:            0,
+        fsCallId:        bLegUuid,
+        hangupCause,
+        startedAt:       now,
+        endedAt:         now,
+      });
+      logger.info({ destExt, callerExt, hangupCause }, "[ESL] Missed call record created for callee");
+    } catch (err) {
+      logger.error({ err, destExt, callerExt }, "[ESL] Failed to create missed call record for callee");
     }
   }
 
