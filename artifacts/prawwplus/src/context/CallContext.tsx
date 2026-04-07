@@ -211,10 +211,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // Poll the call record (every 2 s) until FreeSWITCH confirms the callee
   // answered (CHANNEL_ANSWER → status "answered" in DB), then go to
-  // "connected".  No timeout fallback — the Verto onHangup will fire and
-  // end the call naturally if the callee never picks up.
+  // "connected".  Also enforces a 60-second no-answer timeout: if the callee
+  // never picks up and FreeSWITCH's verto.bye is delayed or lost, we auto-hangup
+  // so the caller is never stuck ringing indefinitely.
   // This effect only runs in the unique state: active+ringing, which only
   // occurs for outbound calls after verto.answer fires prematurely.
+  const NO_ANSWER_TIMEOUT_POLLS = 30; // 30 × 2 s = 60 seconds
+
   useEffect(() => {
     const active = callState === "active" && callPhase === "ringing" && callInfo?.callId;
     if (!active) {
@@ -231,6 +234,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     pollIntervalRef.current = setInterval(async () => {
       pollAttemptsRef.current += 1;
+
+      // 60-second no-answer timeout: auto-hangup if callee never picks up
+      if (pollAttemptsRef.current >= NO_ANSWER_TIMEOUT_POLLS) {
+        clearInterval(pollIntervalRef.current!);
+        pollIntervalRef.current = null;
+        // Tell FreeSWITCH to tear down the call
+        clientRef.current?.hangup(undefined, "NO_ANSWER", 19);
+        setHangupInfo({ cause: "NO_ANSWER", causeCode: 19, message: "No answer", icon: "no-answer" });
+        setCallPhase("ended");
+        setTimeout(() => {
+          setCallState("idle");
+          setCallInfo(null);
+        }, 3000);
+        return;
+      }
+
       try {
         const res = await fetch(`/api/calls/${dbCallId}`);
         if (!res.ok) return;

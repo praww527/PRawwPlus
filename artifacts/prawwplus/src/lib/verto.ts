@@ -417,6 +417,23 @@ export class VertoClient {
   private async setupPeerConnection(): Promise<RTCPeerConnection> {
     this.cleanupMedia();
 
+    // Pre-create the audio element NOW, while we are synchronously inside the
+    // user-gesture call stack (tap "Call" / "Accept"). Android Chrome requires
+    // that HTMLAudioElement.play() be first called from a user-gesture context
+    // or autoplay will be blocked when the remote track arrives later via ontrack.
+    if (!this.remoteAudio) {
+      const audio = new Audio();
+      audio.autoplay = true;
+      audio.setAttribute("playsinline", "");  // required for inline playback on iOS / Android
+      audio.style.display = "none";
+      document.body.appendChild(audio);
+      this.remoteAudio = audio;
+      // "Unlock" autoplay on Android Chrome by calling play() now (with no src).
+      // The call will fail harmlessly — what matters is that the browser registers
+      // a play-intent from within a user gesture so subsequent plays are allowed.
+      audio.play().catch(() => {});
+    }
+
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     } catch (err: unknown) {
@@ -466,7 +483,7 @@ export class VertoClient {
       if (!this.remoteAudio) {
         this.remoteAudio = new Audio();
         this.remoteAudio.autoplay = true;
-        // Attach to DOM so browser autoplay policies treat it as user-initiated
+        this.remoteAudio.setAttribute("playsinline", "");
         this.remoteAudio.style.display = "none";
         document.body.appendChild(this.remoteAudio);
       }

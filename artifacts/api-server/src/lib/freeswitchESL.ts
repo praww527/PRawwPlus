@@ -515,13 +515,22 @@ class FreeSwitchESL {
             this.originateDestMap.delete(uuid);
             this.originateDestMap.delete(otherLegUuid);
           }
-          // Treat NO_ANSWER, ORIGINATOR_CANCEL (caller hung up) and ATTENDED_TRANSFER
-          // (went to voicemail) all as "missed" for the callee.
+          // Treat the following as "missed" for the callee:
+          //   NO_ANSWER / RECOVERY_ON_TIMER_EXPIRE — callee didn't pick up in time
+          //   ORIGINATOR_CANCEL — caller hung up before callee answered
+          //   ATTENDED_TRANSFER — went to voicemail (counted as missed for callee)
+          //   UNREGISTERED / USER_NOT_REGISTERED / SUBSCRIBER_ABSENT /
+          //   DESTINATION_OUT_OF_ORDER — callee was offline / not registered
+          //   These are all situations where the callee should see a missed call entry.
           const isMissedForCallee = (
             hangupCause === "NO_ANSWER" ||
             hangupCause === "ORIGINATOR_CANCEL" ||
             hangupCause === "ATTENDED_TRANSFER" ||
-            hangupCause === "RECOVERY_ON_TIMER_EXPIRE"
+            hangupCause === "RECOVERY_ON_TIMER_EXPIRE" ||
+            hangupCause === "UNREGISTERED" ||
+            hangupCause === "USER_NOT_REGISTERED" ||
+            hangupCause === "SUBSCRIBER_ABSENT" ||
+            hangupCause === "DESTINATION_OUT_OF_ORDER"
           );
           if (origEntry && isMissedForCallee) {
             const { destExt, callerExt } = origEntry;
