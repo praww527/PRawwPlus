@@ -10,7 +10,11 @@ const FS_SSH_USER    = process.env.FREESWITCH_SSH_USER  ?? "root";
 const FS_STORAGE_DIR = process.env.FREESWITCH_STORAGE_DIR ?? "/usr/local/freeswitch/storage";
 
 function cleanKey(raw: string): string {
-  return raw.split("\n").map((l) => l.trimStart()).join("\n").trim();
+  // Environment variables often store the private key with literal \n sequences
+  // (i.e. the two characters backslash + n) instead of real newlines.  Normalise
+  // those first so ssh2 can parse the key regardless of how it was stored.
+  const normalized = raw.replace(/\\n/g, "\n");
+  return normalized.split("\n").map((l) => l.trimStart()).join("\n").trim();
 }
 
 function requireAuth(req: Request, res: Response): string | null {

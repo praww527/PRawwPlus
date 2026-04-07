@@ -118,7 +118,10 @@ export function vertoConf(fsIp: string): string {
 }
 
 export function dialplanXml(fsDomain: string): string {
+  // FS_VAR is used to produce literal "${" in the generated XML so FreeSWITCH
+  // evaluates channel/global variables at call-time rather than at generation-time.
   const FS_VAR = "${";
+
   return `<include>
   <!--
     PRawwPlus Dialplan — domain: ${fsDomain}
@@ -128,16 +131,28 @@ export function dialplanXml(fsDomain: string): string {
     profile (port 5066) are configured to use this context, so calls ALWAYS
     land here and never hit the default FreeSWITCH extension handlers.
 
-    Bridge strategy: "verto_contact/N@domain" finds web app (Verto WebRTC)
-    registrations.  "user/N@domain" finds mobile (SIP/WS) registrations.
-    The comma "," dials them SIMULTANEOUSLY — first to answer wins.
+    Bridge strategy:
+      "verto_contact/N@domain" — WebRTC / Verto registrations (mod_verto).
+      "user/N@domain"          — SIP/WS registrations (mod_sofia).
+      Comma ","                — dials both SIMULTANEOUSLY; first to answer wins.
 
-    Failure handling may route to voicemail (requires mod_voicemail).
-    Every failure path plays a TTS announcement then hangs up with the correct
-    SIP cause code so the caller's UI shows the right reason.
+    KEY DESIGN NOTE — _orig_bridge_cause
+    ──────────────────────────────────────
+    The forwarding blocks that fire after the main bridge may themselves call
+    bridge with an empty string when no forward is configured (the
+    "${FS_VAR}if(cond?target:)}" pattern resolves to "" when the condition is
+    false).  Those empty bridge attempts overwrite bridge_hangup_cause with
+    UNALLOCATED_NUMBER, masking the real cause (NO_ANSWER / USER_BUSY /
+    UNREGISTERED).
+
+    Fix: we save bridge_hangup_cause into _orig_bridge_cause immediately after
+    the main bridge returns, and use _orig_bridge_cause in every subsequent
+    condition check.  This means forwarding-block bridge failures cannot
+    corrupt the original failure reason.
   -->
   <context name="prawwplus">
 
+    <!-- ── DND check (runs first; continue="true" falls through) ────── -->
     <extension name="dnd_reject" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="never">
         <action application="set" data="callee_dnd=${FS_VAR}user_data($1@${fsDomain} var dnd)}"/>
@@ -152,9 +167,11 @@ export function dialplanXml(fsDomain: string): string {
 
     <!--
       Internal extension-to-extension calls (1000–9999).
-      hangup_after_bridge=false keeps the A-leg alive after the bridge ends
-      so the subsequent conditions can play announcements.
-      continue_on_fail=true ensures those conditions are evaluated.
+
+      hangup_after_bridge=false — keeps the A-leg alive after any bridge ends
+        so the subsequent conditions can play announcements / route to voicemail.
+      continue_on_fail=true — ensures those conditions are evaluated even when
+        the bridge fails (no-answer, busy, unregistered, etc.).
     -->
     <extension name="internal_extensions" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="on-false">
@@ -163,42 +180,71 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="call_timeout=30"/>
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="continue_on_fail=true"/>
-        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)"/>
+        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
+
+        <!--
+          Ringback tone — caller hears a real ring tone while the callee device
+          is alerting.  Without this the caller hears silence.
+          ${FS_VAR}us-ring} is a built-in FreeSWITCH tone (440+480 Hz, 2s/4s cadence).
+        -->
+        <action application="set" data="ringback=${FS_VAR}us-ring}"/>
+        <action application="set" data="transfer_ringback=${FS_VAR}us-ring}"/>
+
+        <!--
+          Call recording — start immediately so the full call (including any
+          forwarded leg) is captured in a single WAV file.
+          FreeSWITCH creates the calls/ subdirectory automatically if absent.
+          Filename: call_<from>_<to>_<uuid>.wav
+          Path:     $${FS_VAR}recordings_dir}/calls/  (global var from vars.xml)
+        -->
+        <action application="set" data="RECORD_STEREO=true"/>
+        <action application="record_session" data="$${FS_VAR}recordings_dir}/calls/call_${FS_VAR}caller_id_number}_${FS_VAR}destination_number}_${FS_VAR}unique_id}.wav"/>
+
+        <!-- ── Always-forward: evaluated before ringing the target extension. ── -->
         <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardAlwaysTo)}"/>
         <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardAlwaysEnabled)}"/>
-
-        <!-- Always-forward happens before ringing the extension. -->
         <action application="set" data="should_forward=${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$)}"/>
         <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3)}"/>
         <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
         <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}should_forward})"/>
-
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
 
+        <!--
+          When execute_forward == 0 the ${FS_VAR}if(...?target:)} resolves to an
+          empty string and bridge fails instantly (no blocking delay).
+        -->
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
 
         <!--
-          Simultaneous ring: both Verto (web/WebRTC) and SIP/WS (mobile JsSIP)
-          contacts for the extension are called at the same time.
-          IMPORTANT: "user/" only finds SIP registrations (mod_sofia).
-                     "verto_contact/" only finds Verto registrations (mod_verto).
-          We need BOTH with "," (simultaneous) so web AND mobile clients ring.
-          First to answer wins; the other leg is cleanly released.
+          Main bridge: ring both Verto (web/WebRTC) and SIP/WS (mobile) contacts
+          for the extension simultaneously.  First to answer wins; the other leg
+          is cleanly released.
         -->
         <action application="bridge" data="verto_contact/\$1@${fsDomain},user/\$1@${fsDomain}"/>
+
+        <!--
+          CRITICAL — save bridge_hangup_cause immediately after the main bridge.
+          The forwarding blocks below attempt their own bridge calls (with empty
+          strings when not configured) which would overwrite bridge_hangup_cause.
+          All subsequent condition checks use _orig_bridge_cause so the real
+          failure reason (NO_ANSWER / USER_BUSY / UNREGISTERED) is preserved.
+        -->
+        <action application="set" data="_orig_bridge_cause=${FS_VAR}bridge_hangup_cause}"/>
       </condition>
 
-      <!-- Call forwarding on busy/no-answer/unavailable occurs after the initial bridge attempt. -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^USER_BUSY$" break="never">
-        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)"/>
+      <!-- ── Busy forwarding ──────────────────────────────────────────────────
+           break="never" so execution always falls through to the terminal
+           busy condition below even when no forward is configured.           -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^USER_BUSY$" break="never">
+        <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
         <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardBusyTo)}"/>
         <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardBusyEnabled)}"/>
-        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
+        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
@@ -208,11 +254,10 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
-      <!-- Callee is busy (cause 17)
-           Busy tone: 480+620 Hz, 500ms on / 500ms off, 4 cycles (~4 s).
-           tone_stream is always available regardless of mod_flite.
-           speak is attempted after as a best-effort voice announcement.  -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^USER_BUSY$" break="on-true">
+      <!-- Callee is busy (cause 17).
+           Busy tone: 480+620 Hz, 500 ms on / 500 ms off, 4 cycles (~4 s).
+           tone_stream is available regardless of mod_flite.                  -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^USER_BUSY$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(500,500,480,620);loops=4"/>
         <action application="speak" data="flite|kal|The number you are calling is currently busy. Please try again later."/>
@@ -220,18 +265,14 @@ export function dialplanXml(fsDomain: string): string {
         <action application="hangup" data="USER_BUSY"/>
       </condition>
 
-      <!--
-        Callee did not answer in time (cause 19).
-        Order matters: forwarding and voicemail run first (break="never" so
-        they always execute). The terminal announcement only fires last
-        (break="on-true") — if we reach it, neither forwarding nor voicemail
-        handled the call.
-      -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
+      <!-- ── No-answer forwarding ─────────────────────────────────────────────
+           break="never" so execution falls through to voicemail below when no
+           forward is configured or when the forward itself also fails.        -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="never">
         <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
         <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardNoAnswerTo)}"/>
         <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardNoAnswerEnabled)}"/>
-        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
+        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
@@ -242,29 +283,26 @@ export function dialplanXml(fsDomain: string): string {
       </condition>
 
       <!-- NO_ANSWER terminal: voicemail plays greeting then records message.
-           ATTENDED_TRANSFER is used as hangup cause so the caller's UI shows
-           "Went to voicemail" rather than "Call ended". -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
+           ATTENDED_TRANSFER hangup cause → caller UI shows "Went to voicemail". -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(NO_ANSWER|RECOVERY_ON_TIMER_EXPIRE)$" break="on-true">
         <action application="answer"/>
         <action application="voicemail" data="default ${fsDomain} $1"/>
         <action application="hangup" data="ATTENDED_TRANSFER"/>
       </condition>
 
-      <!-- Caller cancelled before answer — just hang up, no announcement needed -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
-        <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
+      <!-- Caller cancelled before answer — hang up cleanly, no announcement. -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(ORIGINATOR_CANCEL|NORMAL_CLEARING)$" break="on-true">
+        <action application="hangup" data="${FS_VAR}_orig_bridge_cause}"/>
       </condition>
 
-      <!--
-        Callee offline / not registered (cause 20).
-        Try call-forward-unavailable first, then play the SIT "disconnected"
-        tone so the caller hears a real phone signal.
-      -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
+      <!-- ── Unavailable forwarding ──────────────────────────────────────────
+           Callee offline / not registered (cause 20).
+           Try call-forward-unavailable first; then play SIT tone.           -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="never">
         <action application="set" data="forward_depth=${FS_VAR}default(${FS_VAR}forward_depth},0)}"/>
         <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardUnavailableTo)}"/>
         <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardUnavailableEnabled)}"/>
-        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) > 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
+        <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
@@ -274,8 +312,8 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/${fsDomain}:"/>
       </condition>
 
-      <!-- UNREGISTERED terminal: SIT tone (913→1370→1776 Hz) + voice announcement. -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
+      <!-- UNREGISTERED terminal: SIT tone (913→1370→1776 Hz) + announcement.  -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
@@ -283,9 +321,8 @@ export function dialplanXml(fsDomain: string): string {
         <action application="hangup" data="UNREGISTERED"/>
       </condition>
 
-      <!-- Unknown destination
-           SIT tone followed by announcement. -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(NO_ROUTE_DESTINATION|UNALLOCATED_NUMBER)$" break="on-true">
+      <!-- Unknown / unroutable destination: SIT tone + voice.                 -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(NO_ROUTE_DESTINATION|UNALLOCATED_NUMBER)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The number you have dialed does not exist. Please check the number and try again."/>
@@ -293,13 +330,13 @@ export function dialplanXml(fsDomain: string): string {
         <action application="hangup" data="NO_ROUTE_DESTINATION"/>
       </condition>
 
-      <!-- Catch-all for any other bridge failure -->
-      <condition field="${FS_VAR}bridge_hangup_cause}" expression="^(.+)$" break="on-true">
+      <!-- Catch-all for any other bridge failure.                              -->
+      <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(.+)$" break="on-true">
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=2"/>
         <action application="speak" data="flite|kal|The call could not be completed. Please try again later."/>
         <action application="sleep" data="300"/>
-        <action application="hangup" data="${FS_VAR}bridge_hangup_cause}"/>
+        <action application="hangup" data="${FS_VAR}_orig_bridge_cause}"/>
       </condition>
     </extension>
 
