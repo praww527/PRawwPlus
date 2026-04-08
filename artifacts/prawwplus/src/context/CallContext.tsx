@@ -109,20 +109,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const clientRef      = useRef<VertoClient | null>(null);
   const incomingSdpRef = useRef<string>("");
-  const pendingIncomingNumberRef = useRef<string | null>(null);
-  const inboundRecordCreatedRef  = useRef<boolean>(false);
+  const pendingIncomingNumberRef  = useRef<string | null>(null);
+  const inboundRecordCreatedRef   = useRef<boolean>(false);
+  const incomingNotificationRef   = useRef<Notification | null>(null);
 
   // Refs used inside the stale Verto-callback closure and the polling effect
-  const callStateRef    = useRef<CallState>("idle");
-  const callInfoRef     = useRef<CallInfo | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollAttemptsRef = useRef(0);
+  const callStateRef      = useRef<CallState>("idle");
+  const callInfoRef       = useRef<CallInfo | null>(null);
+  const vertoConfigRef    = useRef<VertoConfig | null>(null);
+  const pollIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollAttemptsRef   = useRef(0);
 
   const { mutateAsync: createCallRecord } = useMakeCall();
 
   // Keep refs in sync so stale closures always see current values
-  useEffect(() => { callStateRef.current = callState; }, [callState]);
-  useEffect(() => { callInfoRef.current  = callInfo;  }, [callInfo]);
+  useEffect(() => { callStateRef.current   = callState;   }, [callState]);
+  useEffect(() => { callInfoRef.current    = callInfo;    }, [callInfo]);
+  useEffect(() => { vertoConfigRef.current = vertoConfig; }, [vertoConfig]);
 
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
     setVertoConfigState((prev) => {

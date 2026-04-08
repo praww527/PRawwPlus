@@ -241,6 +241,25 @@ class PhoneAudio {
     } catch {}
   }
 
+  /**
+   * Unlock the AudioContext from a user-gesture event handler.
+   * Call this once on first user interaction (click / touch / keydown) so
+   * subsequent plays (including incoming ringtones) are not blocked by the
+   * browser's autoplay policy.
+   */
+  unlock(): void {
+    try {
+      const ctx = this.getCtx();
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(ctx.destination);
+      const o = ctx.createOscillator();
+      o.connect(g);
+      o.start(ctx.currentTime);
+      o.stop(ctx.currentTime + 0.001);
+    } catch {}
+  }
+
   destroy(): void {
     this.stopCadenced();
     if (this.ctx) {
