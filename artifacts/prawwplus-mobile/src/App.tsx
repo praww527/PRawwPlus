@@ -16,6 +16,8 @@ import { AuthProvider } from "@/context/AuthContext";
 import { CallProvider } from "@/context/CallContext";
 import RootNavigator from "@/navigation/RootNavigator";
 import { navigationRef } from "@/navigation/navigationRef";
+import { callKeepService } from "@/services/voip/callKeepService";
+import { setupFcmListeners } from "@/services/fcmService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,6 +36,22 @@ export default function App() {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
+
+  // Initialise CallKeep once so iOS CallKit and the Android ConnectionService
+  // are ready to display the native call UI whenever the app is in the
+  // foreground or is resumed from the background.
+  // (The killed-state path is handled in index.js via setBackgroundMessageHandler.)
+  useEffect(() => {
+    callKeepService.setup();
+
+    // Wire up FCM foreground and token-refresh listeners.
+    const cleanupFcm = setupFcmListeners();
+
+    return () => {
+      cleanupFcm();
+      callKeepService.destroy();
+    };
+  }, []);
 
   if (!fontsLoaded && !fontError) return null;
 
