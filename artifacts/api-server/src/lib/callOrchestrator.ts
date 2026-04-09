@@ -205,7 +205,7 @@ async function transitionCallStatus(
   const updated = await CallModel.findOneAndUpdate(
     { _id: call._id, status: fromStatus },
     { $set: { status: to, ...update } },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
 
   if (!updated) {
@@ -435,7 +435,7 @@ export async function finalizeCall(
     const session = await mongoose.startSession();
     try {
       session.startTransaction();
-      const resDocTxn = await CallModel.findOneAndUpdate(filter, { $set: update }, { new: true, session })
+      const resDocTxn = await CallModel.findOneAndUpdate(filter, { $set: update }, { returnDocument: 'after', session })
         .lean();
       if (resDocTxn) {
         const ledgerId = `call:${String(resDocTxn._id)}`;
@@ -504,7 +504,7 @@ export async function finalizeCall(
     }
   }
 
-  const resDoc = await CallModel.findOneAndUpdate(filter, { $set: update }, { new: true }).lean();
+  const resDoc = await CallModel.findOneAndUpdate(filter, { $set: update }, { returnDocument: 'after' }).lean();
 
   if (!resDoc) {
     logger.debug({ fsCallId }, "[Orchestrator] finalizeCall — concurrent finalization won, idempotent skip");
@@ -643,7 +643,7 @@ export async function endCallById(
       status:  { $nin: terminalSet },
     },
     { $set: restUpdate },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
 
   if (!updated) {
@@ -686,7 +686,7 @@ export async function webhookUpdate(
     const updated = await CallModel.findOneAndUpdate(
       { _id: callId, userId, endedAt: null, status: fromStatus },
       { $set: { status: "answered", startedAt: new Date() } },
-      { new: true },
+      { returnDocument: 'after' },
     ).lean();
     if (!updated) {
       logger.debug(
@@ -727,7 +727,7 @@ export async function webhookUpdate(
           endedAt:  new Date(),
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     ).lean();
 
     if (updated) {

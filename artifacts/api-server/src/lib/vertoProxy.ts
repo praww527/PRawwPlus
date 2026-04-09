@@ -102,7 +102,14 @@ export function createVertoProxy(): WebSocketServer {
             // JSON-RPC response (ack to client request)
             const isError = Boolean(msg.error);
             if (isError) {
-              logger.warn({ id: msg.id, error: msg.error }, "Verto ← FS [RPC error]");
+              const errCode = (msg.error as Record<string, unknown> | undefined)?.code;
+              // -32002 "CALL DOES NOT EXIST" is normal: the browser sends verto.bye
+              // after FreeSWITCH has already cleaned up the leg — log at info, not warn.
+              if (errCode === -32002) {
+                logger.info({ id: msg.id, error: msg.error }, "Verto ← FS [call already gone]");
+              } else {
+                logger.warn({ id: msg.id, error: msg.error }, "Verto ← FS [RPC error]");
+              }
             }
           }
         } catch { /* not JSON — ignore */ }

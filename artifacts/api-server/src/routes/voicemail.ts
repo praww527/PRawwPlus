@@ -100,6 +100,13 @@ router.get("/voicemail", async (req: Request, res: Response) => {
   const userId = requireAuth(req, res);
   if (!userId) return;
 
+  // If FreeSWITCH SSH is not configured, return an empty mailbox rather than 500.
+  // This is the expected state when FreeSWITCH isn't set up yet on the VPS.
+  if (!process.env.FREESWITCH_SSH_KEY || !FS_HOST) {
+    res.json({ mailbox: null, messages: [], configured: false });
+    return;
+  }
+
   let mailbox: { ext: number; domain: string };
   try { mailbox = await getUserMailbox(userId); }
   catch (err) { res.status(400).json({ error: (err as Error).message }); return; }

@@ -92,7 +92,7 @@ router.post("/contacts/bulk", async (req, res) => {
       await ContactModel.findOneAndUpdate(
         { userId, number },
         { $setOnInsert: { _id: randomUUID(), userId, name, number, fromPhone } },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
       imported++;
     } catch {

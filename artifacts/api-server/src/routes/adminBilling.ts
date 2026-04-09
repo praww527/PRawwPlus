@@ -93,7 +93,7 @@ router.patch("/admin/rate-plans/:id", requireAdmin, async (req, res) => {
       }));
   }
 
-  const doc = await RatePlanModel.findByIdAndUpdate(id, { $set: update }, { new: true }).lean();
+  const doc = await RatePlanModel.findByIdAndUpdate(id, { $set: update }, { returnDocument: 'after' }).lean();
   if (!doc) {
     res.status(404).json({ error: "Rate plan not found" });
     return;
