@@ -158,9 +158,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
         });
         setCallPhase("calling");
         setCallState("incoming");
+
+        // Show a browser notification when the tab is not visible so the user
+        // is alerted even if they are looking at a different tab or window.
+        if (
+          document.hidden &&
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          try {
+            const label = callerNumber.replace(/\D/g, "").length === 4
+              ? `Internal call from ${callerNumber}`
+              : `Incoming call from ${callerNumber}`;
+            const n = new Notification("Incoming Call — PRaww+", {
+              body: label,
+              icon: "/favicon.ico",
+              tag: "incoming-call",
+              requireInteraction: true,
+            });
+            n.onclick = () => { window.focus(); n.close(); };
+            incomingNotificationRef.current = n;
+          } catch {}
+        }
       },
 
-      onAnswer: async (callId, _sdp) => {
+      onAnswer: (callId, _sdp) => {
         setHangupInfo(null);
         if (callStateRef.current === "outgoing") {
           // FreeSWITCH answered the A-leg for ICE/DTLS media setup before the
@@ -169,29 +191,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
           // status=answered via the CHANNEL_ANSWER ESL event.
           setCallPhase("ringing");
         } else {
+          // onAnswer fires on the A-leg (caller) when the callee picks up.
+          // For the B-leg (callee browser) onAnswer never fires because the
+          // callee sends verto.answer as a JSON-RPC request and only gets a
+          // result back — FreeSWITCH does not push a verto.answer notification
+          // to the callee.  Inbound record creation is handled in acceptCall().
           setCallPhase("connected");
         }
         setCallState("active");
-
-        // Create an inbound call record for the callee so their Call History is complete.
-        // Use the FreeSWITCH Unique-ID (verto callID) as fsCallId so ESL can correlate.
-        if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
-          inboundRecordCreatedRef.current = true;
-          try {
-            await createCallRecord({
-              data: {
-                recipientNumber: pendingIncomingNumberRef.current,
-                direction: "inbound",
-                fsCallId: callId,
-              },
-            } as any);
-          } catch (e) {
-            console.warn("[Call] inbound record create failed", e);
-          }
-        }
       },
 
       onHangup: (_callId, hc) => {
+        // Dismiss any pending incoming-call notification
+        if (incomingNotificationRef.current) {
+          try { incomingNotificationRef.current.close(); } catch {}
+          incomingNotificationRef.current = null;
+        }
         const info = resolveHangupInfo(hc);
         setHangupInfo(info);
         setCallPhase("ended");
@@ -309,12 +324,38 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const acceptCall = useCallback(async () => {
+    // Dismiss any background-tab notification immediately when the user answers
+    if (incomingNotificationRef.current) {
+      try { incomingNotificationRef.current.close(); } catch {}
+      incomingNotificationRef.current = null;
+    }
+
     if (clientRef.current && callInfo?.callId && incomingSdpRef.current) {
       try {
         await clientRef.current.answerCall(callInfo.callId, incomingSdpRef.current);
         setHangupInfo(null);
         setCallPhase("connected");
         setCallState("active");
+
+        // Create the inbound call record HERE — not in onAnswer.
+        // For the callee (B-leg) browser, verto.answer is sent as a JSON-RPC
+        // *request* to FreeSWITCH; FS only replies with a result — it never
+        // pushes a verto.answer notification back to the callee, so onAnswer
+        // never fires on this side.  acceptCall() is the correct place.
+        if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
+          inboundRecordCreatedRef.current = true;
+          try {
+            await createCallRecord({
+              data: {
+                recipientNumber: pendingIncomingNumberRef.current,
+                direction: "inbound",
+                fsCallId: callInfo.callId,
+              },
+            } as any);
+          } catch (e) {
+            console.warn("[Call] inbound record create failed", e);
+          }
+        }
       } catch (e) {
         console.warn("[Verto] answerCall error", e);
         setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "error" });
@@ -329,9 +370,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setCallPhase("connected");
       setCallState("active");
     }
-  }, [callInfo]);
+  }, [callInfo, createCallRecord]);
 
   const declineCall = useCallback(() => {
+    // Dismiss any background-tab notification when the user declines
+    if (incomingNotificationRef.current) {
+      try { incomingNotificationRef.current.close(); } catch {}
+      incomingNotificationRef.current = null;
+    }
     if (clientRef.current && callInfo?.callId) {
       clientRef.current.hangup(callInfo.callId, "CALL_REJECTED", 21);
     }

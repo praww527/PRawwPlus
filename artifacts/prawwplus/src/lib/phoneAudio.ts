@@ -108,7 +108,23 @@ class PhoneAudio {
       this.cadenceTimer = setTimeout(tick, duration);
     };
 
-    tick();
+    // If the AudioContext is suspended (no prior user gesture yet), wait for it
+    // to resume before starting the cadence. Once running, tick() drives it.
+    // This prevents the ringtone from being silently swallowed when an incoming
+    // call arrives before the user has interacted with the page in this session.
+    if (ctx.state === "running") {
+      tick();
+    } else {
+      ctx.resume().catch(() => {});
+      const onStateChange = () => {
+        if (ctx.state === "running") {
+          ctx.removeEventListener("statechange", onStateChange);
+          if (!this.cadenceStopped) tick();
+        }
+      };
+      ctx.addEventListener("statechange", onStateChange);
+    }
+
     return g;
   }
 
