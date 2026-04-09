@@ -342,16 +342,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
         // *request* to FreeSWITCH; FS only replies with a result — it never
         // pushes a verto.answer notification back to the callee, so onAnswer
         // never fires on this side.  acceptCall() is the correct place.
+        //
+        // IMPORTANT: capture the returned CallRecord and immediately update
+        // callInfo.callId with the DB record's id (not the verto UUID).
+        // CallingScreen uses callInfo.callId as the REST path param for
+        // signalEndCall — if it stays as the verto UUID that call 404s.
         if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
           inboundRecordCreatedRef.current = true;
           try {
-            await createCallRecord({
+            const record = await createCallRecord({
               data: {
                 recipientNumber: pendingIncomingNumberRef.current,
                 direction: "inbound",
                 fsCallId: callInfo.callId,
               },
             } as any);
+            if (record?.id) {
+              setCallInfo((prev) => prev ? { ...prev, callId: record.id } : prev);
+            }
           } catch (e) {
             console.warn("[Call] inbound record create failed", e);
           }
