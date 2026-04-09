@@ -179,6 +179,23 @@ router.post("/calls/:callId/end", async (req, res) => {
   }
 });
 
+router.delete("/calls/:callId", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id as string;
+  const { callId } = req.params;
+
+  const result = await CallModel.deleteOne({ _id: callId, userId });
+  if (result.deletedCount === 0) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 router.post("/calls/webhook/freeswitch", async (req, res) => {
   const hookSecret = process.env.FREESWITCH_WEBHOOK_SECRET;
   if (

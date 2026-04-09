@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useListCalls, useMakeCall, useGetMe } from "@workspace/api-client-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useListCalls, useMakeCall, useGetMe, getListCallsQueryKey } from "@workspace/api-client-react";
 import { formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
 import {
@@ -75,6 +76,17 @@ export default function CallHistory() {
   const { startOutgoing, updateCallId, makeVertoCall, endCall, isVertoConnected } = useCall();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const { mutate: deleteCallMutation } = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/calls/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
+    },
+  });
 
   const handleCallBack = async (number: string) => {
     const callType: "internal" | "external" = isInternalNum(number) ? "internal" : "external";
@@ -106,6 +118,7 @@ export default function CallHistory() {
   const handleDelete = (id: string) => {
     setDeletedIds((prev) => new Set([...prev, id]));
     if (expandedId === id) setExpandedId(null);
+    deleteCallMutation(id);
   };
 
   const allCalls = (data?.calls ?? []).filter((c: any) => !deletedIds.has(c.id));

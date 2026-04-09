@@ -43,6 +43,9 @@ function getInternalWsUrl(): string {
   );
 }
 
+const PENDING_BUFFER_LIMIT = 50;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 export function createVertoProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -56,7 +59,16 @@ export function createVertoProxy(): WebSocketServer {
     // is still in CONNECTING state.  Without this the Verto login message sent
     // immediately on browser-open is silently dropped, causing a 10 s RPC
     // timeout → reconnect loop (the primary "Verto WebSocket not connecting" bug).
+    // Capped at PENDING_BUFFER_LIMIT to prevent OOM from misbehaving clients.
     const pendingToUpstream: Array<{ data: Parameters<WebSocket["send"]>[0]; isBinary: boolean }> = [];
+
+    // Ping/pong heartbeat — detects half-open (zombie) TCP connections that
+    // would otherwise accumulate indefinitely on mobile/flaky networks.
+    const heartbeat = setInterval(() => {
+      if (client.readyState === WebSocket.OPEN) client.ping();
+    }, HEARTBEAT_INTERVAL_MS);
+    client.on("pong", () => { /* connection is alive — no-op */ });
+    const cleanup = () => clearInterval(heartbeat);
 
     // ── upstream → client ────────────────────────────────────────────────────
     upstream.on("open", () => {
@@ -117,7 +129,9 @@ export function createVertoProxy(): WebSocketServer {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
       } else if (upstream.readyState === WebSocket.CONNECTING) {
-        // Upstream not yet open — buffer so the Verto login isn't lost
+        // Upstream not yet open — buffer so the Verto login isn't lost.
+        // Drop oldest message when the cap is reached to prevent OOM.
+        if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
         pendingToUpstream.push({ data, isBinary });
       }
       // Log what the browser is sending (method names, not SDPs)
@@ -136,6 +150,7 @@ export function createVertoProxy(): WebSocketServer {
     });
 
     client.on("close", (code, reason) => {
+      cleanup();
       const safe = safeCloseCode(code);
       logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) {
@@ -144,6 +159,7 @@ export function createVertoProxy(): WebSocketServer {
     });
 
     client.on("error", (err) => {
+      cleanup();
       logger.warn({ err: err.message }, "Verto proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.close(1011, Buffer.from("client error"));
@@ -169,9 +185,14 @@ export function attachVertoProxy(
 ): void {
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     if (req.url === "/api/verto/ws") {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit("connection", ws, req);
-      });
+      try {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit("connection", ws, req);
+        });
+      } catch (err) {
+        logger.error({ err }, "Verto proxy: handleUpgrade threw — destroying socket");
+        socket.destroy();
+      }
     }
     // For all other paths: do nothing — let the next registered upgrade
     // handler (SIP proxy, etc.) take over.

@@ -32,6 +32,9 @@ function getSipWsUrl(): string {
   return `ws://${host}:${port}/`;
 }
 
+const PENDING_BUFFER_LIMIT = 50;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 export function createSipProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -45,7 +48,15 @@ export function createSipProxy(): WebSocketServer {
     // WebSocket is still in CONNECTING state.  Without this the SIP REGISTER
     // sent immediately on connect is silently dropped, causing registration
     // failures (the primary "mobile SIP not connecting" bug).
+    // Capped at PENDING_BUFFER_LIMIT to prevent OOM from misbehaving clients.
     const pendingToUpstream: Array<{ data: Parameters<WebSocket["send"]>[0]; isBinary: boolean }> = [];
+
+    // Ping/pong heartbeat — detects zombie half-open sockets on mobile networks.
+    const heartbeat = setInterval(() => {
+      if (client.readyState === WebSocket.OPEN) client.ping();
+    }, HEARTBEAT_INTERVAL_MS);
+    client.on("pong", () => { /* connection alive — no-op */ });
+    const cleanup = () => clearInterval(heartbeat);
 
     upstream.on("open", () => {
       logger.debug("SIP proxy: upstream connected");
@@ -78,18 +89,22 @@ export function createSipProxy(): WebSocketServer {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
       } else if (upstream.readyState === WebSocket.CONNECTING) {
-        // Upstream not yet open — buffer so the SIP REGISTER isn't lost
+        // Upstream not yet open — buffer so the SIP REGISTER isn't lost.
+        // Drop oldest when cap is reached to prevent OOM.
+        if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
         pendingToUpstream.push({ data, isBinary });
       }
     });
 
     client.on("close", (code, reason) => {
+      cleanup();
       const safe = safeCloseCode(code);
       logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(safe, reason);
     });
 
     client.on("error", (err) => {
+      cleanup();
       logger.warn({ err: err.message }, "SIP proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(1011, Buffer.from("client error"));
     });
@@ -104,9 +119,14 @@ export function attachSipProxy(
 ): void {
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     if (req.url?.startsWith("/api/sip/ws")) {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit("connection", ws, req);
-      });
+      try {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit("connection", ws, req);
+        });
+      } catch (err) {
+        logger.error({ err }, "SIP proxy: handleUpgrade threw — destroying socket");
+        socket.destroy();
+      }
     }
   });
 }

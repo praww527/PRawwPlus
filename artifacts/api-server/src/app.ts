@@ -209,4 +209,14 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+// Global Express error handler — catches any error passed to next(err) or thrown
+// inside async route handlers (Express 5 wraps async throws automatically).
+// Without this, unhandled errors write a stack trace to stdout and may leave
+// the response hanging (no status sent to the client).
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err: err.message, stack: err.stack }, "Unhandled Express error");
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Internal server error" });
+});
+
 export default app;
