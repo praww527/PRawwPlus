@@ -246,12 +246,17 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
         steps.push(`reloadxml failed: ${(e as Error).message}`);
       }
 
-      // 2. Reload mod_xml_curl so it picks up the new gateway URL
+      // 2. Reload mod_xml_curl so it picks up the new gateway URL.
+      //    `reload mod_xml_curl` is unreliable — it can leave the module in a
+      //    broken state where it is "loaded" but has no gateway URL configured.
+      //    We use an explicit unload + load cycle for a guaranteed clean state.
       try {
-        await execCommand(conn, `${cli} -x 'reload mod_xml_curl'`);
-        steps.push("reload mod_xml_curl OK");
+        await execCommand(conn, `${cli} -x 'unload mod_xml_curl'`);
+        await new Promise((r) => setTimeout(r, 500));
+        await execCommand(conn, `${cli} -x 'load mod_xml_curl'`);
+        steps.push("mod_xml_curl unload+load OK");
       } catch (e) {
-        steps.push(`reload mod_xml_curl failed: ${(e as Error).message}`);
+        steps.push(`mod_xml_curl unload+load failed: ${(e as Error).message}`);
       }
 
       // NOTE: We intentionally do NOT reload mod_event_socket here.

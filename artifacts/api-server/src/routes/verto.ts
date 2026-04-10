@@ -192,7 +192,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
         <variables>
           <variable name="toll_allow" value="domestic,international,local"/>
           <variable name="accountcode" value="${extensionNum}"/>
-          <variable name="user_context" value="call_manager"/>
+          <variable name="user_context" value="prawwplus"/>
           <variable name="effective_caller_id_name" value="${displayName}"/>
           <variable name="effective_caller_id_number" value="${extensionNum}"/>
           <variable name="outbound_caller_id_name" value="${displayName}"/>

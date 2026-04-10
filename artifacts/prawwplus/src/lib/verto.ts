@@ -53,9 +53,11 @@ interface Pending {
   timeout: ReturnType<typeof setTimeout>;
 }
 
-const RPC_TIMEOUT_MS = 10_000;
-const ICE_TIMEOUT_MS = 8_000;
-const RECONNECT_MS   = 5_000;
+const RPC_TIMEOUT_MS      = 10_000;
+const ICE_TIMEOUT_MS      = 8_000;
+const RECONNECT_BASE_MS   = 5_000;   // 5 s initial backoff
+const RECONNECT_MAX_MS    = 60_000;  // 60 s cap
+const RECONNECT_PERM_MS   = 5 * 60_000; // 5 min backoff after repeated -32601
 
 export class VertoClient {
   private ws:             WebSocket | null = null;
@@ -69,6 +71,8 @@ export class VertoClient {
   private currentCallId:  string | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed =     false;
+  private reconnectAttempt = 0;          // for exponential backoff
+  private permDeniedCount  = 0;         // consecutive -32601 failures
   // Track whether we have already applied the remote SDP so we never call
   // setRemoteDescription twice on the same PeerConnection.
   private remoteSdpSet =  false;
@@ -216,13 +220,34 @@ export class VertoClient {
         loginParams:   {},
         userVariables: { coins: this.config.coins },
       });
+      // Successful login — reset backoff counters
+      this.reconnectAttempt = 0;
+      this.permDeniedCount  = 0;
       console.log("[Verto] Login OK — sending verto.clientReady");
       this.sendNotify("verto.clientReady", { sessid: this.sessId });
       console.log("[Verto] verto.clientReady sent — marking connected");
       this.callbacks.onConnected();
     } catch (err: unknown) {
-      console.error("[Verto] Handshake failed:", err);
-      this.callbacks.onError(`Verto handshake failed: ${(err as Error)?.message ?? err}`);
+      const rpcErr = err as Record<string, unknown> | null;
+      const code   = typeof rpcErr?.code === "number" ? rpcErr.code : 0;
+
+      if (code === -32601) {
+        // -32601 = "Invalid Method / Permission Denied" — FreeSWITCH cannot
+        // look up the user (mod_xml_curl not configured or user not found).
+        // Repeated fast retries are useless; back off aggressively.
+        this.permDeniedCount++;
+        const msg =
+          `FreeSWITCH rejected login (-32601 Permission Denied). ` +
+          `This usually means the FreeSWITCH directory config (mod_xml_curl) ` +
+          `needs to be pushed. Ask an admin to run POST /api/freeswitch/configure. ` +
+          `Attempt ${this.permDeniedCount}.`;
+        console.error("[Verto]", msg);
+        this.callbacks.onError(msg);
+      } else {
+        console.error("[Verto] Handshake failed:", err);
+        this.callbacks.onError(`Verto handshake failed: ${(err as Error)?.message ?? String(err)}`);
+      }
+
       this.ws?.close();
     }
   }
@@ -238,9 +263,25 @@ export class VertoClient {
     this.currentCallId = null;
     this.remoteSdpSet  = false;
     this.cleanupMedia();
+
     if (!this.destroyed) {
-      console.log(`[Verto] Reconnecting in ${RECONNECT_MS}ms`);
-      this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_MS);
+      // Exponential backoff: 5s, 10s, 20s, 40s, 60s (capped).
+      // After 3+ consecutive -32601 failures use a longer pause (5 min) to
+      // avoid hammering FreeSWITCH when the directory config is broken.
+      let delayMs: number;
+      if (this.permDeniedCount >= 3) {
+        delayMs = RECONNECT_PERM_MS;
+        console.warn(`[Verto] ${this.permDeniedCount} consecutive permission-denied failures — ` +
+                     `pausing reconnect for ${delayMs / 1000}s`);
+      } else {
+        this.reconnectAttempt++;
+        delayMs = Math.min(
+          RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt - 1),
+          RECONNECT_MAX_MS,
+        );
+      }
+      console.log(`[Verto] Reconnecting in ${delayMs}ms (attempt ${this.reconnectAttempt})`);
+      this.reconnectTimer = setTimeout(() => this.connect(), delayMs);
     }
   }
 

@@ -193,7 +193,7 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
     "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl),
     "autoload_configs/verto.conf.xml":        vertoConf(fsHost),
     "autoload_configs/event_socket.conf.xml": eventSocketConf(),
-    "dialplan/call_manager.xml":              dialplanXml(fsHost),
+    "dialplan/prawwplus.xml":                 dialplanXml(fsHost),
   });
 });
 
