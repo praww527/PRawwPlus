@@ -108,8 +108,8 @@ export async function runStartup(): Promise<void> {
   // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl
   // directory lookups reach our live API endpoint at rtc.PRaww.co.za.
   if (process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {
-    logger.info("[FSH] Auto-pushing FreeSWITCH config on startup…");
-    pushFreeSwitchConfig()
+    logger.info("[FSH] Auto-pushing FreeSWITCH config on startup (light reload)…");
+    pushFreeSwitchConfig({ lightReload: true })
       .then((result) => {
         if (result.success) {
           logger.info({ steps: result.steps }, "[FSH] FreeSWITCH config pushed OK");

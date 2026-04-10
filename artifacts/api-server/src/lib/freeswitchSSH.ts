@@ -112,7 +112,24 @@ export interface PushResult {
   error?:   string;
 }
 
-export async function pushFreeSwitchConfig(): Promise<PushResult> {
+export interface PushOptions {
+  /**
+   * Light reload (default: false).
+   *
+   * When true, only xml_curl and voicemail are reloaded — mod_verto and
+   * mod_sofia are left alone.  Use this for automatic startup pushes where
+   * disrupting active WebSocket connections is undesirable.  The mod_verto
+   * config (verto.conf.xml) rarely changes between deploys, so skipping the
+   * reload is safe once the initial full push has been done.
+   *
+   * When false (the full admin push), mod_verto and the Sofia SIP profile are
+   * also unloaded + reloaded so they pick up any profile-level changes.
+   */
+  lightReload?: boolean;
+}
+
+export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<PushResult> {
+  const { lightReload = false } = opts;
   const rawKey = process.env.FREESWITCH_SSH_KEY;
   if (!rawKey) return { success: false, steps: [], error: "FREESWITCH_SSH_KEY not set" };
   if (!FS_HOST) return { success: false, steps: [], error: "FREESWITCH_DOMAIN not set" };
@@ -267,40 +284,46 @@ export async function pushFreeSwitchConfig(): Promise<PushResult> {
       // FreeSWITCH restart. The ESL password is set once and rarely changes.
       steps.push("event_socket.conf.xml written (reload skipped — requires FS restart to take effect)");
 
-      // 3. Reload mod_verto to pick up the new verto.conf.
-      //    `reload mod_verto` does NOT reliably reload profile bindings — only a full
-      //    unload + load cycle does.  We do reloadxml first so the freshly written
-      //    verto.conf.xml is in the XML cache before mod_verto re-reads it.
-      try {
-        await execCommand(conn, `${cli} -x 'unload mod_verto'`);
-        await new Promise((r) => setTimeout(r, 1000));
-        await execCommand(conn, `${cli} -x 'load mod_verto'`);
-        steps.push("mod_verto unload+load OK");
-      } catch (e) {
-        steps.push(`mod_verto unload+load failed: ${(e as Error).message}`);
-      }
-
-      // 5. Reload mod_voicemail to pick up voicemail.conf
-      try {
-        await execCommand(conn, `${cli} -x 'reload mod_voicemail'`);
-        steps.push("reload mod_voicemail OK");
-      } catch (e) {
-        steps.push(`reload mod_voicemail failed (may not be critical): ${(e as Error).message}`);
-      }
-
-      // 6. Handle the SIP/WS mobile profile.
-      //    `reload mod_sofia` reloads existing profiles but does NOT start new ones.
-      //    We attempt to start the profile first; if it's already running, rescan it.
-      try {
-        await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile start'`);
-        steps.push("sofia profile prawwplus_mobile start OK");
-      } catch (e) {
-        // Profile may already be running — try a rescan instead
+      if (lightReload) {
+        // Lightweight startup refresh — skip mod_verto and mod_sofia reloads to
+        // avoid dropping active WebSocket connections right as users reconnect.
+        // mod_xml_curl (above) is the only module that MUST reflect the new
+        // APP_URL directory endpoint; verto.conf rarely changes between deploys.
+        steps.push("Light reload: skipping mod_verto and Sofia reload (connections preserved)");
+      } else {
+        // 3. Full reload: unload + load mod_verto so it picks up the new verto.conf.
+        //    `reload mod_verto` does NOT reliably reload profile bindings — only a
+        //    full cycle does.  reloadxml already ran above so the cache is fresh.
         try {
-          await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile rescan'`);
-          steps.push("sofia profile prawwplus_mobile rescan OK");
-        } catch (e2) {
-          steps.push(`sofia profile prawwplus_mobile start/rescan failed (may not be critical): ${(e2 as Error).message}`);
+          await execCommand(conn, `${cli} -x 'unload mod_verto'`);
+          await new Promise((r) => setTimeout(r, 1000));
+          await execCommand(conn, `${cli} -x 'load mod_verto'`);
+          steps.push("mod_verto unload+load OK");
+        } catch (e) {
+          steps.push(`mod_verto unload+load failed: ${(e as Error).message}`);
+        }
+
+        // 4. Reload mod_voicemail to pick up voicemail.conf
+        try {
+          await execCommand(conn, `${cli} -x 'reload mod_voicemail'`);
+          steps.push("reload mod_voicemail OK");
+        } catch (e) {
+          steps.push(`reload mod_voicemail failed (may not be critical): ${(e as Error).message}`);
+        }
+
+        // 5. Handle the SIP/WS mobile profile.
+        //    `reload mod_sofia` reloads existing profiles but does NOT start new ones.
+        //    We attempt to start the profile first; if it's already running, rescan it.
+        try {
+          await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile start'`);
+          steps.push("sofia profile prawwplus_mobile start OK");
+        } catch (e) {
+          try {
+            await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile rescan'`);
+            steps.push("sofia profile prawwplus_mobile rescan OK");
+          } catch (e2) {
+            steps.push(`sofia profile prawwplus_mobile start/rescan failed (may not be critical): ${(e2 as Error).message}`);
+          }
         }
       }
     }
