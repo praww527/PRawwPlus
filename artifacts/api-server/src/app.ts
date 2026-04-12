@@ -174,6 +174,9 @@ app.use("/api/auth/login", rateLimit(10, 60_000));
 app.use("/api/auth/signup", rateLimit(5, 60_000));
 app.use("/api/auth/forgot-password", rateLimit(5, 60_000));
 app.use("/api/auth/reset-password", rateLimit(5, 60_000));
+app.use("/api/auth/resend-verification", rateLimit(3, 60_000));
+app.use("/api/auth/phone/send-otp", rateLimit(3, 60_000));
+app.use("/api/auth/phone/verify-otp", rateLimit(10, 60_000));
 app.use("/api", rateLimit(300, 60_000));
 
 app.use("/api", router);

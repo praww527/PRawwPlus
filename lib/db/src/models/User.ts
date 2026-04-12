@@ -30,6 +30,8 @@ export interface IUser extends Document<string> {
   phoneVerified: boolean;
   phoneOtp?: string;
   phoneOtpExpiry?: Date;
+  phoneOtpAttempts?: number;
+  phoneOtpLockedUntil?: Date;
   coins: number;
   ratePlanId?: string;
   lowBalanceThresholdCoins?: number;
@@ -80,6 +82,8 @@ const UserSchema = new Schema<IUser>(
     phoneVerified: { type: Boolean, default: false },
     phoneOtp: { type: String },
     phoneOtpExpiry: { type: Date },
+    phoneOtpAttempts: { type: Number, default: 0 },
+    phoneOtpLockedUntil: { type: Date },
     coins: { type: Number, default: 0 },
     ratePlanId: { type: String, index: true },
     lowBalanceThresholdCoins: { type: Number },

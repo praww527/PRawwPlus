@@ -82,7 +82,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     const smtpReady = isSmtpConfigured();
     const verificationToken = smtpReady ? generateToken() : undefined;
     const verificationTokenExpiry = smtpReady
-      ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+      ? new Date(Date.now() + 3 * 60 * 1000)
       : undefined;
 
     const user = await UserModel.create({
@@ -260,7 +260,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
     }
 
     const verificationToken = generateToken();
-    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const verificationTokenExpiry = new Date(Date.now() + 3 * 60 * 1000);
     user.verificationToken = verificationToken;
     user.verificationTokenExpiry = verificationTokenExpiry;
     await user.save();
@@ -393,7 +393,10 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
 
     await UserModel.updateOne(
       { _id: userId },
-      { $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry } },
+      {
+        $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry },
+        $unset: { phoneOtpAttempts: 1, phoneOtpLockedUntil: 1 },
+      },
     );
 
     const smsReady = isSmsPortalConfigured();
@@ -423,6 +426,9 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
   }
 });
 
+const OTP_MAX_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS ?? 5);
+const OTP_LOCKOUT_MINUTES = Number(process.env.OTP_LOCKOUT_MINUTES ?? 15);
+
 router.post("/auth/phone/verify-otp", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -438,9 +444,22 @@ router.post("/auth/phone/verify-otp", async (req: Request, res: Response) => {
       return;
     }
 
-    const user = await UserModel.findById(userId).select("phone phoneOtp phoneOtpExpiry phoneVerified");
+    const user = await UserModel.findById(userId).select(
+      "phone phoneOtp phoneOtpExpiry phoneVerified phoneOtpAttempts phoneOtpLockedUntil",
+    );
     if (!user) {
       res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    // ── Brute-force lockout check ──────────────────────────────────────────
+    if (user.phoneOtpLockedUntil && user.phoneOtpLockedUntil > new Date()) {
+      const secsLeft = Math.ceil((user.phoneOtpLockedUntil.getTime() - Date.now()) / 1000);
+      const minsLeft = Math.ceil(secsLeft / 60);
+      res.status(429).json({
+        error: `Too many failed attempts. Try again in ${minsLeft} minute${minsLeft !== 1 ? "s" : ""}.`,
+        lockedUntil: user.phoneOtpLockedUntil.toISOString(),
+      });
       return;
     }
 
@@ -455,13 +474,41 @@ router.post("/auth/phone/verify-otp", async (req: Request, res: Response) => {
     }
 
     if (otp.trim() !== user.phoneOtp) {
-      res.status(400).json({ error: "Invalid verification code. Please try again." });
+      const attempts = (user.phoneOtpAttempts ?? 0) + 1;
+      const locked = attempts >= OTP_MAX_ATTEMPTS;
+      const lockedUntil = locked ? new Date(Date.now() + OTP_LOCKOUT_MINUTES * 60 * 1000) : undefined;
+
+      await UserModel.updateOne(
+        { _id: userId },
+        locked
+          ? {
+              $set: { phoneOtpAttempts: attempts, phoneOtpLockedUntil: lockedUntil },
+              $unset: { phoneOtp: 1, phoneOtpExpiry: 1 },
+            }
+          : { $set: { phoneOtpAttempts: attempts } },
+      );
+
+      if (locked) {
+        res.status(429).json({
+          error: `Too many failed attempts. Your verification has been locked for ${OTP_LOCKOUT_MINUTES} minute${OTP_LOCKOUT_MINUTES !== 1 ? "s" : ""}. Please request a new code after the lockout expires.`,
+          lockedUntil: lockedUntil?.toISOString(),
+        });
+      } else {
+        const remaining = OTP_MAX_ATTEMPTS - attempts;
+        res.status(400).json({
+          error: `Invalid verification code. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`,
+          attemptsRemaining: remaining,
+        });
+      }
       return;
     }
 
     await UserModel.updateOne(
       { _id: userId },
-      { $set: { phoneVerified: true }, $unset: { phoneOtp: 1, phoneOtpExpiry: 1 } },
+      {
+        $set: { phoneVerified: true },
+        $unset: { phoneOtp: 1, phoneOtpExpiry: 1, phoneOtpAttempts: 1, phoneOtpLockedUntil: 1 },
+      },
     );
 
     res.json({ message: "Phone number verified successfully", phone: user.phone });

@@ -42,7 +42,7 @@ export async function sendVerificationEmail(email: string, token: string, baseUr
       <h2 style="color:#ffffff;font-size:20px;margin-bottom:16px">Verify your email address</h2>
       <p style="color:#94a3b8;margin-bottom:24px">Click the button below to verify your email and activate your account.</p>
       <a href="${link}" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:16px">Verify Email</a>
-      <p style="color:#64748b;font-size:12px;margin-top:32px">This link expires in 24 hours. If you didn't sign up, ignore this email.</p>
+      <p style="color:#64748b;font-size:12px;margin-top:32px">This link expires in <strong>3 minutes</strong>. If you didn't sign up, ignore this email.</p>
     </div>
     `,
   );
@@ -60,7 +60,7 @@ export async function sendPhoneOtpEmail(email: string, phone: string, otp: strin
       <div style="background:#1e293b;border-radius:12px;padding:24px;text-align:center;margin:24px 0">
         <span style="font-size:40px;font-weight:700;letter-spacing:12px;color:#3b82f6;font-family:monospace">${otp}</span>
       </div>
-      <p style="color:#64748b;font-size:12px;margin-top:16px">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
+      <p style="color:#64748b;font-size:12px;margin-top:16px">This code expires in <strong>3 minutes</strong>. If you didn't request this, ignore this email.</p>
     </div>
     `,
   );

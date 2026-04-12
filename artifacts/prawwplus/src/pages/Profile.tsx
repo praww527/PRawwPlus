@@ -406,6 +406,9 @@ export default function Profile() {
       const data = await res.json();
       if (!res.ok) {
         setPhoneMsg(data.error ?? "Invalid code");
+        if (res.status === 429) {
+          setOtpCountdown(0);
+        }
       } else {
         toast({ title: "Mobile number verified!", description: "Your number is now your PRaww+ calling identity." });
         setSheet("none");

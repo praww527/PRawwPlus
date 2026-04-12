@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import logoImg from "/logo.png";
 import { useAuth } from "@workspace/auth-web";
+
+const EMAIL_LINK_TTL = 180;
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
@@ -14,6 +16,13 @@ export default function LoginPage() {
   const [unverified, setUnverified] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendDone, setResendDone] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (resendCountdown === null || resendCountdown <= 0) return;
+    const id = setTimeout(() => setResendCountdown((c) => (c !== null && c > 0 ? c - 1 : 0)), 1000);
+    return () => clearTimeout(id);
+  }, [resendCountdown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,8 +38,18 @@ export default function LoginPage() {
 
   const resendVerification = async () => {
     setResendLoading(true);
-    try { await fetch("/api/auth/resend-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: form.email }) }); setResendDone(true); }
-    finally { setResendLoading(false); }
+    setResendDone(false);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email }),
+      });
+      setResendDone(true);
+      setResendCountdown(EMAIL_LINK_TTL);
+    } finally {
+      setResendLoading(false);
+    }
   };
 
   const inputStyle: React.CSSProperties = {
@@ -59,11 +78,32 @@ export default function LoginPage() {
             <div style={{ margin: "0 0 2px", padding: "14px 20px", background: "rgba(255,214,10,0.08)", borderBottom: "1px solid var(--sep)" }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: "#ffd60a", marginBottom: 4 }}>Email not verified</p>
               <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 8 }}>Please verify your email before logging in.</p>
-              {resendDone
-                ? <p style={{ fontSize: 13, color: "#30d158" }}>Verification email resent!</p>
-                : <button onClick={resendVerification} disabled={resendLoading} style={{ fontSize: 13, color: "hsl(var(--primary))", fontWeight: 600, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                    {resendLoading ? "Sending…" : "Resend verification email"}
-                  </button>}
+              {resendDone && resendCountdown !== null && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "6px 10px", borderRadius: 8, marginBottom: 8,
+                  background: resendCountdown === 0 ? "rgba(255,69,58,0.10)" : resendCountdown <= 30 ? "rgba(255,149,0,0.10)" : "rgba(48,209,88,0.10)",
+                  border: `1px solid ${resendCountdown === 0 ? "rgba(255,69,58,0.25)" : resendCountdown <= 30 ? "rgba(255,149,0,0.25)" : "rgba(48,209,88,0.25)"}`,
+                }}>
+                  {resendCountdown === 0 ? (
+                    <p style={{ fontSize: 12, color: "#ff453a", fontWeight: 600 }}>Link expired — resend a new one</p>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: 12, color: resendCountdown <= 30 ? "#ff9500" : "#30d158" }}>Link sent! Expires in</p>
+                      <p style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: resendCountdown <= 30 ? "#ff453a" : "#30d158" }}>
+                        {Math.floor(resendCountdown / 60)}:{String(resendCountdown % 60).padStart(2, "0")}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+              <button
+                onClick={resendVerification}
+                disabled={resendLoading}
+                style={{ fontSize: 13, color: "hsl(var(--primary))", fontWeight: 600, background: "none", border: "none", cursor: resendLoading ? "default" : "pointer", padding: 0, opacity: resendLoading ? 0.6 : 1 }}
+              >
+                {resendLoading ? "Sending…" : resendDone ? "Resend again" : "Resend verification email"}
+              </button>
             </div>
           )}
 

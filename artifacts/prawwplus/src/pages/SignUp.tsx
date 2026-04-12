@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Eye, EyeOff, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
 import logoImg from "/logo.png";
@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@workspace/auth-web";
+
+const EMAIL_LINK_TTL = 180;
 
 export default function SignUp() {
   const [, setLocation] = useLocation();
@@ -16,6 +18,31 @@ export default function SignUp() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [countdown, setCountdown] = useState(EMAIL_LINK_TTL);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendDone, setResendDone] = useState(false);
+
+  useEffect(() => {
+    if (!success || countdown <= 0) return;
+    const id = setTimeout(() => setCountdown((c) => (c > 0 ? c - 1 : 0)), 1000);
+    return () => clearTimeout(id);
+  }, [success, countdown]);
+
+  const handleResend = async () => {
+    setResendLoading(true);
+    setResendDone(false);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email }),
+      });
+      setCountdown(EMAIL_LINK_TTL);
+      setResendDone(true);
+    } finally {
+      setResendLoading(false);
+    }
+  };
 
   const validate = () => {
     if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
@@ -62,6 +89,11 @@ export default function SignUp() {
   };
 
   if (success) {
+    const mins = Math.floor(countdown / 60);
+    const secs = String(countdown % 60).padStart(2, "0");
+    const expired = countdown === 0;
+    const nearExpiry = countdown <= 30 && countdown > 0;
+
     return (
       <div
         className="flex items-center justify-center bg-background overflow-y-auto"
@@ -69,25 +101,60 @@ export default function SignUp() {
       >
         <div className="fixed inset-0 bg-gradient-to-br from-blue-950/60 via-background to-indigo-950/40 pointer-events-none" />
         <div className="relative z-10 glass rounded-3xl p-8 max-w-md w-full border border-white/10 text-center">
-          <div className="w-16 h-16 rounded-full bg-green-500/15 border border-green-500/25 flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="h-8 w-8 text-green-400" />
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 ${expired ? "bg-red-500/15 border border-red-500/25" : "bg-green-500/15 border border-green-500/25"}`}>
+            <CheckCircle className={`h-8 w-8 ${expired ? "text-red-400" : "text-green-400"}`} />
           </div>
-          <h2 className="text-2xl font-display font-bold text-white mb-3">Check your email</h2>
-          <p className="text-white/55 mb-2">We sent a verification link to</p>
-          <p className="text-primary font-medium mb-6">{form.email}</p>
-          <p className="text-white/40 text-sm mb-8">Click the link in the email to activate your account. Check your spam folder if you don't see it.</p>
+          <h2 className="text-2xl font-display font-bold text-white mb-3">
+            {expired ? "Link expired" : "Check your email"}
+          </h2>
+          <p className="text-white/55 mb-2">
+            {expired ? "The link sent to" : "We sent a verification link to"}
+          </p>
+          <p className="text-primary font-medium mb-4">{form.email}</p>
+
+          {/* Countdown timer */}
+          <div className={`rounded-xl px-4 py-3 mb-6 ${
+            expired
+              ? "bg-red-500/10 border border-red-500/20"
+              : nearExpiry
+                ? "bg-orange-500/10 border border-orange-500/20"
+                : "bg-blue-500/8 border border-blue-500/15"
+          }`}>
+            {expired ? (
+              <p className="text-red-400 text-sm font-semibold">
+                Link expired — request a new one below
+              </p>
+            ) : (
+              <div className="flex items-center justify-center gap-2">
+                <p className={`text-sm ${nearExpiry ? "text-orange-400" : "text-white/45"}`}>
+                  Link expires in
+                </p>
+                <p className={`text-base font-bold font-mono ${nearExpiry ? "text-red-400" : "text-primary"}`}>
+                  {mins}:{secs}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <p className="text-white/40 text-sm mb-6">
+            {expired
+              ? "Request a new link below to verify your account."
+              : "Click the link in the email to activate your account. Check your spam folder if you don't see it."}
+          </p>
+
+          {resendDone && !expired && (
+            <p className="text-green-400 text-sm mb-4 font-medium">New verification link sent!</p>
+          )}
+
           <Button
-            variant="outline"
-            className="w-full border-white/15 text-white/70 hover:text-white hover:bg-white/5"
-            onClick={async () => {
-              await fetch("/api/auth/resend-verification", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email: form.email }),
-              });
-            }}
+            variant={expired ? "default" : "outline"}
+            className={`w-full ${expired ? "bg-primary hover:bg-primary/90" : "border-white/15 text-white/70 hover:text-white hover:bg-white/5"}`}
+            disabled={resendLoading}
+            onClick={handleResend}
           >
-            Resend verification email
+            {resendLoading
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sending…</>
+              : expired ? "Send new verification link" : "Resend verification email"}
           </Button>
           <Button
             variant="ghost"
