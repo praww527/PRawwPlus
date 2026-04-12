@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { connectDB, UserModel } from "@workspace/db";
+import { connectDB, UserModel, SessionModel } from "@workspace/db";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import {
@@ -331,6 +331,9 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
     user.resetPasswordToken = undefined;
     user.resetPasswordTokenExpiry = undefined;
     await user.save();
+
+    // Invalidate all existing sessions so stolen/active sessions cannot be reused
+    await SessionModel.deleteMany({ "sess.user.id": String(user._id) });
 
     res.json({ message: "Password reset successfully. You can now log in." });
   } catch (err) {

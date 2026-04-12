@@ -191,7 +191,8 @@ router.delete("/numbers/:id", async (req, res) => {
   const number = await PhoneNumberModel.findOne({ _id: id, userId });
   if (!number) { res.status(404).json({ error: "Number not found or not owned by you" }); return; }
 
-  await PhoneNumberModel.deleteOne({ _id: id });
+  // Release back to the pool (set userId to null) so the number can be reused
+  await PhoneNumberModel.updateOne({ _id: id }, { $set: { userId: null } });
   res.json({ message: "Number removed successfully" });
 });
 

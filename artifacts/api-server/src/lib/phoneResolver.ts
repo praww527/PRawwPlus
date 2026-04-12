@@ -1,6 +1,7 @@
 import { UserModel } from "@workspace/db";
 
 function normalizePhoneForLookup(raw: string): string[] {
+  if (!raw || typeof raw !== "string") return [];
   const digits = raw.replace(/\D/g, "");
   const candidates: string[] = [];
 
