@@ -1,4 +1,4 @@
-import { useState, Children } from "react";
+import { useState, Children, useEffect } from "react";
 import { useAuth } from "@workspace/auth-web";
 import {
   useGetMe, useListPayments, useInitiateSubscription,
@@ -313,6 +313,15 @@ export default function Profile() {
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneMsg, setPhoneMsg] = useState<string | null>(null);
   const [devOtp, setDevOtp] = useState<string | null>(null);
+  const [otpCountdown, setOtpCountdown] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (otpStep !== "enter-otp" || otpCountdown === null || otpCountdown <= 0) return;
+    const id = setTimeout(() => {
+      setOtpCountdown((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [otpStep, otpCountdown]);
 
   const isActive      = user?.subscriptionStatus === "active";
   const currentPlan   = user?.subscriptionPlan ?? "basic";
@@ -350,6 +359,7 @@ export default function Profile() {
     setOtpStep(userPhone && !userPhoneVerified ? "enter-otp" : "enter-phone");
     setPhoneMsg(null);
     setDevOtp(null);
+    setOtpCountdown(userPhone && !userPhoneVerified ? null : null);
     setSheet("phone");
   };
 
@@ -372,6 +382,7 @@ export default function Profile() {
         setPhoneMsg(data.message ?? "Verification code sent");
         if (data.otp) setDevOtp(data.otp);
         setOtpInput("");
+        setOtpCountdown(180);
         setOtpStep("enter-otp");
       }
     } catch {
@@ -869,6 +880,40 @@ export default function Profile() {
                   <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{phoneInput}</span>
                 </p>
               </div>
+
+              {/* Countdown timer */}
+              {otpCountdown !== null && (
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  padding: "10px 16px", borderRadius: 12,
+                  background: otpCountdown === 0
+                    ? "rgba(255,69,58,0.10)"
+                    : otpCountdown <= 30
+                      ? "rgba(255,149,0,0.10)"
+                      : "rgba(10,132,255,0.08)",
+                  border: `1px solid ${otpCountdown === 0 ? "rgba(255,69,58,0.30)" : otpCountdown <= 30 ? "rgba(255,149,0,0.30)" : "rgba(10,132,255,0.18)"}`,
+                }}>
+                  {otpCountdown === 0 ? (
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "#ff453a", textAlign: "center" }}>
+                      Code expired — request a new one below
+                    </p>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: 13, color: otpCountdown <= 30 ? "#ff9500" : "var(--text-2)" }}>
+                        Code expires in
+                      </p>
+                      <p style={{
+                        fontSize: 15, fontWeight: 700, fontFamily: "monospace",
+                        color: otpCountdown <= 30 ? "#ff453a" : otpCountdown <= 60 ? "#ff9500" : "hsl(var(--primary))",
+                        minWidth: 36, textAlign: "center",
+                      }}>
+                        {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, "0")}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {devOtp && (
                 <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(255,214,10,0.10)", border: "1px solid rgba(255,214,10,0.25)" }}>
                   <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (SMS Portal not configured):</p>
@@ -888,25 +933,29 @@ export default function Profile() {
                 value={otpInput}
                 onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 placeholder="000000"
+                disabled={otpCountdown === 0}
                 style={{
                   width: "100%", padding: "18px 16px", borderRadius: 12,
-                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-                  color: "var(--text-1)", fontSize: 28, fontFamily: "monospace",
+                  background: otpCountdown === 0 ? "var(--glass-bg)" : "var(--glass-bg)",
+                  border: "1px solid var(--glass-border)",
+                  color: otpCountdown === 0 ? "var(--text-3)" : "var(--text-1)",
+                  fontSize: 28, fontFamily: "monospace",
                   outline: "none", textAlign: "center", letterSpacing: 12,
-                  boxSizing: "border-box",
+                  boxSizing: "border-box", opacity: otpCountdown === 0 ? 0.45 : 1,
+                  cursor: otpCountdown === 0 ? "not-allowed" : "text",
                 }}
                 onKeyDown={(e) => e.key === "Enter" && handleVerifyOtp()}
                 autoFocus
               />
               <button
                 onClick={handleVerifyOtp}
-                disabled={phoneLoading || otpInput.length !== 6}
+                disabled={phoneLoading || otpInput.length !== 6 || otpCountdown === 0}
                 style={{
                   width: "100%", padding: "14px 0", borderRadius: 14,
                   background: "rgba(48,209,88,0.85)", border: "none",
                   color: "#fff", fontSize: 15, fontWeight: 600,
-                  cursor: phoneLoading || otpInput.length !== 6 ? "default" : "pointer",
-                  opacity: phoneLoading || otpInput.length !== 6 ? 0.55 : 1,
+                  cursor: phoneLoading || otpInput.length !== 6 || otpCountdown === 0 ? "default" : "pointer",
+                  opacity: phoneLoading || otpInput.length !== 6 || otpCountdown === 0 ? 0.55 : 1,
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 }}
               >
@@ -915,8 +964,24 @@ export default function Profile() {
                   : "Verify Number"}
               </button>
               <button
-                onClick={() => { setOtpStep("enter-phone"); setPhoneMsg(null); }}
-                style={{ background: "none", border: "none", color: "hsl(var(--primary))", fontSize: 13, cursor: "pointer", textAlign: "center" }}
+                onClick={() => {
+                  setPhoneMsg(null);
+                  setOtpInput("");
+                  handleSendOtp();
+                }}
+                disabled={phoneLoading}
+                style={{
+                  background: "none", border: "none", fontSize: 13, cursor: phoneLoading ? "default" : "pointer",
+                  textAlign: "center", opacity: phoneLoading ? 0.5 : 1,
+                  color: otpCountdown === 0 ? "#ff453a" : "hsl(var(--primary))",
+                  fontWeight: otpCountdown === 0 ? 600 : 400,
+                }}
+              >
+                {otpCountdown === 0 ? "Request new code" : "Resend code"}
+              </button>
+              <button
+                onClick={() => { setOtpStep("enter-phone"); setPhoneMsg(null); setOtpCountdown(null); }}
+                style={{ background: "none", border: "none", color: "var(--text-3)", fontSize: 12, cursor: "pointer", textAlign: "center" }}
               >
                 Use a different number
               </button>

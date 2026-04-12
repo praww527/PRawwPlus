@@ -389,7 +389,7 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
     }
 
     const otp = generateOtp();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    const otpExpiry = new Date(Date.now() + 3 * 60 * 1000);
 
     await UserModel.updateOne(
       { _id: userId },
