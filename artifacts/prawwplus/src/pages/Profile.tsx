@@ -850,7 +850,7 @@ export default function Profile() {
               </div>
               {devOtp && (
                 <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(255,214,10,0.10)", border: "1px solid rgba(255,214,10,0.25)" }}>
-                  <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (Twilio not configured):</p>
+                  <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (SMS Portal not configured):</p>
                   <p style={{ fontSize: 24, fontWeight: 700, fontFamily: "monospace", color: "#ffd60a", letterSpacing: 6 }}>{devOtp}</p>
                 </div>
               )}

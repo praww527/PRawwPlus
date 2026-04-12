@@ -11,7 +11,7 @@ import {
   type SessionData,
 } from "../lib/auth";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
-import { sendSmsOtp } from "../lib/sms";
+import { sendSmsOtp, isSmsPortalConfigured } from "../lib/sms";
 import { logger } from "../lib/logger";
 import { assignExtensionIfNeeded } from "../lib/extension";
 import { getBaseUrl } from "../lib/appUrl";
@@ -393,11 +393,7 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
       { $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry } },
     );
 
-    const smsReady = !!(
-      process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      process.env.TWILIO_FROM_NUMBER
-    );
+    const smsReady = isSmsPortalConfigured();
 
     let smsSent = false;
     if (smsReady) {
@@ -405,17 +401,17 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
         await sendSmsOtp(normalized, otp);
         smsSent = true;
       } catch (smsErr: any) {
-        logger.warn({ err: smsErr?.message, phone: normalized }, "Failed to send SMS OTP via Twilio");
+        logger.warn({ err: smsErr?.message, phone: normalized }, "Failed to send SMS OTP via SMS Portal");
       }
     } else {
-      logger.warn({ phone: normalized }, "Twilio not configured — OTP not sent via SMS");
+      logger.warn({ phone: normalized }, "SMS Portal not configured — OTP not sent via SMS");
     }
 
     const devMode = process.env.NODE_ENV !== "production";
     res.json({
       message: smsSent
         ? `Verification code sent via SMS to ${normalized}.`
-        : `Verification code generated. Configure Twilio to enable SMS delivery.`,
+        : `Verification code generated. Configure SMS Portal to enable SMS delivery.`,
       phone: normalized,
       ...(devMode && !smsSent ? { otp } : {}),
     });
