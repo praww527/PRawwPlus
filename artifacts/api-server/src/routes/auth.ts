@@ -10,7 +10,9 @@ import {
   SESSION_TTL,
   type SessionData,
 } from "../lib/auth";
-import { sendVerificationEmail, sendPasswordResetEmail, sendPhoneOtpEmail } from "../lib/email";
+import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
+import { sendSmsOtp } from "../lib/sms";
+import { logger } from "../lib/logger";
 import { assignExtensionIfNeeded } from "../lib/extension";
 import { getBaseUrl } from "../lib/appUrl";
 
@@ -391,24 +393,31 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
       { $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry } },
     );
 
-    const user = await UserModel.findById(userId).select("email name").lean();
-    const smtpReady = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const smsReady = !!(
+      process.env.TWILIO_ACCOUNT_SID &&
+      process.env.TWILIO_AUTH_TOKEN &&
+      process.env.TWILIO_FROM_NUMBER
+    );
 
-    if (smtpReady && user?.email) {
+    let smsSent = false;
+    if (smsReady) {
       try {
-        await sendPhoneOtpEmail(user.email, normalized, otp);
-      } catch (emailErr) {
-        console.warn("[auth] Failed to send OTP email:", emailErr);
+        await sendSmsOtp(normalized, otp);
+        smsSent = true;
+      } catch (smsErr: any) {
+        logger.warn({ err: smsErr?.message, phone: normalized }, "Failed to send SMS OTP via Twilio");
       }
+    } else {
+      logger.warn({ phone: normalized }, "Twilio not configured — OTP not sent via SMS");
     }
 
     const devMode = process.env.NODE_ENV !== "production";
     res.json({
-      message: smtpReady
-        ? `Verification code sent to ${user?.email ?? "your email"}. Check your inbox.`
-        : `Verification code generated. Check server logs or use the code below (dev mode only).`,
+      message: smsSent
+        ? `Verification code sent via SMS to ${normalized}.`
+        : `Verification code generated. Configure Twilio to enable SMS delivery.`,
       phone: normalized,
-      ...(devMode && !smtpReady ? { otp } : {}),
+      ...(devMode && !smsSent ? { otp } : {}),
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to send OTP" });

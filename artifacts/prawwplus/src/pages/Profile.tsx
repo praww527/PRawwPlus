@@ -844,13 +844,13 @@ export default function Profile() {
                 </div>
                 <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)" }}>Code sent!</p>
                 <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5 }}>
-                  Check your email for the 6-digit verification code for{" "}
+                  A 6-digit code was sent via SMS to{" "}
                   <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{phoneInput}</span>
                 </p>
               </div>
               {devOtp && (
                 <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(255,214,10,0.10)", border: "1px solid rgba(255,214,10,0.25)" }}>
-                  <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (email not configured):</p>
+                  <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (Twilio not configured):</p>
                   <p style={{ fontSize: 24, fontWeight: 700, fontFamily: "monospace", color: "#ffd60a", letterSpacing: 6 }}>{devOtp}</p>
                 </div>
               )}
