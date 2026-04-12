@@ -9,7 +9,7 @@ import {
   ChevronRight, LogOut, Trash2, Phone, Coins, Receipt,
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
-  AlertCircle, Plus, X, Shuffle,
+  AlertCircle, Plus, X, Shuffle, Smartphone,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
@@ -288,7 +288,7 @@ function CallSettingsSheet() {
   );
 }
 
-type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact";
+type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "phone";
 
 export default function Profile() {
   const { logout } = useAuth();
@@ -306,6 +306,13 @@ export default function Profile() {
   const [topupAmount, setTopupAmount] = useState("50");
   const [selectedPlan, setSelectedPlan] = useState<"basic" | "pro">("basic");
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const [phoneInput, setPhoneInput] = useState("");
+  const [otpInput, setOtpInput] = useState("");
+  const [otpStep, setOtpStep] = useState<"enter-phone" | "enter-otp">("enter-phone");
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [phoneMsg, setPhoneMsg] = useState<string | null>(null);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
 
   const isActive      = user?.subscriptionStatus === "active";
   const currentPlan   = user?.subscriptionPlan ?? "basic";
@@ -332,6 +339,72 @@ export default function Profile() {
       setPfData(res);
       setTimeout(() => (document.getElementById("pf-form") as HTMLFormElement)?.submit(), 100);
     } catch { toast({ title: "Failed to initiate top-up", variant: "destructive" }); }
+  };
+
+  const userPhone = (user as any)?.phone as string | undefined;
+  const userPhoneVerified = (user as any)?.phoneVerified as boolean | undefined;
+
+  const openPhoneSheet = () => {
+    setPhoneInput(userPhone ?? "");
+    setOtpInput("");
+    setOtpStep(userPhone && !userPhoneVerified ? "enter-otp" : "enter-phone");
+    setPhoneMsg(null);
+    setDevOtp(null);
+    setSheet("phone");
+  };
+
+  const handleSendOtp = async () => {
+    if (!phoneInput.trim()) { setPhoneMsg("Enter your mobile number"); return; }
+    setPhoneLoading(true);
+    setPhoneMsg(null);
+    setDevOtp(null);
+    try {
+      const res = await fetch("/api/auth/phone/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: phoneInput.trim() }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPhoneMsg(data.error ?? "Failed to send code");
+      } else {
+        setPhoneMsg(data.message ?? "Verification code sent");
+        if (data.otp) setDevOtp(data.otp);
+        setOtpInput("");
+        setOtpStep("enter-otp");
+      }
+    } catch {
+      setPhoneMsg("Network error. Please try again.");
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otpInput.trim() || otpInput.trim().length !== 6) { setPhoneMsg("Enter the 6-digit code"); return; }
+    setPhoneLoading(true);
+    setPhoneMsg(null);
+    try {
+      const res = await fetch("/api/auth/phone/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otp: otpInput.trim() }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPhoneMsg(data.error ?? "Invalid code");
+      } else {
+        toast({ title: "Mobile number verified!", description: "Your number is now your PRaww+ calling identity." });
+        setSheet("none");
+        setTimeout(() => window.location.reload(), 500);
+      }
+    } catch {
+      setPhoneMsg("Network error. Please try again.");
+    } finally {
+      setPhoneLoading(false);
+    }
   };
 
   const handleRemoveNumber = async (id: string, number: string) => {
@@ -449,10 +522,50 @@ export default function Profile() {
         ))}
       </div>
 
+      {/* ── Mobile Number Alert (if not verified) ─────────── */}
+      {!userPhone || !userPhoneVerified ? (
+        <button
+          onClick={openPhoneSheet}
+          style={{
+            width: "100%", textAlign: "left",
+            padding: "14px 16px", borderRadius: 16,
+            background: "rgba(255,149,0,0.10)",
+            border: "1px solid rgba(255,149,0,0.30)",
+            display: "flex", alignItems: "center", gap: 12,
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,149,0,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Smartphone style={{ width: 16, height: 16, color: "#ff9f0a" }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#ff9f0a", margin: 0 }}>
+              {!userPhone ? "Add your mobile number" : "Verify your mobile number"}
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-2)", margin: "2px 0 0", lineHeight: 1.3 }}>
+              {!userPhone
+                ? "Required to call and receive calls on PRaww+"
+                : `${userPhone} — tap to verify`}
+            </p>
+          </div>
+          <ChevronRight style={{ width: 14, height: 14, color: "#ff9f0a", flexShrink: 0 }} />
+        </button>
+      ) : null}
+
       {/* ── Account ───────────────────────────────────────── */}
       <Section title="Account">
+        <Row
+          icon={<Smartphone size={15} />}
+          iconBg={userPhoneVerified ? "rgba(48,209,88,0.20)" : "rgba(255,149,0,0.20)"}
+          iconColor={userPhoneVerified ? "#30d158" : "#ff9f0a"}
+          label="Mobile Number"
+          value={userPhone
+            ? (userPhoneVerified ? userPhone : `${userPhone} · Unverified`)
+            : "Not set"}
+          onClick={openPhoneSheet}
+        />
         <Row icon={<Hash size={15} />} iconBg="rgba(10,132,255,0.20)" iconColor="hsl(var(--primary))"
-          label="Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
+          label="DID Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
         <Row icon={<Star size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
           label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
           onClick={() => { setSelectedPlan(currentPlan as "basic" | "pro"); setSheet("plan"); }} />
@@ -668,6 +781,126 @@ export default function Profile() {
             <Plus style={{ width: 16, height: 16 }} />
             {!isActive ? "Subscribe to buy numbers" : !canAddMore ? `Limit reached (${maxNumbers} max)` : "Add Number"}
           </button>
+        </Modal>
+      )}
+
+      {/* ── Sheet: Mobile Number Verification ─────────────── */}
+      {sheet === "phone" && (
+        <Modal title={otpStep === "enter-phone" ? "Mobile Number" : "Verify Code"} onClose={() => setSheet("none")}>
+          {otpStep === "enter-phone" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
+                Add your mobile number to enable app-to-app calling with other PRaww+ users worldwide. Each number can only be registered once.
+              </p>
+              {userPhoneVerified && userPhone && (
+                <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)" }}>
+                  <p style={{ fontSize: 13, color: "#30d158", fontWeight: 600 }}>
+                    <CheckCircle2 style={{ width: 13, height: 13, display: "inline", marginRight: 6 }} />
+                    Current: {userPhone}
+                  </p>
+                  <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>Enter a new number below to change it</p>
+                </div>
+              )}
+              <input
+                type="tel"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                placeholder="+27821234567"
+                style={{
+                  width: "100%", padding: "14px 16px", borderRadius: 12,
+                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+                  color: "var(--text-1)", fontSize: 17, fontFamily: "monospace",
+                  outline: "none", boxSizing: "border-box",
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleSendOtp()}
+              />
+              {phoneMsg && (
+                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") || phoneMsg.includes("generated") ? "#30d158" : "#ff453a" }}>
+                  {phoneMsg}
+                </p>
+              )}
+              <button
+                onClick={handleSendOtp}
+                disabled={phoneLoading || !phoneInput.trim()}
+                style={{
+                  width: "100%", padding: "14px 0", borderRadius: 14,
+                  background: "hsl(var(--primary))", border: "none",
+                  color: "#fff", fontSize: 15, fontWeight: 600,
+                  cursor: phoneLoading || !phoneInput.trim() ? "default" : "pointer",
+                  opacity: phoneLoading || !phoneInput.trim() ? 0.55 : 1,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                {phoneLoading
+                  ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
+                  : "Send Verification Code"}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(10,132,255,0.14)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                  <Smartphone style={{ width: 22, height: 22, color: "hsl(var(--primary))" }} />
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)" }}>Code sent!</p>
+                <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5 }}>
+                  Check your email for the 6-digit verification code for{" "}
+                  <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{phoneInput}</span>
+                </p>
+              </div>
+              {devOtp && (
+                <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(255,214,10,0.10)", border: "1px solid rgba(255,214,10,0.25)" }}>
+                  <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (email not configured):</p>
+                  <p style={{ fontSize: 24, fontWeight: 700, fontFamily: "monospace", color: "#ffd60a", letterSpacing: 6 }}>{devOtp}</p>
+                </div>
+              )}
+              {phoneMsg && (
+                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") || phoneMsg.includes("generated") ? "var(--text-2)" : "#ff453a" }}>
+                  {phoneMsg}
+                </p>
+              )}
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={otpInput}
+                onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                style={{
+                  width: "100%", padding: "18px 16px", borderRadius: 12,
+                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+                  color: "var(--text-1)", fontSize: 28, fontFamily: "monospace",
+                  outline: "none", textAlign: "center", letterSpacing: 12,
+                  boxSizing: "border-box",
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleVerifyOtp()}
+                autoFocus
+              />
+              <button
+                onClick={handleVerifyOtp}
+                disabled={phoneLoading || otpInput.length !== 6}
+                style={{
+                  width: "100%", padding: "14px 0", borderRadius: 14,
+                  background: "rgba(48,209,88,0.85)", border: "none",
+                  color: "#fff", fontSize: 15, fontWeight: 600,
+                  cursor: phoneLoading || otpInput.length !== 6 ? "default" : "pointer",
+                  opacity: phoneLoading || otpInput.length !== 6 ? 0.55 : 1,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                {phoneLoading
+                  ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
+                  : "Verify Number"}
+              </button>
+              <button
+                onClick={() => { setOtpStep("enter-phone"); setPhoneMsg(null); }}
+                style={{ background: "none", border: "none", color: "hsl(var(--primary))", fontSize: 13, cursor: "pointer", textAlign: "center" }}
+              >
+                Use a different number
+              </button>
+            </div>
+          )}
         </Modal>
       )}
 

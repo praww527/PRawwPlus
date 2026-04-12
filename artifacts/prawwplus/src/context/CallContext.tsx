@@ -167,8 +167,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           Notification.permission === "granted"
         ) {
           try {
-            const label = callerNumber.replace(/\D/g, "").length === 4
-              ? `Internal call from ${callerNumber}`
+            const isInternal = callerNumber.replace(/\D/g, "").length === 4;
+            const label = isInternal
+              ? "Incoming call from a PRaww+ user"
               : `Incoming call from ${callerNumber}`;
             const n = new Notification("Incoming Call — PRaww+", {
               body: label,

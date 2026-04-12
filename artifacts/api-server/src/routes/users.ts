@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel } from "@workspace/db";
+import { lookupUserByPhone } from "../lib/phoneResolver";
 
 const router: IRouter = Router();
 
@@ -15,7 +16,33 @@ router.get("/users/me", async (req: Request, res: Response) => {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  res.json({ ...user, id: user._id });
+  const { fsPassword: _fsPassword, extension: _extension, phoneOtp: _phoneOtp, phoneOtpExpiry: _phoneOtpExpiry, ...safeUser } = user as any;
+  res.json({ ...safeUser, id: user._id });
+});
+
+router.get("/users/phone-lookup", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const { phone } = req.query as { phone?: string };
+
+  if (!phone || typeof phone !== "string" || phone.trim().length < 7) {
+    res.status(400).json({ error: "phone query parameter is required" });
+    return;
+  }
+
+  try {
+    const result = await lookupUserByPhone(phone.trim());
+    if (!result) {
+      res.json({ found: false });
+      return;
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Lookup failed" });
+  }
 });
 
 router.get("/users/call-forwarding", async (req: Request, res: Response) => {

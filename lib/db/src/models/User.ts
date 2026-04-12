@@ -26,6 +26,10 @@ export interface IUser extends Document<string> {
   verificationTokenExpiry?: Date;
   resetPasswordToken?: string;
   resetPasswordTokenExpiry?: Date;
+  phone?: string;
+  phoneVerified: boolean;
+  phoneOtp?: string;
+  phoneOtpExpiry?: Date;
   coins: number;
   ratePlanId?: string;
   lowBalanceThresholdCoins?: number;
@@ -72,6 +76,10 @@ const UserSchema = new Schema<IUser>(
     verificationTokenExpiry: { type: Date },
     resetPasswordToken: { type: String },
     resetPasswordTokenExpiry: { type: Date },
+    phone: { type: String, sparse: true, unique: true, index: true },
+    phoneVerified: { type: Boolean, default: false },
+    phoneOtp: { type: String },
+    phoneOtpExpiry: { type: Date },
     coins: { type: Number, default: 0 },
     ratePlanId: { type: String, index: true },
     lowBalanceThresholdCoins: { type: Number },

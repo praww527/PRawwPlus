@@ -48,6 +48,24 @@ export async function sendVerificationEmail(email: string, token: string, baseUr
   );
 }
 
+export async function sendPhoneOtpEmail(email: string, phone: string, otp: string) {
+  await sendMail(
+    email,
+    "Your PRaww+ mobile number verification code",
+    `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0f1e;color:#e2e8f0;padding:40px;border-radius:12px">
+      <h1 style="color:#3b82f6;font-size:28px;margin-bottom:8px">PRaww+</h1>
+      <h2 style="color:#ffffff;font-size:20px;margin-bottom:16px">Verify your mobile number</h2>
+      <p style="color:#94a3b8;margin-bottom:8px">Enter this code in the app to verify <strong style="color:#e2e8f0">${phone}</strong>:</p>
+      <div style="background:#1e293b;border-radius:12px;padding:24px;text-align:center;margin:24px 0">
+        <span style="font-size:40px;font-weight:700;letter-spacing:12px;color:#3b82f6;font-family:monospace">${otp}</span>
+      </div>
+      <p style="color:#64748b;font-size:12px;margin-top:16px">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
+    </div>
+    `,
+  );
+}
+
 export async function sendPasswordResetEmail(email: string, token: string, baseUrl: string) {
   const link = `${baseUrl}/reset-password?token=${token}`;
   await sendMail(

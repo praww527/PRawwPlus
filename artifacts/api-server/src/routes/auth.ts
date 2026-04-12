@@ -10,7 +10,7 @@ import {
   SESSION_TTL,
   type SessionData,
 } from "../lib/auth";
-import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
+import { sendVerificationEmail, sendPasswordResetEmail, sendPhoneOtpEmail } from "../lib/email";
 import { assignExtensionIfNeeded } from "../lib/extension";
 import { getBaseUrl } from "../lib/appUrl";
 
@@ -333,6 +333,132 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
     res.json({ message: "Password reset successfully. You can now log in." });
   } catch (err) {
     res.status(500).json({ error: "Failed to reset password" });
+  }
+});
+
+// ── Phone number OTP verification ────────────────────────────────────────────
+
+function generateOtp(): string {
+  const bytes = crypto.randomBytes(3);
+  const num = (bytes.readUIntBE(0, 3) % 900000) + 100000;
+  return String(num);
+}
+
+function normalizePhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return null;
+  if (raw.startsWith("+")) return "+" + digits;
+  if (digits.startsWith("0") && digits.length === 10) return "+27" + digits.slice(1);
+  if (digits.length >= 10) return "+" + digits;
+  return null;
+}
+
+router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    await connectDB();
+    const userId = (req as any).user.id;
+    const { phone } = req.body as { phone?: string };
+
+    if (!phone || typeof phone !== "string") {
+      res.status(400).json({ error: "Phone number is required" });
+      return;
+    }
+
+    const normalized = normalizePhone(phone.trim());
+    if (!normalized) {
+      res.status(400).json({ error: "Invalid phone number. Use international format, e.g. +27821234567" });
+      return;
+    }
+
+    const existing = await UserModel.findOne({
+      phone: normalized,
+      _id: { $ne: userId },
+    });
+    if (existing) {
+      res.status(409).json({ error: "This phone number is already registered to another account" });
+      return;
+    }
+
+    const otp = generateOtp();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    await UserModel.updateOne(
+      { _id: userId },
+      { $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry } },
+    );
+
+    const user = await UserModel.findById(userId).select("email name").lean();
+    const smtpReady = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+
+    if (smtpReady && user?.email) {
+      try {
+        await sendPhoneOtpEmail(user.email, normalized, otp);
+      } catch (emailErr) {
+        console.warn("[auth] Failed to send OTP email:", emailErr);
+      }
+    }
+
+    const devMode = process.env.NODE_ENV !== "production";
+    res.json({
+      message: smtpReady
+        ? `Verification code sent to ${user?.email ?? "your email"}. Check your inbox.`
+        : `Verification code generated. Check server logs or use the code below (dev mode only).`,
+      phone: normalized,
+      ...(devMode && !smtpReady ? { otp } : {}),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to send OTP" });
+  }
+});
+
+router.post("/auth/phone/verify-otp", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    await connectDB();
+    const userId = (req as any).user.id;
+    const { otp } = req.body as { otp?: string };
+
+    if (!otp || typeof otp !== "string") {
+      res.status(400).json({ error: "OTP is required" });
+      return;
+    }
+
+    const user = await UserModel.findById(userId).select("phone phoneOtp phoneOtpExpiry phoneVerified");
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    if (!user.phone || !user.phoneOtp) {
+      res.status(400).json({ error: "No pending phone verification. Please request a new code." });
+      return;
+    }
+
+    if (!user.phoneOtpExpiry || user.phoneOtpExpiry < new Date()) {
+      res.status(400).json({ error: "Verification code has expired. Please request a new one." });
+      return;
+    }
+
+    if (otp.trim() !== user.phoneOtp) {
+      res.status(400).json({ error: "Invalid verification code. Please try again." });
+      return;
+    }
+
+    await UserModel.updateOne(
+      { _id: userId },
+      { $set: { phoneVerified: true }, $unset: { phoneOtp: 1, phoneOtpExpiry: 1 } },
+    );
+
+    res.json({ message: "Phone number verified successfully", phone: user.phone });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to verify OTP" });
   }
 });
 

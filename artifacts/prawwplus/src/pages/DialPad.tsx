@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, Loader2, UserCircle2 } from "lucide-react";
+import { Delete, Phone, Loader2, UserCircle2, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
@@ -31,6 +31,11 @@ function isInternalNumber(num: string): boolean {
   return digits.length === 4;
 }
 
+function isFullPhoneNumber(num: string): boolean {
+  const digits = num.replace(/\D/g, "");
+  return digits.length >= 7;
+}
+
 function userInitials(name?: string, email?: string) {
   if (name) {
     const parts = name.trim().split(/\s+/);
@@ -47,6 +52,10 @@ export default function DialPad() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { data: user } = useGetMe();
+
+  const userPhone = (user as any)?.phone as string | undefined;
+  const userPhoneVerified = (user as any)?.phoneVerified as boolean | undefined;
+  const showPhoneBanner = user && (!userPhone || !userPhoneVerified);
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const {
     startOutgoing, updateCallId, connectCall, endCall,
@@ -90,7 +99,7 @@ export default function DialPad() {
   const isActive = user?.subscriptionStatus === "active";
   const canCallExternal = coins > 0 && isActive;
   const isInternal = isInternalNumber(number);
-  const minLength = 3;
+  const minLength = isInternalNumber(number) ? 4 : 7;
 
   const handleCall = async () => {
     if (!number || number.length < minLength) {
@@ -117,8 +126,10 @@ export default function DialPad() {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
       if (record?.id) updateCallId(record.id);
 
+      const dialTarget = (record as any)?.dialTarget ?? number;
+
       if (vertoActive) {
-        const vertoCallId = await makeVertoCall(number, fsCallId);
+        const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
         if (!vertoCallId) {
           endCall();
           toast({ title: "Call failed", description: "Could not connect to the call server.", variant: "destructive" });
@@ -131,7 +142,7 @@ export default function DialPad() {
       endCall();
       toast({
         title: "Call failed",
-        description: err?.message ?? (isInternal ? "Could not reach that extension." : "Check your subscription and balance."),
+        description: err?.message ?? (isInternal ? "Could not reach that user." : "Check your subscription and balance."),
         variant: "destructive",
       });
     }
@@ -202,6 +213,29 @@ export default function DialPad() {
           }
         </button>
       </div>
+
+      {/* Phone verification banner */}
+      {showPhoneBanner && (
+        <button
+          onClick={() => setLocation("/profile")}
+          style={{
+            width: "calc(100% - 32px)",
+            margin: "10px 16px 0",
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: "rgba(255,149,0,0.12)",
+            border: "1px solid rgba(255,149,0,0.28)",
+            display: "flex", alignItems: "center", gap: 10,
+            cursor: "pointer", textAlign: "left",
+          }}
+        >
+          <Phone style={{ width: 14, height: 14, color: "#ff9f0a", flexShrink: 0 }} />
+          <span style={{ flex: 1, fontSize: 12, color: "#ff9f0a", fontWeight: 600 }}>
+            {!userPhone ? "Add your mobile number to start calling" : "Verify your mobile number to start calling"}
+          </span>
+          <ChevronRight style={{ width: 13, height: 13, color: "#ff9f0a", flexShrink: 0 }} />
+        </button>
+      )}
 
       <div style={{ flex: 1, minHeight: 16 }} />
 

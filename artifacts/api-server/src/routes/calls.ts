@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { isInternalNumber } from "../lib/extension";
+import { resolvePhoneToExtension } from "../lib/phoneResolver";
 import { endCallById, webhookUpdate } from "../lib/callOrchestrator";
 import {
   isValidFsCallId,
@@ -54,10 +55,22 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     return;
   }
 
+  // Resolve phone number to internal extension if the recipient is a PRaww+ user
+  let dialTarget: string | undefined;
+  let resolvedInternally = false;
+
+  if (direction !== "inbound" && !isInternalNumber(recipientNumber)) {
+    const resolved = await resolvePhoneToExtension(recipientNumber);
+    if (resolved) {
+      dialTarget = String(resolved);
+      resolvedInternally = true;
+    }
+  }
+
   // Inbound calls are internal by nature (extension-to-extension within the PBX)
   const callType = direction === "inbound"
     ? "internal"
-    : isInternalNumber(recipientNumber) ? "internal" : "external";
+    : (isInternalNumber(recipientNumber) || resolvedInternally) ? "internal" : "external";
 
   const user = await UserModel.findById(userId);
   if (!user) {
@@ -120,7 +133,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     }
   }
 
-  const callerNumber = user.extension ? String(user.extension) : undefined;
+  const callerNumber = user.phone ?? (user.extension ? String(user.extension) : undefined);
   const callId = randomUUID();
 
   const callRecord = await CallModel.create({
@@ -138,7 +151,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     startedAt:       new Date(),
   });
 
-  res.json({ ...callRecord.toJSON(), id: callRecord._id });
+  res.json({ ...callRecord.toJSON(), id: callRecord._id, dialTarget });
 });
 
 router.get("/calls/:callId", async (req, res) => {
