@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { connectDB, PaymentModel, UserModel, PhoneNumberModel } from "@workspace/db";
+import { connectDB, PaymentModel, UserModel, PhoneNumberModel, EarningModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/appUrl";
@@ -214,6 +214,40 @@ router.post("/payments/webhook", async (req, res) => {
     await PaymentModel.updateOne({ _id: m_payment_id }, { status: "completed", completedAt: now });
 
     const targetUserId = payment.userId;
+
+    // ── Referral commission (30%) ──────────────────────────────────────────
+    try {
+      const buyer = await UserModel.findById(targetUserId).select("referredBy").lean();
+      if (buyer?.referredBy && buyer.referredBy !== targetUserId) {
+        const reseller = await UserModel.findById(buyer.referredBy)
+          .select("role approved locked")
+          .lean();
+        if (reseller && reseller.role === "reseller" && reseller.approved && !reseller.locked) {
+          const existingEarning = await EarningModel.exists({ referenceId: m_payment_id });
+          if (!existingEarning) {
+            const commissionAmount = parseFloat((payment.amount * 0.30).toFixed(2));
+            const earningType =
+              payment.paymentType === "subscription"
+                ? "subscription"
+                : payment.paymentType === "topup"
+                ? "topup"
+                : "number_purchase";
+            await EarningModel.create({
+              _id: randomUUID(),
+              resellerId: String(reseller._id),
+              userId: targetUserId,
+              amount: commissionAmount,
+              purchaseAmount: payment.amount,
+              type: earningType,
+              referenceId: m_payment_id,
+              status: "pending",
+            });
+          }
+        }
+      }
+    } catch (commissionErr) {
+      console.error("[Commission] Failed to record commission:", commissionErr);
+    }
 
     if (payment.paymentType === "subscription") {
       const plan = payment.subscriptionPlan ?? custom_str2 ?? "basic";

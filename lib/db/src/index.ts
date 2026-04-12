@@ -57,3 +57,6 @@ export * from "./models/RatePlan";
 export * from "./models/BillingLedger";
 export * from "./models/Cdr";
 export * from "./models/Invoice";
+export * from "./models/Earning";
+export * from "./models/Expense";
+export * from "./models/Payout";

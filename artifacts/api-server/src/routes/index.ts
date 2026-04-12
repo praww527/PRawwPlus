@@ -16,6 +16,7 @@ import invoicesRouter from "./invoices";
 import adminBillingRouter from "./adminBilling";
 import voicemailRouter from "./voicemail";
 import recordingsRouter from "./recordings";
+import resellerRouter from "./reseller";
 
 const router: IRouter = Router();
 
@@ -26,6 +27,7 @@ router.use(callsRouter);
 router.use(paymentsRouter);
 router.use(numbersRouter);
 router.use(adminRouter);
+router.use(resellerRouter);
 router.use(contactsRouter);
 router.use(vertoRouter);
 router.use(freeswitchRouter);

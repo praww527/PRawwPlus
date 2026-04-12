@@ -50,7 +50,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, referralCode } = req.body;
 
     if (!email || !password) {
       res.status(400).json({ error: "Email and password are required" });
@@ -72,6 +72,17 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     if (existing) {
       res.status(409).json({ error: "An account with this email already exists" });
       return;
+    }
+
+    let referredByUserId: string | undefined;
+    if (referralCode && typeof referralCode === "string") {
+      const referrer = await UserModel.findOne({
+        referralCode: referralCode.trim().toUpperCase(),
+        role: "reseller",
+      }).lean();
+      if (referrer) {
+        referredByUserId = String(referrer._id);
+      }
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -97,6 +108,10 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
       coins: 0,
       subscriptionStatus: "inactive",
       isAdmin: false,
+      role: "user",
+      approved: true,
+      locked: false,
+      ...(referredByUserId ? { referredBy: referredByUserId } : {}),
     });
 
     if (smtpReady && verificationToken) {
@@ -115,6 +130,9 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
           name: user.name ?? undefined,
           profileImage: user.profileImage ?? undefined,
           isAdmin: user.isAdmin,
+          role: user.role ?? "user",
+          approved: user.approved ?? true,
+          locked: user.locked ?? false,
         },
         access_token: generateToken(),
       };
@@ -170,6 +188,14 @@ router.post("/auth/login", async (req: Request, res: Response) => {
       return;
     }
 
+    if (user.locked) {
+      res.status(403).json({
+        error: "account_locked",
+        message: "Your account has been locked. Please contact support.",
+      });
+      return;
+    }
+
     await assignExtensionIfNeeded(user._id as string);
 
     const sessionData: SessionData = {
@@ -179,6 +205,9 @@ router.post("/auth/login", async (req: Request, res: Response) => {
         name: user.name ?? undefined,
         profileImage: user.profileImage ?? undefined,
         isAdmin: user.isAdmin,
+        role: user.role ?? "user",
+        approved: user.approved ?? true,
+        locked: user.locked ?? false,
       },
       access_token: generateToken(),
     };
@@ -226,6 +255,9 @@ router.post("/auth/verify-email", async (req: Request, res: Response) => {
         name: user.name ?? undefined,
         profileImage: user.profileImage ?? undefined,
         isAdmin: user.isAdmin,
+        role: user.role ?? "user",
+        approved: user.approved ?? true,
+        locked: user.locked ?? false,
       },
       access_token: generateToken(),
     };

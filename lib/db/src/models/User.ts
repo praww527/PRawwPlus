@@ -14,6 +14,8 @@ export interface INotificationPrefs {
   pushEnabled: boolean;
 }
 
+export type UserRole = "admin" | "reseller" | "user";
+
 export interface IUser extends Document<string> {
   _id: string;
   email?: string;
@@ -43,6 +45,11 @@ export interface IUser extends Document<string> {
   totalCallsUsed: number;
   totalCoinsUsed: number;
   isAdmin: boolean;
+  role: UserRole;
+  approved: boolean;
+  locked: boolean;
+  referralCode?: string;
+  referredBy?: string;
   extension?: number;
   fsPassword?: string;
   ringtone: string;
@@ -95,6 +102,11 @@ const UserSchema = new Schema<IUser>(
     totalCallsUsed: { type: Number, default: 0 },
     totalCoinsUsed: { type: Number, default: 0 },
     isAdmin: { type: Boolean, default: false },
+    role: { type: String, enum: ["admin", "reseller", "user"], default: "user" },
+    approved: { type: Boolean, default: true },
+    locked: { type: Boolean, default: false },
+    referralCode: { type: String, sparse: true, unique: true, index: true },
+    referredBy: { type: String, index: true },
     extension: { type: Number, sparse: true, unique: true },
     fsPassword: { type: String },
     ringtone: { type: String, default: "default" },

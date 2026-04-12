@@ -11,6 +11,9 @@ export interface SessionUser {
   name?: string;
   profileImage?: string;
   isAdmin: boolean;
+  role: "admin" | "reseller" | "user";
+  approved: boolean;
+  locked: boolean;
 }
 
 export interface SessionData {
