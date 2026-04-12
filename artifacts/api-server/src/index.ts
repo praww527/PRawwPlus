@@ -25,6 +25,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const server = http.createServer(app);
+const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1";
 
 let shuttingDown = false;
 function shutdown(signal: string) {
@@ -61,8 +62,8 @@ attachVertoProxy(server, vertoWss);
 const sipWss = createSipProxy();
 attachSipProxy(server, sipWss);
 
-server.listen(port, async () => {
-  logger.info({ port }, "Server listening");
+server.listen(port, host, async () => {
+  logger.info({ port, host }, "Server listening");
 
   // Connect to MongoDB and provision any users missing FreeSWITCH extensions.
   // Runs every time the server starts — safe to run repeatedly (idempotent).
