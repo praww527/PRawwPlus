@@ -237,19 +237,20 @@ router.post("/payments/webhook", async (req, res) => {
       const meta = payment.meta as any;
       const oldNumberId = meta?.oldNumberId;
       const newPhoneNumber = meta?.newPhoneNumber;
+      const changeNow = new Date();
       if (oldNumberId) {
-        await PhoneNumberModel.updateOne({ _id: oldNumberId }, { userId: null });
+        await PhoneNumberModel.updateOne({ _id: oldNumberId }, { userId: null, assignedAt: null });
       }
       if (newPhoneNumber) {
         const existingNew = await PhoneNumberModel.findOne({ number: newPhoneNumber });
         if (existingNew) {
           // Only assign if the number is still in the pool (not taken by someone else)
           if (!existingNew.userId) {
-            await PhoneNumberModel.updateOne({ _id: existingNew._id }, { userId: targetUserId });
+            await PhoneNumberModel.updateOne({ _id: existingNew._id }, { userId: targetUserId, assignedAt: changeNow });
           }
         } else {
           // Number doesn't exist in pool yet — create it assigned to this user
-          await PhoneNumberModel.create({ _id: randomUUID(), number: newPhoneNumber, userId: targetUserId });
+          await PhoneNumberModel.create({ _id: randomUUID(), number: newPhoneNumber, userId: targetUserId, assignedAt: changeNow });
         }
       }
     }

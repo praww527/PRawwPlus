@@ -12,6 +12,19 @@ const PLAN_NUMBER_LIMITS: Record<string, number> = {
 };
 
 const NUMBER_CHANGE_FEE = 100;
+const NUMBER_LOCK_DAYS = 30;
+
+function getLockedUntil(assignedAt: Date | null | undefined): Date | null {
+  if (!assignedAt) return null;
+  const unlock = new Date(assignedAt);
+  unlock.setDate(unlock.getDate() + NUMBER_LOCK_DAYS);
+  return unlock;
+}
+
+function isLocked(assignedAt: Date | null | undefined): boolean {
+  const until = getLockedUntil(assignedAt);
+  return until !== null && until > new Date();
+}
 
 function buildPayFastData(params: {
   merchantId: string;
@@ -86,11 +99,17 @@ router.get("/numbers", async (req, res) => {
   const maxNumbers = PLAN_NUMBER_LIMITS[plan] ?? 1;
 
   res.json({
-    myNumbers: myNumbers.map((n) => ({
-      id: n._id,
-      number: n.number,
-      status: "active",
-    })),
+    myNumbers: myNumbers.map((n) => {
+      const lockedUntil = getLockedUntil(n.assignedAt);
+      return {
+        id: n._id,
+        number: n.number,
+        status: "active",
+        assignedAt: n.assignedAt ? n.assignedAt.toISOString() : null,
+        lockedUntil: lockedUntil ? lockedUntil.toISOString() : null,
+        locked: isLocked(n.assignedAt),
+      };
+    }),
     maxNumbers,
     plan,
     subscriptionActive: user.subscriptionStatus === "active",
@@ -170,11 +189,13 @@ router.post("/numbers/buy", async (req, res) => {
     return;
   }
 
+  const now = new Date();
   if (existing) {
     existing.userId = userId;
+    existing.assignedAt = now;
     await existing.save();
   } else {
-    await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId });
+    await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId, assignedAt: now });
   }
 
   res.json({ message: "Number assigned successfully", number: { number: phone_number, status: "active" } });
@@ -191,8 +212,19 @@ router.delete("/numbers/:id", async (req, res) => {
   const number = await PhoneNumberModel.findOne({ _id: id, userId });
   if (!number) { res.status(404).json({ error: "Number not found or not owned by you" }); return; }
 
+  if (isLocked(number.assignedAt)) {
+    const until = getLockedUntil(number.assignedAt)!;
+    const daysLeft = Math.ceil((until.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    res.status(403).json({
+      error: "number_locked",
+      message: `This number is locked for ${daysLeft} more day${daysLeft !== 1 ? "s" : ""}. Numbers cannot be removed within 30 days of assignment.`,
+      lockedUntil: until.toISOString(),
+    });
+    return;
+  }
+
   // Release back to the pool (set userId to null) so the number can be reused
-  await PhoneNumberModel.updateOne({ _id: id }, { $set: { userId: null } });
+  await PhoneNumberModel.updateOne({ _id: id }, { $set: { userId: null, assignedAt: null } });
   res.json({ message: "Number removed successfully" });
 });
 
@@ -218,6 +250,17 @@ router.post("/numbers/change", async (req, res) => {
 
   const oldNumber = await PhoneNumberModel.findOne({ _id: oldNumberId, userId });
   if (!oldNumber) { res.status(404).json({ error: "Number not found or not owned by you" }); return; }
+
+  if (isLocked(oldNumber.assignedAt)) {
+    const until = getLockedUntil(oldNumber.assignedAt)!;
+    const daysLeft = Math.ceil((until.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    res.status(403).json({
+      error: "number_locked",
+      message: `This number is locked for ${daysLeft} more day${daysLeft !== 1 ? "s" : ""}. Numbers cannot be changed within 30 days of assignment.`,
+      lockedUntil: until.toISOString(),
+    });
+    return;
+  }
 
   const paymentId = randomUUID();
   const base = getBaseUrl(req);

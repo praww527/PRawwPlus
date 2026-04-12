@@ -125,6 +125,9 @@ export interface OwnedNumber {
   id: string;
   number: string;
   status?: string;
+  assignedAt?: string | null;
+  lockedUntil?: string | null;
+  locked?: boolean;
 }
 
 export interface MyNumbersResponse {

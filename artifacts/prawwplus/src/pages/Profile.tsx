@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Children } from "react";
 import { useAuth } from "@workspace/auth-web";
 import {
   useGetMe, useListPayments, useInitiateSubscription,
@@ -124,7 +124,7 @@ function Row({
 
 /* ── Section wrapper ───────────────────────────────────────────────── */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const kids = Array.isArray(children) ? children : [children];
+  const kids = Children.toArray(children).filter(Boolean);
   return (
     <div>
       <p className="section-label" style={{ paddingLeft: 4, marginBottom: 6 }}>{title}</p>
@@ -190,7 +190,7 @@ function InlineSelectRow({ icon, iconBg, iconColor, label, value, options, onCha
 }
 
 function InlineSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const kids = Array.isArray(children) ? children : [children];
+  const kids = Children.toArray(children).filter(Boolean);
   return (
     <div style={{ marginBottom: 16 }}>
       <p className="section-label" style={{ paddingLeft: 0, marginBottom: 6 }}>{title}</p>
@@ -749,25 +749,46 @@ export default function Profile() {
           <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 12 }}>{myNumbers.length}/{maxNumbers} numbers on {currentPlan} plan</p>
           {myNumbers.length > 0 && (
             <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              {myNumbers.map((n: OwnedNumber) => (
-                <div key={n.id} className="tx-card" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px" }}>
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(48,209,88,0.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Phone style={{ width: 14, height: 14, color: "#30d158" }} />
+              {myNumbers.map((n: OwnedNumber) => {
+                const locked = n.locked ?? false;
+                const lockedUntil = n.lockedUntil ? new Date(n.lockedUntil) : null;
+                const daysLeft = lockedUntil
+                  ? Math.ceil((lockedUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                  : 0;
+                return (
+                  <div key={n.id} className="tx-card" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(48,209,88,0.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Phone style={{ width: 14, height: 14, color: "#30d158" }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", fontFamily: "monospace" }}>{n.number}</p>
+                        <p style={{ fontSize: 10, fontWeight: 600, color: "#30d158" }}>● Active</p>
+                      </div>
+                      <button
+                        onClick={() => { if (!locked) { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); } }}
+                        disabled={locked}
+                        style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: locked ? "var(--surface-1)" : "var(--glass-bg)", border: "1px solid var(--glass-border)", color: locked ? "var(--text-3)" : "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: locked ? "default" : "pointer", opacity: locked ? 0.5 : 1 }}>
+                        <Shuffle style={{ width: 11, height: 11 }} /> Change
+                      </button>
+                      <button
+                        onClick={() => !locked && handleRemoveNumber(n.id, n.number)}
+                        disabled={removingId === n.id || removing || locked}
+                        style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: locked ? "default" : "pointer", opacity: (removingId === n.id || locked) ? 0.4 : 1 }}>
+                        {removingId === n.id ? <Loader2 style={{ width: 13, height: 13, color: "#ff453a" }} className="animate-spin" /> : <Trash2 style={{ width: 13, height: 13, color: "#ff453a" }} />}
+                      </button>
+                    </div>
+                    {locked && daysLeft > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 8, background: "rgba(255,149,0,0.10)", border: "1px solid rgba(255,149,0,0.22)" }}>
+                        <ShieldCheck style={{ width: 12, height: 12, color: "#ff9f0a", flexShrink: 0 }} />
+                        <p style={{ fontSize: 11, color: "#ff9f0a", margin: 0 }}>
+                          Locked for {daysLeft} more day{daysLeft !== 1 ? "s" : ""} · unlocks {lockedUntil ? format(lockedUntil, "MMM d, yyyy") : ""}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", fontFamily: "monospace" }}>{n.number}</p>
-                    <p style={{ fontSize: 10, fontWeight: 600, color: "#30d158" }}>● Active</p>
-                  </div>
-                  <button onClick={() => { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); }}
-                    style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: "var(--glass-bg)", border: "1px solid var(--glass-border)", color: "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                    <Shuffle style={{ width: 11, height: 11 }} /> Change
-                  </button>
-                  <button onClick={() => handleRemoveNumber(n.id, n.number)} disabled={removingId === n.id || removing}
-                    style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", opacity: removingId === n.id ? 0.5 : 1 }}>
-                    {removingId === n.id ? <Loader2 style={{ width: 13, height: 13, color: "#ff453a" }} className="animate-spin" /> : <Trash2 style={{ width: 13, height: 13, color: "#ff453a" }} />}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {myNumbers.length === 0 && (

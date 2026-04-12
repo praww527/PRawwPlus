@@ -6,6 +6,7 @@ export interface IPhoneNumber extends Document<string> {
   userId?: string | null;
   country?: string;
   region?: string;
+  assignedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,6 +18,7 @@ const PhoneNumberSchema = new Schema<IPhoneNumber>(
     userId: { type: String, default: null, index: true },
     country: { type: String },
     region: { type: String },
+    assignedAt: { type: Date, default: null },
   },
   { timestamps: true, _id: false }
 );
