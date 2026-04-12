@@ -42,6 +42,44 @@ export function voicemailConf(): string {
 </configuration>`;
 }
 
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function pstnGatewayName(): string {
+  return (process.env.PSTN_GATEWAY_NAME ?? "").trim();
+}
+
+function pstnGatewayXml(): string {
+  const name = pstnGatewayName();
+  const username = (process.env.PSTN_GATEWAY_USERNAME ?? "").trim();
+  const password = process.env.PSTN_GATEWAY_PASSWORD ?? "";
+  const proxy = (process.env.PSTN_GATEWAY_PROXY ?? "").trim();
+  const realm = (process.env.PSTN_GATEWAY_REALM ?? proxy).trim();
+  const fromDomain = (process.env.PSTN_GATEWAY_FROM_DOMAIN ?? realm).trim();
+  const register = (process.env.PSTN_GATEWAY_REGISTER ?? "true").trim();
+
+  if (!name || !username || !password || !proxy) return "";
+
+  return `
+    <gateway name="${xmlEscape(name)}">
+      <param name="username" value="${xmlEscape(username)}"/>
+      <param name="password" value="${xmlEscape(password)}"/>
+      <param name="proxy" value="${xmlEscape(proxy)}"/>
+      <param name="realm" value="${xmlEscape(realm)}"/>
+      <param name="from-domain" value="${xmlEscape(fromDomain)}"/>
+      <param name="register" value="${xmlEscape(register)}"/>
+      <param name="expire-seconds" value="300"/>
+      <param name="retry-seconds" value="30"/>
+    </gateway>
+  `;
+}
+
 export function vertoConf(fsIp: string): string {
   return `<configuration name="verto.conf" description="Verto Endpoint">
   <settings>
@@ -121,6 +159,33 @@ export function dialplanXml(fsDomain: string): string {
   // FS_VAR is used to produce literal "${" in the generated XML so FreeSWITCH
   // evaluates channel/global variables at call-time rather than at generation-time.
   const FS_VAR = "${";
+  const gateway = pstnGatewayName();
+  const externalRoute = gateway
+    ? `
+    <extension name="external_pstn_numbers" continue="false">
+      <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$">
+        <action application="set" data="effective_caller_id_name=${FS_VAR}caller_id_name}"/>
+        <action application="set" data="effective_caller_id_number=${FS_VAR}caller_id_number}"/>
+        <action application="set" data="outbound_caller_id_name=${FS_VAR}caller_id_name}"/>
+        <action application="set" data="outbound_caller_id_number=${FS_VAR}caller_id_number}"/>
+        <action application="set" data="call_timeout=45"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=false"/>
+        <action application="bridge" data="sofia/gateway/${xmlEscape(gateway)}/$1"/>
+      </condition>
+    </extension>
+`
+    : `
+    <extension name="external_pstn_not_configured" continue="false">
+      <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$">
+        <action application="log" data="ERR External PSTN call rejected because PSTN_GATEWAY_NAME is not configured"/>
+        <action application="answer"/>
+        <action application="speak" data="flite|kal|External calling is not configured yet."/>
+        <action application="sleep" data="300"/>
+        <action application="hangup" data="NO_ROUTE_DESTINATION"/>
+      </condition>
+    </extension>
+`;
 
   return `<include>
   <!--
@@ -340,6 +405,8 @@ export function dialplanXml(fsDomain: string): string {
       </condition>
     </extension>
 
+${externalRoute}
+
     <!--
       Invalid / unallocated numbers: any destination not matching 1000–9999.
       SIT tone + voice for maximum clarity.
@@ -371,6 +438,7 @@ export function dialplanXml(fsDomain: string): string {
  *    forwards wss://APP/api/sip/ws → ws://FS:5066.
  */
 export function sipProfileXml(fsIp: string, _appUrl: string): string {
+  const gatewayXml = pstnGatewayXml();
   return `<profile name="prawwplus_mobile">
   <settings>
     <!--
@@ -422,7 +490,8 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
     <param name="sip-trace" value="no"/>
     <param name="debug" value="0"/>
   </settings>
-  <gateways/>
+  <gateways>${gatewayXml}
+  </gateways>
 </profile>`;
 }
 

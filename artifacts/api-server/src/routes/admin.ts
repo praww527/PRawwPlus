@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { connectDB, UserModel, CallModel, PaymentModel } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
-import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf } from "../lib/freeswitchConfig";
+import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
 import { eslStatus } from "../lib/freeswitchESL";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
@@ -193,6 +193,7 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
     "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl),
     "autoload_configs/verto.conf.xml":        vertoConf(fsHost),
     "autoload_configs/event_socket.conf.xml": eventSocketConf(),
+    "sip_profiles/prawwplus_mobile.xml":      sipProfileXml(fsHost, appUrl),
     "dialplan/prawwplus.xml":                 dialplanXml(fsHost),
   });
 });

@@ -135,6 +135,13 @@ FREESWITCH_CONF_DIR=/etc/freeswitch
 FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage
 FREESWITCH_WEBHOOK_SECRET=change_me_random_secret
 FREESWITCH_SSH_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END OPENSSH PRIVATE KEY-----\n"
+PSTN_GATEWAY_NAME=your-sip-trunk
+PSTN_GATEWAY_USERNAME=your-sip-username
+PSTN_GATEWAY_PASSWORD=your-sip-password
+PSTN_GATEWAY_PROXY=sip.provider.example
+PSTN_GATEWAY_REALM=sip.provider.example
+PSTN_GATEWAY_FROM_DOMAIN=sip.provider.example
+PSTN_GATEWAY_REGISTER=true
 ```
 
 Then restart the service:
