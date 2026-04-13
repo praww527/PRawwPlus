@@ -8,7 +8,7 @@
  *  - The dialplan routes extensions and fires call webhooks
  *
  * The SSH private key is read from FREESWITCH_SSH_KEY env var.
- * The SSH user defaults to "root" (override with FREESWITCH_SSH_USER).
+ * The SSH user defaults to "ubuntu" (override with FREESWITCH_SSH_USER).
  * The config root defaults to /etc/freeswitch (override with FREESWITCH_CONF_DIR).
  */
 
@@ -26,7 +26,7 @@ import {
 
 const FS_DOMAIN    = process.env.FREESWITCH_DOMAIN ?? "";
 const FS_SSH_PORT  = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
-const FS_SSH_USER  = process.env.FREESWITCH_SSH_USER ?? "root";
+const FS_SSH_USER  = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
 const FS_CONF_DIR  = process.env.FREESWITCH_CONF_DIR ?? "/usr/local/freeswitch/conf";
 const FS_ESL_PASS  = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
 

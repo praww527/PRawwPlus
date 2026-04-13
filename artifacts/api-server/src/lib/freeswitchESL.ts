@@ -28,7 +28,7 @@ const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_D
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
 const ESL_PASSWORD = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
 const isProduction = process.env.NODE_ENV === "production";
-const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "root";
+const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
 const SSH_PORT     = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
 
 /** Strip protocol (wss://, ws://, https://, http://) and path/port from a host string

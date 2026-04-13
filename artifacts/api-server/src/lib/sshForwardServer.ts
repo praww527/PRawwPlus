@@ -37,7 +37,7 @@ async function createForwardServer(targetPort: number): Promise<string> {
   if (!sshKey || !sshHost) throw new Error("FreeSWITCH SSH settings are not configured");
 
   const sshPort = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22", 10);
-  const username = process.env.FREESWITCH_SSH_USER ?? "root";
+  const username = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
   const privateKey = cleanKey(sshKey);
 
   return new Promise((resolve, reject) => {

@@ -6,7 +6,7 @@ const router: IRouter = Router();
 
 const FS_HOST        = process.env.FREESWITCH_DOMAIN    ?? "";
 const FS_SSH_PORT    = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22", 10);
-const FS_SSH_USER    = process.env.FREESWITCH_SSH_USER  ?? "root";
+const FS_SSH_USER    = process.env.FREESWITCH_SSH_USER  ?? "ubuntu";
 const FS_STORAGE_DIR = process.env.FREESWITCH_STORAGE_DIR ?? "/usr/local/freeswitch/storage";
 
 function cleanKey(raw: string): string {
