@@ -85,6 +85,7 @@ interface CallContextValue {
   isVertoConnected: boolean;
   startOutgoing:    (info: CallInfo) => void;
   updateCallId:     (callId: string) => void;
+  updateCallType:   (callType: "internal" | "external") => void;
   connectCall:      () => void;
   acceptCall:       () => void;
   declineCall:      () => void;
@@ -151,13 +152,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
         pendingIncomingNumberRef.current = callerNumber;
         inboundRecordCreatedRef.current  = false;
         setHangupInfo(null);
+
+        // A 4-digit number is definitely an internal extension (legacy, no mobile set).
+        // Otherwise we look up the number against PRaww+ users — if found it's internal.
+        const looksInternal = callerNumber.replace(/\D/g, "").length === 4;
+
         setCallInfo({
           number: callerNumber,
           callId,
-          callType: callerNumber.replace(/\D/g, "").length === 4 ? "internal" : "external",
+          callType: looksInternal ? "internal" : "external",
         });
         setCallPhase("calling");
         setCallState("incoming");
+
+        // For non-extension caller IDs (mobile numbers), asynchronously look up
+        // whether the caller is a PRaww+ user so we can show "Internal · Free"
+        // and their display name.
+        if (!looksInternal && callerNumber.replace(/\D/g, "").length >= 7) {
+          fetch(`/api/users/phone-lookup?phone=${encodeURIComponent(callerNumber)}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((data: { found: boolean; name?: string } | null) => {
+              if (data?.found) {
+                setCallInfo((prev) =>
+                  prev?.callId === callId
+                    ? { ...prev, callType: "internal", name: data.name ?? prev.name }
+                    : prev
+                );
+              }
+            })
+            .catch(() => {});
+        }
 
         // Show a browser notification when the tab is not visible so the user
         // is alerted even if they are looking at a different tab or window.
@@ -167,8 +191,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           Notification.permission === "granted"
         ) {
           try {
-            const isInternal = callerNumber.replace(/\D/g, "").length === 4;
-            const label = isInternal
+            const label = looksInternal
               ? "Incoming call from a PRaww+ user"
               : `Incoming call from ${callerNumber}`;
             const n = new Notification("Incoming Call — PRaww+", {
@@ -304,6 +327,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallInfo((prev) => prev ? { ...prev, callId } : prev);
   }, []);
 
+  const updateCallType = useCallback((callType: "internal" | "external") => {
+    setCallInfo((prev) => prev ? { ...prev, callType } : prev);
+  }, []);
+
   const connectCall = useCallback(() => {
     setCallPhase("connected");
     setCallState("active");
@@ -418,7 +445,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     <CallContext.Provider value={{
       callState, callPhase, callInfo, hangupInfo,
       vertoConfig, isVertoConnected,
-      startOutgoing, updateCallId, connectCall,
+      startOutgoing, updateCallId, updateCallType, connectCall,
       acceptCall, declineCall, endCall,
       setMuted, setSpeaker,
       setVertoConfig, makeVertoCall, answerVertoCall, sendDtmf,

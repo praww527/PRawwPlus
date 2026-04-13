@@ -136,7 +136,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
 
   const dbUser = await UserModel.findOne({ extension: extensionNum })
     .select(
-      "extension fsPassword email username name dnd " +
+      "extension fsPassword email username name dnd phone phoneVerified " +
       "callForwardAlwaysEnabled callForwardAlwaysTo " +
       "callForwardBusyEnabled callForwardBusyTo " +
       "callForwardNoAnswerEnabled callForwardNoAnswerTo " +
@@ -170,6 +170,13 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   const displayName  = xmlEscape(rawName);
   const safePassword = xmlEscape(dbUser.fsPassword!);
   const dndValue     = dbUser.dnd ? "true" : "false";
+
+  // Use the user's verified mobile number as caller ID so other users see their
+  // phone number instead of the internal extension. Fall back to extension if
+  // the user has no verified mobile number.
+  const callerIdNumber = (dbUser.phoneVerified && dbUser.phone)
+    ? xmlEscape(dbUser.phone)
+    : String(extensionNum);
   const callForwardAlwaysEnabled = dbUser.callForwardAlwaysEnabled ? "true" : "false";
   const callForwardAlwaysTo = xmlEscape(dbUser.callForwardAlwaysTo ?? "");
   const callForwardBusyEnabled = dbUser.callForwardBusyEnabled ? "true" : "false";
@@ -194,9 +201,9 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
           <variable name="accountcode" value="${extensionNum}"/>
           <variable name="user_context" value="prawwplus"/>
           <variable name="effective_caller_id_name" value="${displayName}"/>
-          <variable name="effective_caller_id_number" value="${extensionNum}"/>
+          <variable name="effective_caller_id_number" value="${callerIdNumber}"/>
           <variable name="outbound_caller_id_name" value="${displayName}"/>
-          <variable name="outbound_caller_id_number" value="${extensionNum}"/>
+          <variable name="outbound_caller_id_number" value="${callerIdNumber}"/>
           <variable name="dnd" value="${dndValue}"/>
           <variable name="callForwardAlwaysEnabled" value="${callForwardAlwaysEnabled}"/>
           <variable name="callForwardAlwaysTo" value="${callForwardAlwaysTo}"/>

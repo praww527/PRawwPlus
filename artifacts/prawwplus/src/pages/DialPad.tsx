@@ -31,10 +31,6 @@ function isInternalNumber(num: string): boolean {
   return digits.length === 4;
 }
 
-function isFullPhoneNumber(num: string): boolean {
-  const digits = num.replace(/\D/g, "");
-  return digits.length >= 7;
-}
 
 function userInitials(name?: string, email?: string) {
   if (name) {
@@ -58,7 +54,7 @@ export default function DialPad() {
   const showPhoneBanner = user && (!userPhone || !userPhoneVerified);
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const {
-    startOutgoing, updateCallId, connectCall, endCall,
+    startOutgoing, updateCallId, updateCallType, connectCall, endCall,
     isVertoConnected, vertoConfig,
     makeVertoCall, callInfo: activeCallInfo,
   } = useCall();
@@ -96,8 +92,6 @@ export default function DialPad() {
   const del = () => setNumber((n) => n.slice(0, -1));
 
   const coins = user?.coins ?? 0;
-  const isActive = user?.subscriptionStatus === "active";
-  const canCallExternal = coins > 0 && isActive;
   const isInternal = isInternalNumber(number);
   const minLength = isInternalNumber(number) ? 4 : 7;
 
@@ -107,14 +101,10 @@ export default function DialPad() {
       return;
     }
 
-    if (!isInternal && !canCallExternal) {
-      toast({
-        title: "Cannot make external call",
-        description: !isActive ? "Subscribe to make external calls" : "Top up your balance",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Note: do NOT pre-block calls to phone numbers that look external here.
+    // The API resolves mobile numbers to internal extensions (free, no subscription
+    // needed). Only the API knows whether a given number belongs to a PRaww+ user.
+    // Let the API return a 400 error for truly external calls the user can't make.
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
@@ -127,6 +117,13 @@ export default function DialPad() {
       if (record?.id) updateCallId(record.id);
 
       const dialTarget = (record as any)?.dialTarget ?? number;
+      const resolvedCallType = (record as any)?.callType as "internal" | "external" | undefined;
+
+      // If the API resolved a mobile number to an internal PRaww+ extension,
+      // update the callInfo so CallingScreen shows "Internal · Free".
+      if (resolvedCallType && resolvedCallType !== callType) {
+        updateCallType(resolvedCallType);
+      }
 
       if (vertoActive) {
         const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
