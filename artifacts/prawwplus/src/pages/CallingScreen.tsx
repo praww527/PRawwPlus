@@ -139,7 +139,7 @@ export default function CallingScreen() {
     if (!signalledRef.current) {
       signalledRef.current = true;
       if (callInfo?.callId) {
-        const endStatus: EndCallRequestStatus = callPhase === "connected" ? "completed" : "cancelled";
+        const endStatus: EndCallRequestStatus = callPhase === "connected" ? "completed" : "no-answer";
         try {
           await signalEndCall({
             callId: callInfo.callId,
