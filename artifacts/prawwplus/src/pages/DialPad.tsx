@@ -94,6 +94,10 @@ export default function DialPad() {
   const coins = user?.coins ?? 0;
   const isInternal = isInternalNumber(number);
   const minLength = isInternalNumber(number) ? 4 : 7;
+  // Whether the dialed number looks like it goes outside the app (PSTN).
+  // The API does the final check — a phone number might still be a free internal call
+  // if the recipient is a registered PRaww+ user. We show the warning preemptively.
+  const looksExternal = number.length >= 7 && !isInternalNumber(number);
 
   const handleCall = async () => {
     if (!number || number.length < minLength) {
@@ -101,10 +105,17 @@ export default function DialPad() {
       return;
     }
 
-    // Note: do NOT pre-block calls to phone numbers that look external here.
-    // The API resolves mobile numbers to internal extensions (free, no subscription
-    // needed). Only the API knows whether a given number belongs to a PRaww+ user.
-    // Let the API return a 400 error for truly external calls the user can't make.
+    // Hard-block: unverified users cannot place any calls.
+    if (!userPhone || !userPhoneVerified) {
+      toast({
+        title: "Phone verification required",
+        description: !userPhone
+          ? "Go to your profile and add your mobile number to start calling."
+          : "Go to your profile and verify your mobile number to start calling.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
@@ -307,6 +318,23 @@ export default function DialPad() {
           );
         })}
       </div>
+
+      {/* External call billing notice */}
+      {looksExternal && (
+        <div style={{
+          marginTop: 10,
+          padding: "6px 14px",
+          borderRadius: 20,
+          background: "rgba(255,69,58,0.10)",
+          border: "1px solid rgba(255,69,58,0.25)",
+          fontSize: 12,
+          fontWeight: 600,
+          color: "#ff453a",
+          letterSpacing: "0.01em",
+        }}>
+          Network call · you will be billed
+        </div>
+      )}
 
       {/* Call button row */}
       <div style={{

@@ -78,6 +78,16 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     return;
   }
 
+  // Require a verified mobile number to make any call.
+  // Inbound webhooks from FreeSWITCH are exempt (direction === "inbound").
+  if (direction !== "inbound" && (!user.phone || !user.phoneVerified)) {
+    res.status(403).json({
+      error: "Phone number required",
+      message: "You must add and verify your mobile number before making calls.",
+    });
+    return;
+  }
+
   if (callType === "external") {
     const hasFs = fsCallId != null && String(fsCallId).trim() !== "";
     if (hasFs && !isValidFsCallId(fsCallId)) {

@@ -171,6 +171,10 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="call_timeout=45"/>
         <action application="set" data="hangup_after_bridge=true"/>
         <action application="set" data="continue_on_fail=false"/>
+        <!-- Billing notice: caller hears this before the PSTN call is bridged -->
+        <action application="answer"/>
+        <action application="speak" data="flite|kal|Please note. You are calling a number outside the PRaww app. This call will be billed to your account."/>
+        <action application="sleep" data="500"/>
         <action application="bridge" data="sofia/gateway/${xmlEscape(gateway)}/$1"/>
       </condition>
     </extension>
