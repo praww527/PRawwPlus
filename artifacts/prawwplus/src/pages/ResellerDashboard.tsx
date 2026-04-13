@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import {
   Link2, DollarSign, Users, TrendingUp, Copy, CheckCircle, BarChart3,
   CreditCard, RefreshCw, BadgeDollarSign, ArrowUpCircle, Loader2,
+  Megaphone, X, AlertTriangle, Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -377,6 +378,8 @@ export default function ResellerDashboard() {
   const [tab, setTab] = useState<TabId>("overview");
   const [stats, setStats] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
   const loadStats = useCallback(() => {
     setLoadingStats(true);
@@ -384,6 +387,21 @@ export default function ResellerDashboard() {
   }, []);
 
   useEffect(() => { loadStats(); }, [loadStats]);
+
+  useEffect(() => {
+    resellerFetch("/announcements")
+      .then((d) => setAnnouncements((d.announcements ?? []).filter((a: any) => !a.viewed)))
+      .catch(() => {});
+  }, []);
+
+  const dismissAnnouncement = async (id: string) => {
+    setDismissedIds((s) => new Set([...s, id]));
+    try {
+      await fetch(`/api/announcements/${id}/view`, { method: "POST", credentials: "include" });
+    } catch { /* non-critical */ }
+  };
+
+  const visibleAnnouncements = announcements.filter((a) => !dismissedIds.has(a.id));
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500">
@@ -401,6 +419,30 @@ export default function ResellerDashboard() {
           <RefreshCw className={cn("w-3.5 h-3.5", loadingStats && "animate-spin")} />
         </button>
       </div>
+
+      {/* Announcement Banners */}
+      {visibleAnnouncements.map((a) => {
+        const isWarning = a.type === "warning";
+        const isPromo = a.type === "promo";
+        return (
+          <div key={a.id} className={cn(
+            "rounded-2xl border p-4 flex gap-3 items-start",
+            isWarning ? "bg-amber-500/8 border-amber-500/20" : isPromo ? "bg-purple-500/8 border-purple-500/20" : "bg-blue-500/8 border-blue-500/20",
+          )}>
+            <div className={cn("w-7 h-7 rounded-full flex items-center justify-center shrink-0",
+              isWarning ? "bg-amber-500/15" : isPromo ? "bg-purple-500/15" : "bg-blue-500/15")}>
+              {isWarning ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> : isPromo ? <Megaphone className="w-3.5 h-3.5 text-purple-400" /> : <Info className="w-3.5 h-3.5 text-blue-400" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={cn("text-sm font-semibold", isWarning ? "text-amber-300" : isPromo ? "text-purple-300" : "text-blue-300")}>{a.title}</p>
+              <p className="text-xs text-white/60 mt-0.5">{a.message}</p>
+            </div>
+            <button onClick={() => dismissAnnouncement(a.id)} className="shrink-0 p-1 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })}
 
       {/* Tab Nav */}
       <div className="flex gap-1 overflow-x-auto no-scrollbar pb-0.5">

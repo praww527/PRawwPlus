@@ -9,7 +9,8 @@ import { format } from "date-fns";
 import {
   Users, TrendingUp, DollarSign, PhoneCall, ShieldAlert, Lock, Unlock, UserCheck,
   UserX, BarChart3, Link2, BadgeDollarSign, Receipt, CreditCard, RefreshCw,
-  ChevronDown, Trash2, CheckCircle2, XCircle, Shield, Settings,
+  ChevronDown, Trash2, CheckCircle2, XCircle, Shield, Settings, Megaphone,
+  AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight,
 } from "lucide-react";
 
 const TABS = [
@@ -19,6 +20,8 @@ const TABS = [
   { id: "earnings", label: "Earnings", icon: BadgeDollarSign },
   { id: "expenses", label: "Expenses", icon: Receipt },
   { id: "payouts", label: "Payouts", icon: CreditCard },
+  { id: "abuse", label: "Calls & Abuse", icon: ShieldAlert },
+  { id: "announcements", label: "Announcements", icon: Megaphone },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -645,6 +648,368 @@ function PayoutsTab() {
   );
 }
 
+// ── Calls & Abuse Tab ─────────────────────────────────────────────────────────
+function CallsAbuseTab() {
+  const { toast } = useToast();
+  const [view, setView] = useState<"calls" | "stats" | "flags">("calls");
+  const [callData, setCallData] = useState<any>(null);
+  const [statsData, setStatsData] = useState<any>(null);
+  const [flagsData, setFlagsData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [showFlag, setShowFlag] = useState(false);
+  const [flagForm, setFlagForm] = useState({ userId: "", reason: "", severity: "medium", notes: "" });
+  const [saving, setSaving] = useState(false);
+
+  const loadCalls = useCallback(async () => {
+    setLoading(true);
+    try { setCallData(await adminFetch("/admin/calls?limit=50")); } finally { setLoading(false); }
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    setLoading(true);
+    try { setStatsData(await adminFetch("/admin/call-stats?limit=50")); } finally { setLoading(false); }
+  }, []);
+
+  const loadFlags = useCallback(async () => {
+    setLoading(true);
+    try { setFlagsData(await adminFetch("/admin/abuse-flags?limit=50")); } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (view === "calls") loadCalls();
+    else if (view === "stats") loadStats();
+    else loadFlags();
+  }, [view, loadCalls, loadStats, loadFlags]);
+
+  const submitFlag = async () => {
+    if (!flagForm.userId || !flagForm.reason) { toast({ title: "Fill all fields", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      await adminFetch("/admin/abuse-flags", { method: "POST", body: JSON.stringify(flagForm) });
+      toast({ title: "Flag created" });
+      setFlagForm({ userId: "", reason: "", severity: "medium", notes: "" });
+      setShowFlag(false);
+      loadFlags();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const resolveFlag = async (flagId: string) => {
+    try {
+      await adminFetch(`/admin/abuse-flags/${flagId}/resolve`, { method: "POST" });
+      toast({ title: "Flag resolved" });
+      loadFlags();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const deleteFlag = async (flagId: string) => {
+    try {
+      await adminFetch(`/admin/abuse-flags/${flagId}`, { method: "DELETE" });
+      toast({ title: "Flag removed" });
+      loadFlags();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const severityColor = (s: string) =>
+    s === "high" ? "border-red-500/25 bg-red-500/10 text-red-400"
+    : s === "medium" ? "border-amber-500/25 bg-amber-500/10 text-amber-400"
+    : "border-emerald-500/25 bg-emerald-500/10 text-emerald-400";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        {(["calls", "stats", "flags"] as const).map((v) => (
+          <button key={v} onClick={() => setView(v)}
+            className={cn("px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all",
+              view === v ? "bg-primary/15 text-primary border border-primary/25"
+                : "text-white/40 hover:text-white/70 border border-transparent hover:bg-white/5")}>
+            {v === "calls" ? "Call Logs" : v === "stats" ? "Per-User Stats" : "Abuse Flags"}
+          </button>
+        ))}
+        {view === "flags" && (
+          <Button size="sm" onClick={() => setShowFlag((v) => !v)} className="ml-auto h-7 text-xs">
+            <Flag className="w-3 h-3 mr-1" />{showFlag ? "Cancel" : "New Flag"}
+          </Button>
+        )}
+      </div>
+
+      {view === "flags" && showFlag && (
+        <div className="glass rounded-2xl border border-white/10 p-4 space-y-3">
+          <p className="text-sm font-semibold text-white">Flag User</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-white/50">User ID</label>
+              <Input value={flagForm.userId} onChange={(e) => setFlagForm((f) => ({ ...f, userId: e.target.value }))} placeholder="User ID" className="bg-white/5 border-white/10 text-white h-9 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-white/50">Severity</label>
+              <select value={flagForm.severity} onChange={(e) => setFlagForm((f) => ({ ...f, severity: e.target.value }))} className="w-full h-9 rounded-lg bg-white/5 border border-white/10 text-white text-xs px-2 outline-none">
+                <option value="low" className="bg-gray-900">Low</option>
+                <option value="medium" className="bg-gray-900">Medium</option>
+                <option value="high" className="bg-gray-900">High</option>
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-white/50">Reason</label>
+            <Input value={flagForm.reason} onChange={(e) => setFlagForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Reason for flagging" className="bg-white/5 border-white/10 text-white h-9 text-xs" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-white/50">Notes (optional)</label>
+            <Input value={flagForm.notes} onChange={(e) => setFlagForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Additional context" className="bg-white/5 border-white/10 text-white h-9 text-xs" />
+          </div>
+          <Button className="w-full" disabled={saving} onClick={submitFlag}>{saving ? "Saving…" : "Create Flag"}</Button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-14 rounded-2xl glass animate-pulse" />)}</div>
+      ) : view === "calls" ? (
+        <div className="glass rounded-2xl border border-white/10 divide-y divide-white/6">
+          {(callData?.calls ?? []).length === 0 && (
+            <div className="p-8 text-center"><PhoneCall className="w-8 h-8 text-white/20 mx-auto mb-3" /><p className="text-white/30 text-sm">No calls recorded</p></div>
+          )}
+          {(callData?.calls ?? []).map((c: any) => (
+            <div key={c.id} className="p-3 flex items-center gap-3">
+              <div className={cn("w-2 h-2 rounded-full shrink-0", c.status === "completed" ? "bg-emerald-400" : c.status === "failed" ? "bg-red-400" : "bg-amber-400")} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white truncate">{c.username ?? c.userId}</span>
+                  <span className="text-xs text-white/40">→ {c.destination}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] text-white/30">{c.status}</span>
+                  {c.duration > 0 && <span className="text-[10px] text-white/30">{Math.floor(c.duration / 60)}m {c.duration % 60}s</span>}
+                  {c.createdAt && <span className="text-[10px] text-white/25">{format(new Date(c.createdAt), "dd MMM HH:mm")}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : view === "stats" ? (
+        <div className="glass rounded-2xl border border-white/10 divide-y divide-white/6">
+          {(statsData?.stats ?? []).length === 0 && (
+            <div className="p-8 text-center"><BarChart3 className="w-8 h-8 text-white/20 mx-auto mb-3" /><p className="text-white/30 text-sm">No call stats</p></div>
+          )}
+          {(statsData?.stats ?? []).map((s: any) => (
+            <div key={s.userId} className="p-3 flex items-center gap-3">
+              {s.suspicious && <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">{s.user?.username ?? s.userId}</span>
+                  {s.suspicious && <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-red-500/25 bg-red-500/10 text-red-400 font-medium">suspicious</span>}
+                </div>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-xs text-white/50">{s.totalCalls} calls</span>
+                  <span className="text-xs text-white/40">{Math.floor(s.totalDuration / 60)}m total</span>
+                  <span className={cn("text-xs", s.failedRate > 50 ? "text-red-400" : "text-white/40")}>{s.failedRate}% failed</span>
+                </div>
+              </div>
+              <span className="text-xs text-white/25 shrink-0">{s.user?.email ?? ""}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="glass rounded-2xl border border-white/10 divide-y divide-white/6">
+          {(flagsData?.flags ?? []).length === 0 && (
+            <div className="p-8 text-center"><Flag className="w-8 h-8 text-white/20 mx-auto mb-3" /><p className="text-white/30 text-sm">No abuse flags</p></div>
+          )}
+          {(flagsData?.flags ?? []).map((f: any) => (
+            <div key={f.id} className="p-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white">{f.user?.username ?? f.userId}</span>
+                  <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-medium", severityColor(f.severity))}>{f.severity}</span>
+                  {f.resolvedAt && <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 text-emerald-400 font-medium">resolved</span>}
+                </div>
+                <p className="text-xs text-white/50 mt-0.5 truncate">{f.reason}</p>
+                {f.notes && <p className="text-xs text-white/30 truncate">{f.notes}</p>}
+                <p className="text-[10px] text-white/25">{f.createdAt ? format(new Date(f.createdAt), "dd MMM yyyy") : ""}</p>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                {!f.resolvedAt && (
+                  <Button size="sm" variant="outline" onClick={() => resolveFlag(f.id)} className="h-7 text-xs border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+                    <CheckCircle2 className="w-3 h-3" />
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => deleteFlag(f.id)} className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10">
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Announcements Tab ─────────────────────────────────────────────────────────
+function AnnouncementsTab() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const [form, setForm] = useState({ title: "", message: "", type: "info", target: "all", isActive: true, expiresAt: "" });
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await adminFetch("/admin/announcements?limit=50")); } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openNew = () => { setEditing(null); setForm({ title: "", message: "", type: "info", target: "all", isActive: true, expiresAt: "" }); setShowForm(true); };
+  const openEdit = (a: any) => {
+    setEditing(a);
+    setForm({ title: a.title, message: a.message, type: a.type, target: a.target, isActive: a.isActive, expiresAt: a.expiresAt ? a.expiresAt.slice(0, 10) : "" });
+    setShowForm(true);
+  };
+
+  const save = async () => {
+    if (!form.title || !form.message) { toast({ title: "Fill title and message", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      const body = { ...form, expiresAt: form.expiresAt || null };
+      if (editing) {
+        await adminFetch(`/admin/announcements/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
+        toast({ title: "Announcement updated" });
+      } else {
+        await adminFetch("/admin/announcements", { method: "POST", body: JSON.stringify(body) });
+        toast({ title: "Announcement created" });
+      }
+      setShowForm(false);
+      load();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const toggle = async (a: any) => {
+    try {
+      await adminFetch(`/admin/announcements/${a.id}`, { method: "PUT", body: JSON.stringify({ isActive: !a.isActive }) });
+      toast({ title: a.isActive ? "Announcement deactivated" : "Announcement activated" });
+      load();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const deleteAnn = async (id: string) => {
+    try {
+      await adminFetch(`/admin/announcements/${id}`, { method: "DELETE" });
+      toast({ title: "Announcement deleted" });
+      load();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const typeColor = (t: string) =>
+    t === "warning" ? "border-amber-500/25 bg-amber-500/10 text-amber-400"
+    : t === "promo" ? "border-purple-500/25 bg-purple-500/10 text-purple-400"
+    : "border-blue-500/25 bg-blue-500/10 text-blue-400";
+
+  if (loading) return <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-2xl glass animate-pulse" />)}</div>;
+  const announcements: any[] = data?.announcements ?? [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={openNew} className="h-8 text-xs">
+          <Megaphone className="w-3 h-3 mr-1" />New Announcement
+        </Button>
+      </div>
+
+      {showForm && (
+        <div className="glass rounded-2xl border border-white/10 p-4 space-y-3">
+          <p className="text-sm font-semibold text-white">{editing ? "Edit Announcement" : "New Announcement"}</p>
+          <div className="space-y-1">
+            <label className="text-xs text-white/50">Title</label>
+            <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Announcement title" className="bg-white/5 border-white/10 text-white h-9 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-white/50">Message</label>
+            <textarea value={form.message} onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))} placeholder="Write your announcement…" rows={3} className="w-full rounded-lg bg-white/5 border border-white/10 text-white text-sm px-3 py-2 outline-none resize-none placeholder:text-white/30" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-white/50">Type</label>
+              <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="w-full h-9 rounded-lg bg-white/5 border border-white/10 text-white text-sm px-2 outline-none">
+                <option value="info" className="bg-gray-900">Info</option>
+                <option value="warning" className="bg-gray-900">Warning</option>
+                <option value="promo" className="bg-gray-900">Promo</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-white/50">Target</label>
+              <select value={form.target} onChange={(e) => setForm((f) => ({ ...f, target: e.target.value }))} className="w-full h-9 rounded-lg bg-white/5 border border-white/10 text-white text-sm px-2 outline-none">
+                <option value="all" className="bg-gray-900">All users</option>
+                <option value="resellers" className="bg-gray-900">Resellers only</option>
+                <option value="users" className="bg-gray-900">Regular users only</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 items-center">
+            <div className="space-y-1">
+              <label className="text-xs text-white/50">Expires (optional)</label>
+              <Input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} className="bg-white/5 border-white/10 text-white h-9 text-sm" />
+            </div>
+            <div className="flex items-center gap-2 pt-5">
+              <button onClick={() => setForm((f) => ({ ...f, isActive: !f.isActive }))} className="text-white/50 hover:text-white transition-colors">
+                {form.isActive ? <ToggleRight className="w-6 h-6 text-primary" /> : <ToggleLeft className="w-6 h-6" />}
+              </button>
+              <span className="text-xs text-white/50">{form.isActive ? "Active" : "Inactive"}</span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button className="flex-1" disabled={saving} onClick={save}>{saving ? "Saving…" : (editing ? "Save Changes" : "Create")}</Button>
+            <Button variant="outline" className="border-white/10 text-white/50 hover:text-white" onClick={() => setShowForm(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {announcements.length === 0 ? (
+        <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+          <Megaphone className="w-8 h-8 text-white/20 mx-auto mb-3" />
+          <p className="text-white/30 text-sm">No announcements yet</p>
+        </div>
+      ) : (
+        <div className="glass rounded-2xl border border-white/10 divide-y divide-white/6">
+          {announcements.map((a) => (
+            <div key={a.id} className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-white">{a.title}</span>
+                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-medium", typeColor(a.type))}>{a.type}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-white/10 bg-white/5 text-white/40 font-medium">{a.target}</span>
+                    {!a.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-white/10 bg-white/5 text-white/30 font-medium">inactive</span>}
+                  </div>
+                  <p className="text-xs text-white/50 mt-1 line-clamp-2">{a.message}</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    {a.expiresAt && <span className="text-[10px] text-white/30 flex items-center gap-1"><Clock className="w-2.5 h-2.5" />Expires {format(new Date(a.expiresAt), "dd MMM yyyy")}</span>}
+                    {a.creator && <span className="text-[10px] text-white/25">by {a.creator.username ?? a.creator.name}</span>}
+                    <span className="text-[10px] text-white/20">{a.createdAt ? format(new Date(a.createdAt), "dd MMM yyyy") : ""}</span>
+                  </div>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button onClick={() => toggle(a)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors text-white/40 hover:text-white">
+                    {a.isActive ? <ToggleRight className="w-4 h-4 text-primary" /> : <ToggleLeft className="w-4 h-4" />}
+                  </button>
+                  <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors text-white/40 hover:text-white">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => deleteAnn(a.id)} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors text-white/40 hover:text-red-400">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -687,6 +1052,8 @@ export default function Admin() {
       {tab === "earnings" && <EarningsTab />}
       {tab === "expenses" && <ExpensesTab />}
       {tab === "payouts" && <PayoutsTab />}
+      {tab === "abuse" && <CallsAbuseTab />}
+      {tab === "announcements" && <AnnouncementsTab />}
     </div>
   );
 }

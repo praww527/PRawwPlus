@@ -8,6 +8,8 @@ import {
   EarningModel,
   ExpenseModel,
   PayoutModel,
+  AnnouncementModel,
+  AbuseFlagModel,
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
@@ -509,6 +511,230 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
     "sip_profiles/prawwplus_mobile.xml":      sipProfileXml(fsHost, appUrl),
     "dialplan/prawwplus.xml":                 dialplanXml(fsHost),
   });
+});
+
+// ── Call Statistics (per-user) ────────────────────────────────────────────────
+
+router.get("/admin/call-stats", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { page, limit, skip } = parsePageLimit(req.query);
+
+  const statsByUser = await CallModel.aggregate([
+    {
+      $group: {
+        _id: "$userId",
+        totalCalls: { $sum: 1 },
+        totalDuration: { $sum: "$duration" },
+        failedCalls: {
+          $sum: { $cond: [{ $in: ["$status", ["failed", "cancelled", "busy", "no-answer"]] }, 1, 0] },
+        },
+      },
+    },
+    { $sort: { totalCalls: -1 } },
+    { $skip: skip },
+    { $limit: limit },
+  ]);
+
+  const total = (await CallModel.aggregate([{ $group: { _id: "$userId" } }, { $count: "n" }]))[0]?.n ?? 0;
+
+  const userIds = statsByUser.map((s) => s._id);
+  const users = await UserModel.find({ _id: { $in: userIds } })
+    .select("name username email locked")
+    .lean();
+  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+
+  res.json({
+    stats: statsByUser.map((s) => {
+      const avgDuration = s.totalCalls > 0 ? Math.round(s.totalDuration / s.totalCalls) : 0;
+      const failedRate = s.totalCalls > 0 ? parseFloat(((s.failedCalls / s.totalCalls) * 100).toFixed(1)) : 0;
+      const user = userMap[s._id];
+      const suspicious = failedRate > 50 || s.totalCalls > 500;
+      return {
+        userId: s._id,
+        totalCalls: s.totalCalls,
+        totalDuration: s.totalDuration,
+        avgDuration,
+        failedCalls: s.failedCalls,
+        failedRate,
+        suspicious,
+        user: user ? { name: user.name, username: user.username, email: user.email, locked: user.locked } : null,
+      };
+    }),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
+// ── Abuse Flags ───────────────────────────────────────────────────────────────
+
+router.get("/admin/abuse-flags", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { page, limit, skip } = parsePageLimit(req.query);
+  const resolvedFilter = req.query.resolved;
+  const query: any = {};
+  if (resolvedFilter === "true") query.resolvedAt = { $exists: true, $ne: null };
+  if (resolvedFilter === "false") query.resolvedAt = { $exists: false };
+
+  const [flags, total] = await Promise.all([
+    AbuseFlagModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AbuseFlagModel.countDocuments(query),
+  ]);
+
+  const userIds = [...new Set(flags.map((f) => f.userId))];
+  const users = await UserModel.find({ _id: { $in: userIds } })
+    .select("name username email locked approved")
+    .lean();
+  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+
+  res.json({
+    flags: flags.map((f) => ({
+      ...f,
+      id: f._id,
+      user: userMap[f.userId] ?? null,
+    })),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
+router.post("/admin/abuse-flags", requireAdmin, async (req, res) => {
+  await connectDB();
+  const adminId = (req as any).user.id;
+  const { userId, reason, severity, notes } = req.body;
+
+  if (!userId || !reason) {
+    res.status(400).json({ error: "userId and reason are required" });
+    return;
+  }
+
+  const user = await UserModel.findById(userId).lean();
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const flag = await AbuseFlagModel.create({
+    _id: randomUUID(),
+    userId,
+    reason: String(reason).slice(0, 500),
+    severity: ["low", "medium", "high"].includes(severity) ? severity : "medium",
+    notes: notes ? String(notes).slice(0, 1000) : undefined,
+    flaggedBy: adminId,
+  });
+
+  res.status(201).json({ ...flag.toObject(), id: flag._id });
+});
+
+router.delete("/admin/abuse-flags/:flagId", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { flagId } = req.params;
+  const deleted = await AbuseFlagModel.findByIdAndDelete(flagId);
+  if (!deleted) { res.status(404).json({ error: "Flag not found" }); return; }
+  res.json({ message: "Flag removed" });
+});
+
+router.post("/admin/abuse-flags/:flagId/resolve", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { flagId } = req.params;
+  const flag = await AbuseFlagModel.findById(flagId);
+  if (!flag) { res.status(404).json({ error: "Flag not found" }); return; }
+  flag.resolvedAt = new Date();
+  await flag.save();
+  res.json({ message: "Flag resolved", flag: { ...flag.toObject(), id: flag._id } });
+});
+
+// ── Announcements (admin CRUD) ────────────────────────────────────────────────
+
+router.get("/admin/announcements", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { page, limit, skip } = parsePageLimit(req.query);
+
+  const [announcements, total] = await Promise.all([
+    AnnouncementModel.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AnnouncementModel.countDocuments(),
+  ]);
+
+  const creatorIds = [...new Set(announcements.map((a) => a.createdBy))];
+  const creators = await UserModel.find({ _id: { $in: creatorIds } })
+    .select("name username")
+    .lean();
+  const creatorMap = Object.fromEntries(creators.map((u) => [String(u._id), u]));
+
+  res.json({
+    announcements: announcements.map((a) => ({
+      ...a,
+      id: a._id,
+      creator: creatorMap[a.createdBy] ?? null,
+    })),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
+router.post("/admin/announcements", requireAdmin, async (req, res) => {
+  await connectDB();
+  const adminId = (req as any).user.id;
+  const { title, message, type, target, isActive, expiresAt } = req.body;
+
+  if (!title || !message) {
+    res.status(400).json({ error: "title and message are required" });
+    return;
+  }
+
+  const validTypes = ["info", "warning", "promo"];
+  const validTargets = ["all", "resellers", "users"];
+
+  const announcement = await AnnouncementModel.create({
+    _id: randomUUID(),
+    title: String(title).slice(0, 200),
+    message: String(message).slice(0, 2000),
+    type: validTypes.includes(type) ? type : "info",
+    target: validTargets.includes(target) ? target : "all",
+    isActive: isActive !== false,
+    expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+    createdBy: adminId,
+  });
+
+  res.status(201).json({ ...announcement.toObject(), id: announcement._id });
+});
+
+router.put("/admin/announcements/:announcementId", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { announcementId } = req.params;
+  const { title, message, type, target, isActive, expiresAt } = req.body;
+
+  const announcement = await AnnouncementModel.findById(announcementId);
+  if (!announcement) {
+    res.status(404).json({ error: "Announcement not found" });
+    return;
+  }
+
+  const validTypes = ["info", "warning", "promo"];
+  const validTargets = ["all", "resellers", "users"];
+
+  if (title !== undefined) announcement.title = String(title).slice(0, 200);
+  if (message !== undefined) announcement.message = String(message).slice(0, 2000);
+  if (type !== undefined && validTypes.includes(type)) announcement.type = type;
+  if (target !== undefined && validTargets.includes(target)) announcement.target = target;
+  if (isActive !== undefined) announcement.isActive = Boolean(isActive);
+  if (expiresAt !== undefined) announcement.expiresAt = expiresAt ? new Date(expiresAt) : undefined;
+
+  await announcement.save();
+  res.json({ ...announcement.toObject(), id: announcement._id });
+});
+
+router.delete("/admin/announcements/:announcementId", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { announcementId } = req.params;
+  const deleted = await AnnouncementModel.findByIdAndDelete(announcementId);
+  if (!deleted) { res.status(404).json({ error: "Announcement not found" }); return; }
+  res.json({ message: "Announcement deleted" });
 });
 
 export default router;
