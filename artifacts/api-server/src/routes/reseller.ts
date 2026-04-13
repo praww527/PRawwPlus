@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { connectDB, UserModel, EarningModel, PayoutModel } from "@workspace/db";
 import { parsePageLimit } from "../lib/pagination";
+import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
 
@@ -149,6 +150,48 @@ router.get("/reseller/payouts", requireReseller, async (req, res) => {
   const resellerId = (req as any).user.id;
   const payouts = await PayoutModel.find({ resellerId }).sort({ createdAt: -1 }).lean();
   res.json({ payouts: payouts.map((p) => ({ ...p, id: p._id })) });
+});
+
+router.post("/reseller/payouts/request", requireReseller, async (req, res) => {
+  await connectDB();
+  const resellerId = (req as any).user.id;
+  const { notes } = req.body;
+
+  // Calculate available balance: sum of pending earnings minus any outstanding payout requests
+  const [pendingEarningsAgg, outstandingPayoutsAgg] = await Promise.all([
+    EarningModel.aggregate([
+      { $match: { resellerId, status: "pending" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    PayoutModel.aggregate([
+      { $match: { resellerId, status: { $in: ["requested", "pending"] } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+  ]);
+
+  const pendingEarnings: number = pendingEarningsAgg[0]?.total ?? 0;
+  const outstandingPayouts: number = outstandingPayoutsAgg[0]?.total ?? 0;
+  const available = parseFloat((pendingEarnings - outstandingPayouts).toFixed(2));
+
+  if (available < 1) {
+    res.status(400).json({
+      error: available <= 0
+        ? "No available balance to request a payout. Earnings must be pending and not already requested."
+        : "Minimum payout amount is R1.00.",
+    });
+    return;
+  }
+
+  const payout = await PayoutModel.create({
+    _id: randomUUID(),
+    resellerId,
+    amount: available,
+    status: "requested",
+    requestedAt: new Date(),
+    notes: notes && typeof notes === "string" ? notes.trim().slice(0, 500) : undefined,
+  });
+
+  res.status(201).json({ payout: { ...payout.toObject(), id: payout._id } });
 });
 
 export default router;

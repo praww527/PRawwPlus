@@ -10,7 +10,7 @@ import {
   SESSION_TTL,
   type SessionData,
 } from "../lib/auth";
-import { sendVerificationEmail, sendPasswordResetEmail } from "../lib/email";
+import { sendVerificationEmail, sendPasswordResetEmail, sendNewUserAdminEmail } from "../lib/email";
 import { sendSmsOtp, isSmsPortalConfigured } from "../lib/sms";
 import { logger } from "../lib/logger";
 import { assignExtensionIfNeeded } from "../lib/extension";
@@ -113,6 +113,22 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
       locked: false,
       ...(referredByUserId ? { referredBy: referredByUserId } : {}),
     });
+
+    // Notify all admins about the new signup (fire-and-forget, non-blocking)
+    UserModel.find({ isAdmin: true }).select("email").lean().then((admins) => {
+      const newUserInfo = {
+        name: user.name ?? email.split("@")[0],
+        email: email.toLowerCase(),
+        referredBy: referredByUserId,
+      };
+      for (const admin of admins) {
+        if (admin.email) {
+          sendNewUserAdminEmail(admin.email, newUserInfo).catch((err) =>
+            logger.warn({ err }, "Failed to send admin new-user notification"),
+          );
+        }
+      }
+    }).catch(() => {});
 
     if (smtpReady && verificationToken) {
       const baseUrl = getBaseUrl(req);

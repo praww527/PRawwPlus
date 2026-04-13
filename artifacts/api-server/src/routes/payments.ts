@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/appUrl";
 import { getTrustedClientIp } from "../lib/clientIp";
+import { sendCommissionEarningEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -242,6 +243,19 @@ router.post("/payments/webhook", async (req, res) => {
               referenceId: m_payment_id,
               status: "pending",
             });
+
+            // Notify reseller by email (fire-and-forget)
+            UserModel.findById(reseller._id).select("email name username").lean().then(async (resellerUser) => {
+              const buyer = await UserModel.findById(targetUserId).select("name username").lean();
+              if (resellerUser?.email) {
+                sendCommissionEarningEmail(resellerUser.email, {
+                  amount: commissionAmount,
+                  purchaseAmount: payment.amount,
+                  type: earningType,
+                  buyerName: buyer?.name || buyer?.username || "a referred user",
+                }).catch(() => {});
+              }
+            }).catch(() => {});
           }
         }
       }
