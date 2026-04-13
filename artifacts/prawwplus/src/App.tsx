@@ -19,6 +19,7 @@ import CallHistory     from "@/pages/CallHistory";
 import Contacts        from "@/pages/Contacts";
 import Profile         from "@/pages/Profile";
 import Admin           from "@/pages/Admin";
+import ResellerDashboard from "@/pages/ResellerDashboard";
 import CallingScreen      from "@/pages/CallingScreen";
 import IncomingCallScreen from "@/pages/IncomingCallScreen";
 import BuyNumber          from "@/pages/BuyNumber";
@@ -54,6 +55,40 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
         <div className="p-12 text-center text-red-400 glass rounded-2xl">
           <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
           <p>You do not have administrative privileges.</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  return <Layout><Component /></Layout>;
+}
+
+function ResellerRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  if (isLoading) return <LoadingScreen />;
+  if (!isAuthenticated) { setLocation("/login"); return null; }
+
+  if (user?.isAdmin) return <Layout><Component /></Layout>;
+
+  if (user?.role !== "reseller") {
+    return (
+      <Layout>
+        <div className="p-12 text-center glass rounded-2xl border border-white/10">
+          <h2 className="text-2xl font-bold mb-2 text-red-400">Access Denied</h2>
+          <p className="text-white/50">Reseller access is required to view this page.</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!user?.approved) {
+    return (
+      <Layout>
+        <div className="p-12 text-center glass rounded-2xl border border-white/10">
+          <h2 className="text-2xl font-bold mb-2 text-amber-400">Pending Approval</h2>
+          <p className="text-white/50">Your reseller account is awaiting admin approval. You will be notified once approved.</p>
         </div>
       </Layout>
     );
@@ -113,6 +148,7 @@ function Router() {
       <Route path="/call-settings"   component={() => <ProtectedRoute component={CallSettingsPage} />} />
       <Route path="/numbers"         component={() => <Redirect to="/profile" />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
+      <Route path="/reseller"        component={() => <ResellerRoute  component={ResellerDashboard} />} />
     </Switch>
   );
 }

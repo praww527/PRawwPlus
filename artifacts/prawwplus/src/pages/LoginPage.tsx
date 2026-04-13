@@ -30,7 +30,12 @@ export default function LoginPage() {
     try {
       const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(form) });
       const data = await res.json();
-      if (!res.ok) { data.error === "email_not_verified" ? setUnverified(true) : setError(data.error || "Login failed"); return; }
+      if (!res.ok) {
+        if (data.error === "email_not_verified") { setUnverified(true); }
+        else if (data.error === "account_locked") { setError("Your account has been locked. Please contact support to unlock it."); }
+        else { setError(data.message || data.error || "Login failed"); }
+        return;
+      }
       refetch(); setLocation("/");
     } catch { setError("Network error. Please try again."); }
     finally { setLoading(false); }

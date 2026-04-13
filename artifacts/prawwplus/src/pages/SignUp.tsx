@@ -9,10 +9,16 @@ import { useAuth } from "@workspace/auth-web";
 
 const EMAIL_LINK_TTL = 180;
 
+function getReferralCodeFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("ref");
+}
+
 export default function SignUp() {
   const [, setLocation] = useLocation();
   const { refetch } = useAuth();
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "", name: "" });
+  const [referralCode] = useState<string | null>(() => getReferralCodeFromUrl());
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -66,7 +72,7 @@ export default function SignUp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email: form.email, password: form.password, name: form.name }),
+        body: JSON.stringify({ email: form.email, password: form.password, name: form.name, referralCode: referralCode ?? undefined }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Sign up failed"); return; }
@@ -193,7 +199,19 @@ export default function SignUp() {
             </div>
 
             <h1 className="text-2xl font-display font-bold text-white mb-1">Create your account</h1>
-            <p className="text-white/45 text-sm mb-8">Start making affordable calls in minutes</p>
+            <p className="text-white/45 text-sm mb-4">Start making affordable calls in minutes</p>
+
+            {referralCode && (
+              <div className="mb-6 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-emerald-400 text-xs font-semibold">Partner referral applied</p>
+                  <p className="text-white/40 text-xs font-mono mt-0.5">{referralCode.toUpperCase()}</p>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-1.5">

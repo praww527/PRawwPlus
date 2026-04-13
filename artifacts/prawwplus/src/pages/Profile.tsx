@@ -9,7 +9,7 @@ import {
   ChevronRight, LogOut, Trash2, Phone, Coins, Receipt,
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
-  AlertCircle, Plus, X, Shuffle, Smartphone,
+  AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
@@ -291,7 +291,7 @@ function CallSettingsSheet() {
 type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "phone";
 
 export default function Profile() {
-  const { logout } = useAuth();
+  const { logout, user: authUser } = useAuth();
   const { data: user, isLoading } = useGetMe();
   const { data: paymentData } = useListPayments();
   const { data: numbersData, refetch: refetchNumbers } = useListMyNumbers();
@@ -608,6 +608,20 @@ export default function Profile() {
         <Row icon={<Mic size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
           label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
+
+      {/* ── Dashboard Access ──────────────────────────────── */}
+      {(authUser?.isAdmin || authUser?.role === "reseller") && (
+        <Section title="Dashboard Access">
+          {authUser?.isAdmin && (
+            <Row icon={<Shield size={15} />} iconBg="rgba(255,69,58,0.20)" iconColor="#ff453a"
+              label="Admin Panel" onClick={() => setLocation("/admin")} />
+          )}
+          {authUser?.role === "reseller" && (
+            <Row icon={<TrendingUp size={15} />} iconBg="rgba(175,82,222,0.20)" iconColor="#af52de"
+              label="Reseller Dashboard" onClick={() => setLocation("/reseller")} />
+          )}
+        </Section>
+      )}
 
       {/* ── Legal & Support ───────────────────────────────── */}
       <Section title="Legal & Support">

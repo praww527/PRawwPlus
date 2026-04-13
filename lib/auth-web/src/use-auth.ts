@@ -6,6 +6,9 @@ export interface AuthUser {
   name?: string;
   profileImage?: string;
   isAdmin: boolean;
+  role: "admin" | "reseller" | "user";
+  approved: boolean;
+  locked: boolean;
 }
 
 interface AuthState {
