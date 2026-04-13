@@ -271,7 +271,7 @@ router.get("/admin/referrals", requireAdmin, async (req, res) => {
     UserModel.countDocuments({ referredBy: { $exists: true, $ne: null } }),
   ]);
 
-  const resellerIds = [...new Set(referredUsers.map((u) => u.referredBy).filter(Boolean))];
+  const resellerIds = [...new Set(referredUsers.map((u) => u.referredBy).filter((id): id is string => Boolean(id)))];
   const resellers = await UserModel.find({ _id: { $in: resellerIds } })
     .select("name username email referralCode")
     .lean();
