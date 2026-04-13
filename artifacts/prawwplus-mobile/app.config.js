@@ -27,21 +27,9 @@ module.exports = ({ config }) => {
           },
         },
       ],
-      // Registers the Android ConnectionService (lock-screen / background call UI)
-      // and the iOS CallKit configuration in the native build.
-      // selfManaged: true — the app owns its own call audio session rather than
-      // relying on the system phone app, which is required for SIP / VoIP calls.
-      [
-        "react-native-callkeep",
-        {
-          ios: {
-            appName: "PRaww+",
-          },
-          android: {
-            selfManaged: true,
-          },
-        },
-      ],
+      // react-native-callkeep v4 does not ship an Expo config plugin so it
+      // cannot be listed here. CallKit / ConnectionService permissions are
+      // declared directly in app.json (android.permissions) instead.
     ],
   };
 };
