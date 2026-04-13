@@ -167,7 +167,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CallRecord"
+                $ref: "#/components/schemas/MakeCallResponse"
         "400":
           description: Bad request
           content:
@@ -943,6 +943,28 @@ components:
         fsCallId:
           type: string
       required: [recipientNumber]
+
+    CallRoute:
+      oneOf:
+        - type: object
+          properties:
+            type:
+              type: string
+              const: internal
+            extension:
+              type: integer
+          required: [type, extension]
+        - type: object
+          properties:
+            type:
+              type: string
+              const: external
+          required: [type]
+
+    MakeCallResponse:
+      allOf:
+        - $ref: "#/components/schemas/CallRecord"
+        - $ref: "#/components/schemas/CallRoute"
 
     EndCallRequest:
       type: object

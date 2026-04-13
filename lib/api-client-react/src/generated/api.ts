@@ -40,6 +40,7 @@ import type {
   HealthStatus,
   ListCallsParams,
   MakeCallRequest,
+  MakeCallResponse,
   MyNumbersResponse,
   NumberSearchResponse,
   PayFastPaymentData,
@@ -540,8 +541,8 @@ export const getMakeCallUrl = () => {
 export const makeCall = async (
   makeCallRequest: MakeCallRequest,
   options?: RequestInit,
-): Promise<CallRecord> => {
-  return customFetch<CallRecord>(getMakeCallUrl(), {
+): Promise<MakeCallResponse> => {
+  return customFetch<MakeCallResponse>(getMakeCallUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },

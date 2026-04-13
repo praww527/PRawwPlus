@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useListContacts, useMakeCall, useGetMe } from "@workspace/api-client-react";
+import { useListContacts, useMakeCall } from "@workspace/api-client-react";
 import { Star, Phone, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCall } from "@/context/CallContext";
@@ -20,17 +20,12 @@ function initials(name?: string, number?: string) {
   return (number ?? "").replace(/\D/g, "").slice(-2);
 }
 
-function isInternalNumber(num: string): boolean {
-  return num.replace(/\D/g, "").length === 4;
-}
-
 export default function Favorites() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { data: user } = useGetMe();
   const { data: contactsData, isLoading } = useListContacts();
   const { mutateAsync: initiateCall } = useMakeCall();
-  const { startOutgoing, updateCallId, makeVertoCall, endCall, isVertoConnected } = useCall();
+  const { startOutgoing, updateCallId, updateCallType, makeVertoCall, endCall, isVertoConnected } = useCall();
   const [filter, setFilter] = useState<FavFilter>("starred");
 
   const contacts = contactsData?.contacts ?? [];
@@ -39,27 +34,20 @@ export default function Favorites() {
   const displayed = filter === "starred" ? favorites : contacts;
 
   const handleCall = async (number: string, name?: string) => {
-    const isInternal = isInternalNumber(number);
-    const coins = user?.coins ?? 0;
-    const isActive = user?.subscriptionStatus === "active";
-
     if (!isVertoConnected) {
       toast({ title: "Not connected", description: "VoIP connection is not ready. Please wait and try again.", variant: "destructive" });
       return;
     }
-    if (!isInternal && (!isActive || coins <= 0)) {
-      toast({ title: "Cannot make external call", description: !isActive ? "Subscribe to make external calls" : "Top up your balance", variant: "destructive" });
-      return;
-    }
 
-    const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const fsCallId = crypto.randomUUID();
-    startOutgoing({ number, name, callType });
+    startOutgoing({ number, name });
 
     try {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
       if (record?.id) updateCallId(record.id);
-      const vertoCallId = await makeVertoCall(number, fsCallId);
+      if (record?.type) updateCallType(record.type);
+      const dialTarget = record?.type === "internal" ? String(record.extension) : number;
+      const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
       if (vertoCallId === null) throw new Error("VoIP connection error. Please try again.");
     } catch (err: any) {
       endCall();

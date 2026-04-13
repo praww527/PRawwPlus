@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "wouter";
 import {
-  useListCalls, useListMyNumbers, useListContacts,
+  useListCalls, useListContacts,
   useCreateContact, useBulkImportContacts, useDeleteContact,
-  useMakeCall, useGetMe,
+  useMakeCall,
 } from "@workspace/api-client-react";
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -223,11 +222,6 @@ function Avatar({ name, number }: { name: string; number: string }) {
   );
 }
 
-function isInternalNumber(num: string): boolean {
-  const digits = num.replace(/\D/g, "");
-  return digits.length === 4;
-}
-
 export default function Contacts() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ContactFilter>("all");
@@ -235,12 +229,9 @@ export default function Contacts() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { startOutgoing, updateCallId, endCall, isVertoConnected, makeVertoCall } = useCall();
-  const { data: user } = useGetMe();
+  const { startOutgoing, updateCallId, updateCallType, endCall, isVertoConnected, makeVertoCall } = useCall();
   const { mutateAsync: initiateCall } = useMakeCall();
-  const { data: numbersData } = useListMyNumbers();
   const { data: callData } = useListCalls({ limit: 500 });
   const prompted = useRef(false);
 
@@ -248,8 +239,6 @@ export default function Contacts() {
   const createContact = useCreateContact();
   const bulkImport = useBulkImportContacts();
   const deleteContact = useDeleteContact();
-
-  const primaryNumber = numbersData?.myNumbers?.[0] ?? null;
 
   const callCounts = new Map<string, number>();
   for (const call of callData?.calls ?? []) {
@@ -315,39 +304,24 @@ export default function Contacts() {
   };
 
   const handleCall = async (number: string, name?: string) => {
-    const isInternal = isInternalNumber(number);
-    const coins = user?.coins ?? 0;
-    const isActive = user?.subscriptionStatus === "active";
-
     if (!isVertoConnected) {
       toast({ title: "Not connected", description: "VoIP connection is not ready. Please wait a moment and try again.", variant: "destructive" });
       return;
     }
 
-    if (!isInternal) {
-      if (!primaryNumber) {
-        toast({ title: "No number assigned", description: "Claim a phone number first.", variant: "destructive" });
-        setLocation("/profile");
-        return;
-      }
-      if (!isActive || coins <= 0) {
-        toast({ title: "Cannot make external call", description: !isActive ? "Subscribe to make external calls" : "Top up your balance", variant: "destructive" });
-        return;
-      }
-    }
-
-    const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const fsCallId = crypto.randomUUID();
-    startOutgoing({ number, name, callType });
+    startOutgoing({ number, name });
 
     try {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
       if (record?.id) updateCallId(record.id);
-      const vertoCallId = await makeVertoCall(number, fsCallId);
+      if (record?.type) updateCallType(record.type);
+      const dialTarget = record?.type === "internal" ? String(record.extension) : number;
+      const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
       if (vertoCallId === null) throw new Error("VoIP connection error. Please try again.");
     } catch (err: any) {
       endCall();
-      toast({ title: "Call failed", description: err?.message ?? (isInternalNumber(number) ? "Could not reach that extension." : "Check your subscription and coin balance."), variant: "destructive" });
+      toast({ title: "Call failed", description: err?.message ?? "Could not place the call.", variant: "destructive" });
     }
   };
 

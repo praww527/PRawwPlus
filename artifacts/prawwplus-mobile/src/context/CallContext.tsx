@@ -215,7 +215,8 @@ export function CallProvider({ children }: PropsWithChildren) {
       recipientNumber: string,
       direction: "inbound" | "outbound",
       fsCallId?: string,
-    ): Promise<string | null> => {
+      throwOnFailure = false,
+    ): Promise<{ id: string | null; type?: "internal" | "external"; extension?: number } | null> => {
       try {
         const res = await apiRequest("/calls", {
           method: "POST",
@@ -230,14 +231,22 @@ export function CallProvider({ children }: PropsWithChildren) {
           setApiStatus("ok");
           try {
             const record = await res.json();
-            return record?.id ?? null;
+            return {
+              id: record?.id ?? null,
+              type: record?.type,
+              extension: record?.extension,
+            };
           } catch {
             setApiStatus("unavailable");
             return null;
           }
         }
 
+        const body = await res.json().catch(() => ({}));
         setApiStatus("unavailable");
+        if (throwOnFailure) {
+          throw new Error((body as any)?.message ?? (body as any)?.error ?? "Call was not allowed.");
+        }
         return null;
       } catch (err: any) {
         if (err?.name === "TimeoutError") {
@@ -245,6 +254,7 @@ export function CallProvider({ children }: PropsWithChildren) {
         } else {
           setApiStatus("unavailable");
         }
+        if (throwOnFailure) throw err;
         return null;
       }
     },
@@ -301,9 +311,9 @@ export function CallProvider({ children }: PropsWithChildren) {
       // Outbound calls already have a record created in makeCall().
       if (info.direction === "inbound" && !dbCallIdRef.current) {
         const callerNumber = incomingFromRef.current ?? info.remoteNumber;
-        const callId = await createCallRecord(callerNumber, "inbound");
+        const route = await createCallRecord(callerNumber, "inbound");
         // Store even if null — onEnded guards against null dbCallId
-        dbCallIdRef.current = callId;
+        dbCallIdRef.current = route?.id ?? null;
       }
     };
 
@@ -462,10 +472,14 @@ export function CallProvider({ children }: PropsWithChildren) {
     try {
       // Align with web Verto: one UUID for CallKit, POST /calls fsCallId, and (when FS is configured) ESL.
       const fsCallId = uuidv4();
-      const callId   = await createCallRecord(destination, "outbound", fsCallId);
+      const route = await createCallRecord(destination, "outbound", fsCallId, true);
+      const callId = route?.id ?? null;
       dbCallIdRef.current = callId;
+      const sipDestination = route?.type === "internal" && route.extension
+        ? String(route.extension)
+        : destination;
 
-      await voipEngine.makeCall(destination, fsCallId, callId);
+      await voipEngine.makeCall(sipDestination, fsCallId, callId);
     } catch (err: any) {
       // SIP precondition failure (not registered, etc.) — finalize immediately
       if (dbCallIdRef.current) {

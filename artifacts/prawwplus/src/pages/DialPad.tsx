@@ -26,12 +26,6 @@ const COL_GAP = 22;
 const ROW_GAP = 14;
 const GRID_W = BTN * 3 + COL_GAP * 2;
 
-function isInternalNumber(num: string): boolean {
-  const digits = num.replace(/\D/g, "");
-  return digits.length === 4;
-}
-
-
 function userInitials(name?: string, email?: string) {
   if (name) {
     const parts = name.trim().split(/\s+/);
@@ -92,16 +86,11 @@ export default function DialPad() {
   const del = () => setNumber((n) => n.slice(0, -1));
 
   const coins = user?.coins ?? 0;
-  const isInternal = isInternalNumber(number);
-  const minLength = isInternalNumber(number) ? 4 : 7;
-  // Whether the dialed number looks like it goes outside the app (PSTN).
-  // The API does the final check — a phone number might still be a free internal call
-  // if the recipient is a registered PRaww+ user. We show the warning preemptively.
-  const looksExternal = number.length >= 7 && !isInternalNumber(number);
+  const minLength = 7;
 
   const handleCall = async () => {
     if (!number || number.length < minLength) {
-      toast({ title: "Enter a valid number or extension", variant: "destructive" });
+      toast({ title: "Enter a valid mobile number", variant: "destructive" });
       return;
     }
 
@@ -117,24 +106,18 @@ export default function DialPad() {
       return;
     }
 
-    const callType: "internal" | "external" = isInternal ? "internal" : "external";
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
     const fsCallId = crypto.randomUUID();
 
-    startOutgoing({ number, callType });
+    startOutgoing({ number });
 
     try {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
       if (record?.id) updateCallId(record.id);
 
-      const dialTarget = (record as any)?.dialTarget ?? number;
-      const resolvedCallType = (record as any)?.callType as "internal" | "external" | undefined;
-
-      // If the API resolved a mobile number to an internal PRaww+ extension,
-      // update the callInfo so CallingScreen shows "Internal · Free".
-      if (resolvedCallType && resolvedCallType !== callType) {
-        updateCallType(resolvedCallType);
-      }
+      const routeType = record?.type;
+      const dialTarget = routeType === "internal" ? String(record.extension) : number;
+      if (routeType) updateCallType(routeType);
 
       if (vertoActive) {
         const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
@@ -150,7 +133,7 @@ export default function DialPad() {
       endCall();
       toast({
         title: "Call failed",
-        description: err?.message ?? (isInternal ? "Could not reach that user." : "Check your subscription and balance."),
+        description: err?.message ?? "Could not place the call.",
         variant: "destructive",
       });
     }
@@ -318,23 +301,6 @@ export default function DialPad() {
           );
         })}
       </div>
-
-      {/* External call billing notice */}
-      {looksExternal && (
-        <div style={{
-          marginTop: 10,
-          padding: "6px 14px",
-          borderRadius: 20,
-          background: "rgba(255,69,58,0.10)",
-          border: "1px solid rgba(255,69,58,0.25)",
-          fontSize: 12,
-          fontWeight: 600,
-          color: "#ff453a",
-          letterSpacing: "0.01em",
-        }}>
-          Network call · you will be billed
-        </div>
-      )}
 
       {/* Call button row */}
       <div style={{

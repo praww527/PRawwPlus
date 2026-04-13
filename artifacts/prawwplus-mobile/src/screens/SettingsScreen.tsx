@@ -115,7 +115,7 @@ export default function SettingsScreen() {
 
   async function saveFwdNumber() {
     if (!fwdInput.trim()) {
-      Alert.alert("Invalid Number", "Please enter a valid extension or phone number.");
+      Alert.alert("Invalid Number", "Please enter a valid mobile number.");
       return;
     }
     const num = fwdInput.trim();
@@ -261,7 +261,7 @@ export default function SettingsScreen() {
                 style={styles.fwdInput}
                 value={fwdInput}
                 onChangeText={setFwdInput}
-                placeholder="Enter extension or number"
+                placeholder="Enter mobile number"
                 placeholderTextColor="#555"
                 keyboardType="phone-pad"
                 autoFocus

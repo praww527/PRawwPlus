@@ -224,6 +224,12 @@ export interface MakeCallRequest {
   fsCallId?: string;
 }
 
+export type CallRoute =
+  | { type: "internal"; extension: number }
+  | { type: "external" };
+
+export type MakeCallResponse = CallRecord & CallRoute;
+
 export type EndCallRequestStatus =
   (typeof EndCallRequestStatus)[keyof typeof EndCallRequestStatus];
 

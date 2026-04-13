@@ -1,7 +1,6 @@
 import { Router, type IRouter } from "express";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { isInternalNumber } from "../lib/extension";
 import { resolvePhoneToExtension } from "../lib/phoneResolver";
 import { endCallById, webhookUpdate } from "../lib/callOrchestrator";
 import {
@@ -55,23 +54,6 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     return;
   }
 
-  // Resolve phone number to internal extension if the recipient is a PRaww+ user
-  let dialTarget: string | undefined;
-  let resolvedInternally = false;
-
-  if (direction !== "inbound" && !isInternalNumber(recipientNumber)) {
-    const resolved = await resolvePhoneToExtension(recipientNumber);
-    if (resolved) {
-      dialTarget = String(resolved);
-      resolvedInternally = true;
-    }
-  }
-
-  // Inbound calls are internal by nature (extension-to-extension within the PBX)
-  const callType = direction === "inbound"
-    ? "internal"
-    : (isInternalNumber(recipientNumber) || resolvedInternally) ? "internal" : "external";
-
   const user = await UserModel.findById(userId);
   if (!user) {
     res.status(404).json({ error: "User not found" });
@@ -87,6 +69,14 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     });
     return;
   }
+
+  const resolvedExtension = direction === "inbound"
+    ? null
+    : await resolvePhoneToExtension(String(recipientNumber));
+  const route = resolvedExtension
+    ? { type: "internal" as const, extension: resolvedExtension }
+    : { type: direction === "inbound" ? "internal" as const : "external" as const };
+  const callType = route.type;
 
   if (callType === "external") {
     const hasFs = fsCallId != null && String(fsCallId).trim() !== "";
@@ -161,7 +151,13 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     startedAt:       new Date(),
   });
 
-  res.json({ ...callRecord.toJSON(), id: callRecord._id, dialTarget });
+  res.json({
+    ...callRecord.toJSON(),
+    id: callRecord._id,
+    type: route.type,
+    ...(route.type === "internal" && "extension" in route ? { extension: route.extension } : {}),
+    dialTarget: route.type === "internal" && "extension" in route ? String(route.extension) : undefined,
+  });
 });
 
 router.get("/calls/:callId", async (req, res) => {

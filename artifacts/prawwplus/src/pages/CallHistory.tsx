@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useListCalls, useMakeCall, useGetMe, getListCallsQueryKey } from "@workspace/api-client-react";
+import { useListCalls, useMakeCall, getListCallsQueryKey } from "@workspace/api-client-react";
 import { formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
 import {
@@ -53,10 +53,6 @@ function resolveCallDisplay(call: any) {
   return { color: "#ffd60a", bg: "rgba(255,214,10,0.14)", label: "Missed", Icon: PhoneMissed };
 }
 
-function isInternalNum(num: string): boolean {
-  return num.replace(/\D/g, "").length === 4;
-}
-
 function formatCallDate(dateStr: string | Date) {
   const d = new Date(dateStr);
   const diffH = (Date.now() - d.getTime()) / 3_600_000;
@@ -70,10 +66,9 @@ export default function CallHistory() {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<FilterType>("all");
   const { data, isLoading } = useListCalls({ page, limit: 20 });
-  const { data: user } = useGetMe();
   const { mutateAsync: initiateCall } = useMakeCall();
   const { toast } = useToast();
-  const { startOutgoing, updateCallId, makeVertoCall, endCall, isVertoConnected } = useCall();
+  const { startOutgoing, updateCallId, updateCallType, makeVertoCall, endCall, isVertoConnected } = useCall();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -89,25 +84,19 @@ export default function CallHistory() {
   });
 
   const handleCallBack = async (number: string) => {
-    const callType: "internal" | "external" = isInternalNum(number) ? "internal" : "external";
-    const coins = user?.coins ?? 0;
-    const isActive = user?.subscriptionStatus === "active";
-
     if (!isVertoConnected) {
       toast({ title: "Not connected", description: "VoIP connection is not ready.", variant: "destructive" });
       return;
     }
-    if (callType === "external" && (!isActive || coins <= 0)) {
-      toast({ title: "Cannot call back", description: !isActive ? "Subscribe to make external calls" : "Top up your balance", variant: "destructive" });
-      return;
-    }
 
     const fsCallId = crypto.randomUUID();
-    startOutgoing({ number, callType });
+    startOutgoing({ number });
     try {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
       if (record?.id) updateCallId(record.id);
-      const vertoCallId = await makeVertoCall(number, fsCallId);
+      if (record?.type) updateCallType(record.type);
+      const dialTarget = record?.type === "internal" ? String(record.extension) : number;
+      const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
       if (!vertoCallId) throw new Error("Could not connect to the call server.");
     } catch (err: any) {
       endCall();

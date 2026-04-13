@@ -127,7 +127,7 @@ export default function DialpadScreen() {
   const handleCall = useCallback(async () => {
     const target = digits.trim();
     if (!target) {
-      Alert.alert("Enter Number", "Please enter an extension or phone number.");
+      Alert.alert("Enter Number", "Please enter a mobile number.");
       return;
     }
     if (networkState === "offline") {
