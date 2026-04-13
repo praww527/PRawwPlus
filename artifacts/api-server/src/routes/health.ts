@@ -5,6 +5,15 @@ import { countPendingEslEvents } from "../lib/reconciliationWorker";
 
 const router: IRouter = Router();
 
+function missingVoiceConfig(): string[] {
+  const required = [
+    "FREESWITCH_DOMAIN",
+    "FREESWITCH_ESL_PASSWORD",
+    "FREESWITCH_SSH_KEY",
+  ];
+  return required.filter((key) => !process.env[key]);
+}
+
 router.get("/healthz-lite", async (_req, res) => {
   const esl = eslStatus();
   res.json({
@@ -12,6 +21,10 @@ router.get("/healthz-lite", async (_req, res) => {
     esl: {
       enabled:   esl.enabled,
       connected: esl.connected,
+    },
+    voice: {
+      configured: missingVoiceConfig().length === 0,
+      missing:    missingVoiceConfig(),
     },
   });
 });
@@ -29,6 +42,12 @@ router.get("/healthz", async (_req, res) => {
   }
   res.json({
     status:         "ok",
+    voice: {
+      configured: missingVoiceConfig().length === 0,
+      missing:    missingVoiceConfig(),
+      vertoProxy: Boolean(process.env.FREESWITCH_SSH_KEY || process.env.FREESWITCH_WS_URL),
+      sipProxy:   Boolean(process.env.FREESWITCH_SSH_KEY || process.env.FREESWITCH_SIP_WS_URL),
+    },
     esl: {
       enabled:          esl.enabled,
       connected:        esl.connected,

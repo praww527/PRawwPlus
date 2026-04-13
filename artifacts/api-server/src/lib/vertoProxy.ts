@@ -17,6 +17,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import { logger } from "./logger";
+import { getSshForwardUrl } from "./sshForwardServer";
 
 // Close codes that are "receive-only" — cannot be sent per RFC 6455 §7.4.2
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
@@ -25,7 +26,25 @@ function safeCloseCode(code: number): number {
   return RECEIVE_ONLY_CODES.has(code) ? 1001 : code;
 }
 
-function getInternalWsUrl(): string {
+function isLocalWsUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+function wsPort(raw: string, fallback: number): number {
+  try {
+    const url = new URL(raw);
+    return parseInt(url.port || String(fallback), 10);
+  } catch {
+    return fallback;
+  }
+}
+
+async function getInternalWsUrl(): Promise<string> {
   // Priority order:
   // 1. FREESWITCH_INTERNAL_WS_URL — explicit internal plain-WS URL
   // 2. FREESWITCH_WS_URL — from .env (e.g. ws://127.0.0.1:8081/)
@@ -34,13 +53,17 @@ function getInternalWsUrl(): string {
   //    127.0.0.1:8081 so the proxy must connect to localhost, not the public IP.
   // 3. Fallback: derive from FREESWITCH_ESL_HOST (same host as ESL, port 8081)
   // 4. Last resort: ws://localhost:8081/
-  return (
+  const configured = (
     process.env.FREESWITCH_INTERNAL_WS_URL?.trim() ||
     process.env.FREESWITCH_WS_URL?.trim() ||
     (process.env.FREESWITCH_ESL_HOST
       ? `ws://${process.env.FREESWITCH_ESL_HOST}:8081/`
       : "ws://127.0.0.1:8081/")
   );
+  if (isLocalWsUrl(configured)) {
+    return (await getSshForwardUrl(wsPort(configured, 8081))) ?? configured;
+  }
+  return configured;
 }
 
 const PENDING_BUFFER_LIMIT = 50;
@@ -49,8 +72,15 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 export function createVertoProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
-  wss.on("connection", (client: WebSocket, _req: IncomingMessage) => {
-    const upstreamUrl = getInternalWsUrl();
+  wss.on("connection", async (client: WebSocket, _req: IncomingMessage) => {
+    let upstreamUrl: string;
+    try {
+      upstreamUrl = await getInternalWsUrl();
+    } catch (err) {
+      logger.warn({ err }, "Verto proxy: upstream configuration failed");
+      client.close(1011, Buffer.from("upstream configuration failed"));
+      return;
+    }
     logger.info({ upstreamUrl }, "Verto proxy: browser connected, opening upstream");
 
     const upstream = new WebSocket(upstreamUrl, ["verto"]);

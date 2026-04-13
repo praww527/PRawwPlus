@@ -11,6 +11,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import { logger } from "./logger";
+import { getSshForwardUrl } from "./sshForwardServer";
 
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 
@@ -18,18 +19,41 @@ function safeCloseCode(code: number): number {
   return RECEIVE_ONLY_CODES.has(code) ? 1001 : code;
 }
 
-function getSipWsUrl(): string {
+function isLocalWsUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+function wsPort(raw: string, fallback: number): number {
+  try {
+    const url = new URL(raw);
+    return parseInt(url.port || String(fallback), 10);
+  } catch {
+    return fallback;
+  }
+}
+
+async function getSipWsUrl(): Promise<string> {
   // Priority:
   // 1. FREESWITCH_SIP_WS_URL — explicit internal WS URL (e.g. ws://127.0.0.1:5066)
   // 2. Derive from FREESWITCH_ESL_HOST:FREESWITCH_SIP_WS_PORT (both internal)
   //    Never use FREESWITCH_DOMAIN — that may be the public IP, but FreeSWITCH
   //    WS profile only listens on 127.0.0.1 inside the VPS.
   const explicit = process.env.FREESWITCH_SIP_WS_URL?.trim();
-  if (explicit) return explicit;
+  if (explicit) {
+    if (isLocalWsUrl(explicit)) return (await getSshForwardUrl(wsPort(explicit, 5066))) ?? explicit;
+    return explicit;
+  }
 
   const host = process.env.FREESWITCH_ESL_HOST?.trim() || "127.0.0.1";
   const port = process.env.FREESWITCH_SIP_WS_PORT?.trim() ?? "5066";
-  return `ws://${host}:${port}/`;
+  const configured = `ws://${host}:${port}/`;
+  if (isLocalWsUrl(configured)) return (await getSshForwardUrl(wsPort(configured, 5066))) ?? configured;
+  return configured;
 }
 
 const PENDING_BUFFER_LIMIT = 50;
@@ -38,8 +62,15 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 export function createSipProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
-  wss.on("connection", (client: WebSocket, _req: IncomingMessage) => {
-    const upstreamUrl = getSipWsUrl();
+  wss.on("connection", async (client: WebSocket, _req: IncomingMessage) => {
+    let upstreamUrl: string;
+    try {
+      upstreamUrl = await getSipWsUrl();
+    } catch (err) {
+      logger.warn({ err }, "SIP proxy: upstream configuration failed");
+      client.close(1011, Buffer.from("upstream configuration failed"));
+      return;
+    }
     logger.info({ upstreamUrl }, "SIP proxy: client connected, opening upstream");
 
     const upstream = new WebSocket(upstreamUrl, ["sip"]);

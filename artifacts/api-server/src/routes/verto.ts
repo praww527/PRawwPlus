@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel } from "@workspace/db";
 import { assignExtensionIfNeeded } from "../lib/extension";
-import { getAppUrl } from "../lib/appUrl";
+import { getBaseUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
 
@@ -29,22 +29,12 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   // Build the Verto WebSocket URL. Browser connects to wss://rtc.PRaww.co.za/api/verto/ws
   // and the proxy tunnels to FreeSWITCH internally (ws://FS_IP:8081).
   // APP_URL (production custom domain) takes priority; falls back to request headers.
-  const appUrl = getAppUrl();
-  let wsUrl: string;
-  if (appUrl) {
-    wsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
-  } else {
-    wsUrl = process.env.FREESWITCH_WS_URL ?? "";
-  }
+  const appUrl = getBaseUrl(req);
+  const wsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
 
   // SIP/WS URL for mobile JsSIP clients (proxied through this API server).
   // Prefer APP_URL so it matches the TLS-terminated public domain.
-  let sipWsUrl: string;
-  if (appUrl) {
-    sipWsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/sip/ws";
-  } else {
-    sipWsUrl = process.env.FREESWITCH_SIP_WS_URL ?? "";
-  }
+  const sipWsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/sip/ws";
 
   const fsHost = user?.freeswitchHost ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
   const fsPort = user?.freeswitchPort ?? 5060;
