@@ -45,6 +45,41 @@ router.get("/users/phone-lookup", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/users/extension-lookup", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const { extension } = req.query as { extension?: string };
+  if (!extension || typeof extension !== "string") {
+    res.status(400).json({ error: "extension query parameter is required" });
+    return;
+  }
+  const extNum = parseInt(extension.trim(), 10);
+  if (isNaN(extNum)) {
+    res.json({ found: false });
+    return;
+  }
+  try {
+    const user = await UserModel.findOne({ extension: extNum })
+      .select("name username email phone phoneVerified")
+      .lean();
+    if (!user) {
+      res.json({ found: false });
+      return;
+    }
+    const displayName = user.name ?? user.username ?? user.email ?? String(extNum);
+    res.json({
+      found: true,
+      name: displayName,
+      phone: user.phone ?? null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Lookup failed" });
+  }
+});
+
 router.get("/users/call-forwarding", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });

@@ -45,25 +45,31 @@ function wsPort(raw: string, fallback: number): number {
 }
 
 async function getInternalWsUrl(): Promise<string> {
-  // Priority order:
-  // 1. FREESWITCH_INTERNAL_WS_URL — explicit internal plain-WS URL
-  // 2. FREESWITCH_WS_URL — from .env (e.g. ws://127.0.0.1:8081/)
-  //    NOTE: Must be the internal/localhost URL. Never use the public IP here —
-  //    if FREESWITCH_DOMAIN is the public IP, FreeSWITCH WS only listens on
-  //    127.0.0.1:8081 so the proxy must connect to localhost, not the public IP.
-  // 3. Fallback: derive from FREESWITCH_ESL_HOST (same host as ESL, port 8081)
-  // 4. Last resort: ws://localhost:8081/
-  const configured = (
-    process.env.FREESWITCH_INTERNAL_WS_URL?.trim() ||
-    process.env.FREESWITCH_WS_URL?.trim() ||
-    (process.env.FREESWITCH_ESL_HOST
-      ? `ws://${process.env.FREESWITCH_ESL_HOST}:8081/`
-      : "ws://127.0.0.1:8081/")
-  );
-  if (isLocalWsUrl(configured)) {
-    return (await getSshForwardUrl(wsPort(configured, 8081))) ?? configured;
+  // Explicit overrides always take priority (can be set in .env on any env).
+  if (process.env.FREESWITCH_INTERNAL_WS_URL?.trim()) {
+    return process.env.FREESWITCH_INTERNAL_WS_URL.trim();
   }
-  return configured;
+  if (process.env.FREESWITCH_WS_URL?.trim()) {
+    return process.env.FREESWITCH_WS_URL.trim();
+  }
+
+  const eslHost = (process.env.FREESWITCH_ESL_HOST ?? "127.0.0.1").trim();
+  const eslIsLocal = eslHost === "127.0.0.1" || eslHost === "localhost";
+
+  if (eslIsLocal) {
+    // FreeSWITCH is on the SAME machine (VPS production).
+    // Connect directly — no SSH tunnel needed or desired.
+    return "ws://127.0.0.1:8081/";
+  }
+
+  // FreeSWITCH is on a REMOTE host (e.g. Replit dev connecting to VPS).
+  // Port 8081 is typically firewalled externally; use an SSH tunnel that
+  // forwards a local port → remote 127.0.0.1:8081, same as the ESL tunnel.
+  const tunnelUrl = await getSshForwardUrl(8081);
+  if (tunnelUrl) return tunnelUrl;
+
+  // Fallback: direct connection — works only if port 8081 is publicly reachable.
+  return `ws://${eslHost}:8081/`;
 }
 
 const PENDING_BUFFER_LIMIT = 50;

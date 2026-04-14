@@ -153,9 +153,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         inboundRecordCreatedRef.current  = false;
         setHangupInfo(null);
 
-        // A 4-digit number is definitely an internal extension (legacy, no mobile set).
-        // Otherwise we look up the number against PRaww+ users — if found it's internal.
-        const looksInternal = callerNumber.replace(/\D/g, "").length === 4;
+        // A 4-digit number is an internal extension (caller ID hasn't resolved to mobile yet).
+        // 7+ digit number is a mobile/external number — look up against PRaww+ users.
+        const digits = callerNumber.replace(/\D/g, "");
+        const looksInternal = digits.length === 4;
 
         setCallInfo({
           number: callerNumber,
@@ -165,10 +166,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallPhase("calling");
         setCallState("incoming");
 
-        // For non-extension caller IDs (mobile numbers), asynchronously look up
-        // whether the caller is a PRaww+ user so we can show "Internal · Free"
-        // and their display name.
-        if (!looksInternal && callerNumber.replace(/\D/g, "").length >= 7) {
+        if (looksInternal) {
+          // Incoming extension — look up the caller's name and mobile number so
+          // the UI can display a proper name instead of a raw 4-digit code.
+          fetch(`/api/users/extension-lookup?extension=${encodeURIComponent(callerNumber)}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((data: { found: boolean; name?: string; phone?: string | null } | null) => {
+              if (data?.found) {
+                setCallInfo((prev) =>
+                  prev?.callId === callId
+                    ? {
+                        ...prev,
+                        callType: "internal",
+                        name: data.name ?? prev.name,
+                        // Show their mobile number as the subtitle if available
+                        number: data.phone ?? prev.number,
+                      }
+                    : prev
+                );
+              }
+            })
+            .catch(() => {});
+        } else if (digits.length >= 7) {
+          // Mobile number — look up whether the caller is a PRaww+ user to show
+          // "Internal · Free" and their display name.
           fetch(`/api/users/phone-lookup?phone=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string } | null) => {

@@ -161,10 +161,11 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   const safePassword = xmlEscape(dbUser.fsPassword!);
   const dndValue     = dbUser.dnd ? "true" : "false";
 
-  // Use the user's verified mobile number as caller ID so other users see their
-  // phone number instead of the internal extension. Fall back to extension if
-  // the user has no verified mobile number.
-  const callerIdNumber = (dbUser.phoneVerified && dbUser.phone)
+  // Use the user's mobile number as caller ID so other users see their phone
+  // number instead of the internal extension.  We use phone even when
+  // phoneVerified is false — caller-ID is display-only and does not require
+  // verification.  Fall back to extension only when no phone is stored at all.
+  const callerIdNumber = dbUser.phone
     ? xmlEscape(dbUser.phone)
     : String(extensionNum);
   const callForwardAlwaysEnabled = dbUser.callForwardAlwaysEnabled ? "true" : "false";
