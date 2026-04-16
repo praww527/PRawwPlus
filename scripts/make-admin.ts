@@ -66,7 +66,11 @@ if (!user) {
 }
 
 const prevRole = user.role ?? "user";
-await UserModel.updateOne({ _id: user._id }, { $set: { role: "admin", approved: true } });
+await UserModel.updateOne(
+  { _id: user._id },
+  { $set: { role: "admin", approved: true, emailVerified: true, locked: false } },
+);
 
-console.log(`✓ ${email} promoted to admin (was: ${prevRole})`);
+console.log(`✓ ${email} → role=admin, emailVerified=true, approved=true (was role: ${prevRole})`);
+console.log(`  Log out and back in for the admin role to take effect.`);
 await mongoose.disconnect();

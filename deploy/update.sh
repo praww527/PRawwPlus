@@ -40,9 +40,8 @@ sudo systemctl daemon-reload
 
 echo "===== [4/7] Install / update dependencies ====="
 cd "$DEPLOY_DIR"
-# Remove lockfile so pnpm re-resolves for this machine's architecture.
-rm -f pnpm-lock.yaml
-CI=true pnpm install --no-frozen-lockfile
+pnpm install --frozen-lockfile 2>/dev/null \
+  || pnpm install --no-frozen-lockfile
 
 echo "===== [5/7] Build shared library packages ====="
 pnpm --filter @workspace/db \
