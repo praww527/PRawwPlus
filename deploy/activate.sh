@@ -50,9 +50,14 @@ if [ ! -f "$DEPLOY_DIR/.env" ]; then
   exit 0
 else
   ok ".env already exists"
-  source "$DEPLOY_DIR/.env" 2>/dev/null || true
 
-  if [ -z "${MONGODB_URI:-}" ] || [[ "${MONGODB_URI}" == *"USER:PASS"* ]]; then
+  # Read MONGODB_URI directly from the file (avoids bash misinterpreting & ? + in the URI)
+  MONGODB_VAL=$(grep -E '^[[:space:]]*MONGODB_URI=' "$DEPLOY_DIR/.env" | head -1 | cut -d= -f2-)
+  # Strip surrounding quotes if present
+  MONGODB_VAL="${MONGODB_VAL#\"}" ; MONGODB_VAL="${MONGODB_VAL%\"}"
+  MONGODB_VAL="${MONGODB_VAL#\'}"  ; MONGODB_VAL="${MONGODB_VAL%\'}"
+
+  if [ -z "$MONGODB_VAL" ] || [[ "$MONGODB_VAL" == *"USER:PASS"* ]] || [[ "$MONGODB_VAL" == *"<"* ]]; then
     err "MONGODB_URI is not set or still has a placeholder — edit .env first"
     echo "   nano $DEPLOY_DIR/.env"
     exit 1
