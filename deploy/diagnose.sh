@@ -105,7 +105,9 @@ hr
 echo "4. API health check"
 
 API_RESP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-  "http://127.0.0.1:${API_PORT}/api/healthz" 2>/dev/null || echo "000")
+  "http://127.0.0.1:${API_PORT}/api/healthz" 2>/dev/null; echo "")
+API_RESP="${API_RESP//[^0-9]/}"   # strip any accidental whitespace/newlines
+API_RESP="${API_RESP:-000}"
 
 if [ "$API_RESP" = "200" ]; then
   pass "API /api/healthz → 200 OK"
@@ -117,7 +119,9 @@ else
 fi
 
 HTTPS_RESP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-  "https://${DOMAIN}/api/healthz" 2>/dev/null || echo "000")
+  "https://${DOMAIN}/api/healthz" 2>/dev/null; echo "")
+HTTPS_RESP="${HTTPS_RESP//[^0-9]/}"
+HTTPS_RESP="${HTTPS_RESP:-000}"
 
 if [ "$HTTPS_RESP" = "200" ]; then
   pass "HTTPS https://${DOMAIN}/api/healthz → 200 OK"
