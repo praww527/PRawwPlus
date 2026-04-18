@@ -32,11 +32,23 @@ echo "1. Environment file"
 
 if [ -f "$DEPLOY_DIR/.env" ]; then
   pass ".env exists"
-  source "$DEPLOY_DIR/.env" 2>/dev/null || true
+
+  # Read a variable directly from the file — avoids bash misinterpreting
+  # special characters like & ? + in MongoDB URIs when using `source`.
+  read_env_var() {
+    local key="$1"
+    local val
+    val=$(grep -E "^[[:space:]]*${key}=" "$DEPLOY_DIR/.env" | head -1 | cut -d= -f2-)
+    val="${val#\"}" ; val="${val%\"}"
+    val="${val#\'}"  ; val="${val%\'}"
+    echo "$val"
+  }
 
   check_var() {
-    local var="$1"; local val="${!var:-}"
-    if [ -z "$val" ] || [[ "$val" == *"CHANGE_ME"* ]] || [[ "$val" == *"YOUR_"* ]]; then
+    local var="$1"
+    local val
+    val=$(read_env_var "$var")
+    if [ -z "$val" ] || [[ "$val" == *"CHANGE_ME"* ]] || [[ "$val" == *"YOUR_"* ]] || [[ "$val" == *"<"* ]]; then
       fail "$var is NOT set or still has placeholder value"
     else
       pass "$var is set"
@@ -52,8 +64,9 @@ if [ -f "$DEPLOY_DIR/.env" ]; then
   check_var FREESWITCH_ESL_HOST
   check_var FREESWITCH_ESL_PASSWORD
 
-  if [ "${PORT:-}" != "3000" ]; then
-    fail "PORT=${PORT:-unset} — nginx expects 3000. Fix: PORT=3000 in .env"
+  ENV_PORT=$(read_env_var PORT)
+  if [ "$ENV_PORT" != "3000" ]; then
+    fail "PORT=${ENV_PORT:-unset} — nginx expects 3000. Fix: PORT=3000 in .env"
   else
     pass "PORT=3000 matches nginx upstream"
   fi
@@ -155,8 +168,26 @@ fi
 hr
 echo "6. SSL certificate"
 
-CERT_FILE="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
-if [ -f "$CERT_FILE" ]; then
+# Certbot sometimes appends -0001 or -0002 to the directory name
+CERT_FILE=""
+for candidate in \
+    "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" \
+    "/etc/letsencrypt/live/${DOMAIN}-0001/fullchain.pem" \
+    "/etc/letsencrypt/live/${DOMAIN}-0002/fullchain.pem"; do
+  if [ -f "$candidate" ]; then
+    CERT_FILE="$candidate"
+    break
+  fi
+done
+
+# Also check what nginx is actually using (most reliable)
+NGINX_CERT=$(sudo nginx -T 2>/dev/null | grep -oP 'ssl_certificate\s+\K[^;]+' | head -1 | tr -d ' ')
+
+if [ -n "$NGINX_CERT" ] && [ -f "$NGINX_CERT" ]; then
+  CERT_FILE="$NGINX_CERT"
+fi
+
+if [ -n "$CERT_FILE" ]; then
   EXPIRY=$(openssl x509 -enddate -noout -in "$CERT_FILE" 2>/dev/null | cut -d= -f2)
   EXPIRY_TS=$(date -d "$EXPIRY" +%s 2>/dev/null || echo "0")
   NOW_TS=$(date +%s)
@@ -172,7 +203,7 @@ if [ -f "$CERT_FILE" ]; then
     echo "     Fix: sudo certbot renew --force-renewal"
   fi
 else
-  fail "SSL cert not found at $CERT_FILE"
+  fail "SSL cert not found (checked /etc/letsencrypt/live/${DOMAIN}*)"
   echo "     Issue: sudo certbot --nginx -d ${DOMAIN}"
 fi
 
