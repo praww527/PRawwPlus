@@ -5,6 +5,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/ubuntu/PRawwPlus
+# NODE_ENV is set BEFORE EnvironmentFile so values in .env take precedence if set.
+Environment=NODE_ENV=production
 EnvironmentFile=/home/ubuntu/PRawwPlus/.env
 ExecStart=/usr/bin/node /home/ubuntu/PRawwPlus/artifacts/api-server/dist/index.cjs
 Restart=always

@@ -289,7 +289,25 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
         // avoid dropping active WebSocket connections right as users reconnect.
         // mod_xml_curl (above) is the only module that MUST reflect the new
         // APP_URL directory endpoint; verto.conf rarely changes between deploys.
-        steps.push("Light reload: skipping mod_verto and Sofia reload (connections preserved)");
+        //
+        // Safety net for first-install: attempt to START the prawwplus_mobile
+        // Sofia profile.  `sofia profile <name> start` is a no-op (returns an
+        // error we catch) when the profile is already running, but on a fresh
+        // install where the profile XML was just written for the first time it
+        // boots the profile so PSTN gateway + mobile SIP/WS work immediately
+        // — without requiring an admin to click "Push Config" in the UI.
+        try {
+          const out = await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile start'`);
+          if (/already|exists/i.test(out)) {
+            steps.push("Light reload: prawwplus_mobile already running (skipped)");
+          } else {
+            steps.push("Light reload: started prawwplus_mobile (first-install)");
+          }
+        } catch {
+          // Profile already loaded — `start` returns non-zero. Safe to ignore.
+          steps.push("Light reload: prawwplus_mobile already running (skipped)");
+        }
+        steps.push("Light reload: skipping mod_verto reload (connections preserved)");
       } else {
         // 3. Full reload: unload + load mod_verto so it picks up the new verto.conf.
         //    `reload mod_verto` does NOT reliably reload profile bindings — only a
