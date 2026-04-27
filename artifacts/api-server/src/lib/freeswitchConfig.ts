@@ -201,9 +201,15 @@ export function dialplanXml(fsDomain: string): string {
     land here and never hit the default FreeSWITCH extension handlers.
 
     Bridge strategy:
-      "verto_contact/N@domain" — WebRTC / Verto registrations (mod_verto).
-      "user/N@domain"          — SIP/WS registrations (mod_sofia).
-      Comma ","                — dials both SIMULTANEOUSLY; first to answer wins.
+      verto_contact(N@domain) wrapped in ${FS_VAR}...} — Verto/WebRTC registrations (mod_verto).
+        verto_contact is an API FUNCTION (not an endpoint) — it must be called
+        with the FS variable-expansion syntax so it expands at call-time to the
+        real contact URL (verto.rtc/sessid_xxx) before the bridge is dispatched.
+        Writing it as "verto_contact/N@domain" treats it as an unknown channel
+        type and the leg fails immediately with CHAN_NOT_IMPLEMENTED — that
+        is the #1 cause of "rings forever, callee never gets it".
+      user/N@domain — SIP/WS registrations (mod_sofia).
+      Comma "," — dials both SIMULTANEOUSLY; first to answer wins.
 
     KEY DESIGN NOTE — _orig_bridge_cause
     ──────────────────────────────────────
@@ -285,7 +291,7 @@ export function dialplanXml(fsDomain: string): string {
           When execute_forward == 0 the ${FS_VAR}if(...?target:)} resolves to an
           empty string and bridge fails instantly (no blocking delay).
         -->
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
 
@@ -294,7 +300,7 @@ export function dialplanXml(fsDomain: string): string {
           for the extension simultaneously.  First to answer wins; the other leg
           is cleanly released.
         -->
-        <action application="bridge" data="verto_contact/\$1@${fsDomain},user/\$1@${fsDomain}"/>
+        <action application="bridge" data="${FS_VAR}verto_contact(\$1@${fsDomain})},user/\$1@${fsDomain}"/>
 
         <!--
           CRITICAL — save bridge_hangup_cause immediately after the main bridge.
@@ -318,7 +324,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
       </condition>
@@ -346,7 +352,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
       </condition>
@@ -376,7 +382,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?verto_contact/${FS_VAR}forward_target}@${fsDomain},user/${FS_VAR}forward_target}@${fsDomain}:"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
       </condition>
