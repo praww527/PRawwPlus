@@ -94,18 +94,6 @@ export default function DialPad() {
       return;
     }
 
-    // Hard-block: unverified users cannot place any calls.
-    if (!userPhone || !userPhoneVerified) {
-      toast({
-        title: "Phone verification required",
-        description: !userPhone
-          ? "Go to your profile and add your mobile number to start calling."
-          : "Go to your profile and verify your mobile number to start calling.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
     const fsCallId = crypto.randomUUID();
 
@@ -222,7 +210,7 @@ export default function DialPad() {
         >
           <Phone style={{ width: 14, height: 14, color: "#ff9f0a", flexShrink: 0 }} />
           <span style={{ flex: 1, fontSize: 12, color: "#ff9f0a", fontWeight: 600 }}>
-            {!userPhone ? "Add your mobile number to start calling" : "Verify your mobile number to start calling"}
+            {!userPhone ? "Add your mobile number so PRaww+ users can reach you" : "Verify your mobile number to receive calls and dial external numbers"}
           </span>
           <ChevronRight style={{ width: 13, height: 13, color: "#ff9f0a", flexShrink: 0 }} />
         </button>

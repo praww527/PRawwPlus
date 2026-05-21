@@ -460,11 +460,6 @@ export default function Contacts() {
                     {primaryNumber.number}
                   </p>
                 )}
-                {user.extension && (
-                  <p style={{ fontSize: 11, color: "#30d158", marginTop: 1, fontWeight: 600 }}>
-                    Ext. {user.extension}
-                  </p>
-                )}
               </div>
             </div>
           </div>
