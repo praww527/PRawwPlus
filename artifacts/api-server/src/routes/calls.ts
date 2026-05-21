@@ -60,17 +60,9 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     return;
   }
 
-  // Require a verified mobile number to make any call.
-  // Inbound call records created by the callee (direction === "inbound") are exempt —
-  // the callee has already proved identity by being logged in and connected to Verto.
-  if (direction !== "inbound" && (!user.phone || !user.phoneVerified)) {
-    res.status(403).json({
-      error: "Phone number required",
-      message: "You must add and verify your mobile number before making calls.",
-    });
-    return;
-  }
-
+  // Resolve the call route first so we know whether this is an internal
+  // (extension-to-extension) or external (PSTN) call before applying restrictions.
+  // Internal calls between registered users never need a verified phone number.
   const resolvedExtension = direction === "inbound"
     ? null
     : await resolvePhoneToExtension(String(recipientNumber));
@@ -80,6 +72,15 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   const callType = route.type;
 
   if (callType === "external") {
+    // External (PSTN) calls require a verified mobile number so caller-ID
+    // and billing are accurate.  Internal extension calls are exempt.
+    if (direction !== "inbound" && (!user.phone || !user.phoneVerified)) {
+      res.status(403).json({
+        error: "Phone number required",
+        message: "You must add and verify your mobile number before making external calls.",
+      });
+      return;
+    }
     const hasFs = fsCallId != null && String(fsCallId).trim() !== "";
     if (hasFs && !isValidFsCallId(fsCallId)) {
       res.status(400).json({

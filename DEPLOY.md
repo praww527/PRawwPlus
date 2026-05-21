@@ -123,18 +123,16 @@ sudo bash deploy/freeswitch.sh
 
 ```env
 FREESWITCH_DOMAIN=YOUR_VPS_PUBLIC_IP
+# CRITICAL: ESL connects directly — FreeSWITCH is on the same machine
 FREESWITCH_ESL_HOST=127.0.0.1
 FREESWITCH_ESL_PORT=8021
 FREESWITCH_ESL_PASSWORD=change_me_strong_password
 FREESWITCH_WS_URL=ws://127.0.0.1:8081/
 FREESWITCH_SIP_WS_URL=ws://127.0.0.1:5066
 FREESWITCH_SIP_WS_PORT=5066
-FREESWITCH_SSH_USER=ubuntu
-FREESWITCH_SSH_PORT=22
 FREESWITCH_CONF_DIR=/etc/freeswitch
 FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage
 FREESWITCH_WEBHOOK_SECRET=change_me_random_secret
-FREESWITCH_SSH_KEY="-----BEGIN OPENSSH PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END OPENSSH PRIVATE KEY-----\n"
 PSTN_GATEWAY_NAME=your-sip-trunk
 PSTN_GATEWAY_USERNAME=your-sip-username
 PSTN_GATEWAY_PASSWORD=your-sip-password
@@ -143,6 +141,10 @@ PSTN_GATEWAY_REALM=sip.provider.example
 PSTN_GATEWAY_FROM_DOMAIN=sip.provider.example
 PSTN_GATEWAY_REGISTER=true
 ```
+
+> **Do NOT set `FREESWITCH_SSH_KEY` or `FREESWITCH_SSH_USER` on the VPS.**
+> Those are only for the Replit dev environment where the API runs remotely and needs an SSH tunnel to reach FreeSWITCH.
+> On the VPS, the API connects directly to `127.0.0.1:8021` — no tunnel needed.
 
 Then restart the service:
 ```bash
