@@ -30,8 +30,12 @@ export default function IncomingCallScreen() {
     declineCall();
   };
 
-  const isInternal = callInfo?.callType === "internal" ||
-    (callInfo?.number?.replace(/\D/g, "").length === 4);
+  const isInternal = callInfo?.callType === "internal";
+
+  // While the extension-to-phone lookup is in flight, number is "".
+  // Show a sensible placeholder so the screen is never blank.
+  const displayName   = callInfo?.name ?? (callInfo?.number || "PRaww+ User");
+  const displayNumber = callInfo?.name ? (callInfo?.number || null) : null;
 
   return (
     <div
@@ -48,10 +52,10 @@ export default function IncomingCallScreen() {
           Incoming Call
         </p>
         <p className="text-white text-[32px] font-bold leading-tight">
-          {callInfo?.name ?? callInfo?.number}
+          {displayName}
         </p>
-        {callInfo?.name && (
-          <p className="text-white/40 text-sm font-mono mt-1">{callInfo.number}</p>
+        {displayNumber && (
+          <p className="text-white/40 text-sm font-mono mt-1">{displayNumber}</p>
         )}
         {isInternal && (
           <span style={{

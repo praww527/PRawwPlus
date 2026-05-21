@@ -149,17 +149,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       onIncoming: (callId, callerNumber, sdp) => {
         incomingSdpRef.current = sdp;
+        // Always store the raw Verto caller ID (extension or phone) in the ref
+        // so acceptCall() can use it for the inbound call record.
         pendingIncomingNumberRef.current = callerNumber;
         inboundRecordCreatedRef.current  = false;
         setHangupInfo(null);
 
-        // A 4-digit number is an internal extension (caller ID hasn't resolved to mobile yet).
-        // 7+ digit number is a mobile/external number — look up against PRaww+ users.
         const digits = callerNumber.replace(/\D/g, "");
         const looksInternal = digits.length === 4;
 
+        // For internal (extension) callers we deliberately start with an empty
+        // number so the raw 4-digit extension is never shown to the user.
+        // The async lookup below fills in the real mobile number immediately.
         setCallInfo({
-          number: callerNumber,
+          number:   looksInternal ? "" : callerNumber,
           callId,
           callType: looksInternal ? "internal" : "external",
         });
@@ -167,29 +170,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallState("incoming");
 
         if (looksInternal) {
-          // Incoming extension — look up the caller's name and mobile number so
-          // the UI can display a proper name instead of a raw 4-digit code.
+          // Resolve extension → name + mobile number so the UI looks like a
+          // normal phone call (no 4-digit codes ever exposed to the user).
           fetch(`/api/users/extension-lookup?extension=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string; phone?: string | null } | null) => {
-              if (data?.found) {
-                setCallInfo((prev) =>
-                  prev?.callId === callId
-                    ? {
-                        ...prev,
-                        callType: "internal",
-                        name: data.name ?? prev.name,
-                        // Show their mobile number as the subtitle if available
-                        number: data.phone ?? prev.number,
-                      }
-                    : prev
-                );
-              }
+              setCallInfo((prev) => {
+                if (prev?.callId !== callId) return prev;
+                return {
+                  ...prev,
+                  callType: "internal",
+                  // Always prefer the resolved phone number — fall back to
+                  // the name only (shown large) if phone is unavailable.
+                  number: data?.phone ?? prev.number,
+                  name:   data?.name  ?? prev.name,
+                };
+              });
             })
             .catch(() => {});
         } else if (digits.length >= 7) {
-          // Mobile number — look up whether the caller is a PRaww+ user to show
-          // "Internal · Free" and their display name.
+          // Full phone number — look up whether this is a registered PRaww+ user
+          // so we can show their name and mark the call as internal.
           fetch(`/api/users/phone-lookup?phone=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string } | null) => {
@@ -204,19 +205,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
             .catch(() => {});
         }
 
-        // Show a browser notification when the tab is not visible so the user
-        // is alerted even if they are looking at a different tab or window.
+        // Browser notification when the tab is not in focus
         if (
           document.hidden &&
           "Notification" in window &&
           Notification.permission === "granted"
         ) {
           try {
-            const label = looksInternal
-              ? "Incoming call from a PRaww+ user"
-              : `Incoming call from ${callerNumber}`;
             const n = new Notification("Incoming Call — PRaww+", {
-              body: label,
+              body: "Incoming call",
               icon: "/favicon.ico",
               tag: "incoming-call",
               requireInteraction: true,
@@ -400,16 +397,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
         // one of them permanently in "answered" state (silent data leak).
         //
         // Field semantics for the callee's inbound record:
-        //   recipientNumber = callee's own extension (this user)
-        //   callerNumber    = the person who called (pendingIncomingNumberRef)
+        //   recipientNumber = callee's own extension (internal routing key)
+        //   callerNumber    = caller's resolved mobile number (from extension
+        //                     lookup) so call history always shows a real phone
+        //                     number, never a raw 4-digit extension code.
         if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
           inboundRecordCreatedRef.current = true;
           try {
             const ownExt = vertoConfigRef.current?.extension;
+            // By the time the user taps "Accept", the async extension→phone
+            // lookup has almost always completed and callInfo.number holds the
+            // real mobile number.  Fall back to the raw extension only if the
+            // lookup failed or is somehow still in flight.
+            const resolvedCallerPhone =
+              callInfo?.number && callInfo.number.replace(/\D/g, "").length >= 7
+                ? callInfo.number
+                : pendingIncomingNumberRef.current;
             const record = await createCallRecord({
               data: {
                 recipientNumber: ownExt ? String(ownExt) : pendingIncomingNumberRef.current,
-                callerNumber:    pendingIncomingNumberRef.current,
+                callerNumber:    resolvedCallerPhone,
                 direction:       "inbound",
               },
             } as any);

@@ -86,12 +86,7 @@ export default function DialPad() {
   const del = () => setNumber((n) => n.slice(0, -1));
 
   const coins = user?.coins ?? 0;
-  // Allow 4-digit extension dialing (internal) as well as full phone numbers.
-  // 4-digit extensions (1000–9999) are resolved internally by the backend;
-  // all other numbers still require at least 7 digits.
-  const enteredDigits = number.replace(/\D/g, "");
-  const isExtension = /^[1-9]\d{3}$/.test(enteredDigits);
-  const minLength = isExtension ? 4 : 7;
+  const minLength = 7;
 
   const handleCall = async () => {
     if (!number || number.length < minLength) {
