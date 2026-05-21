@@ -76,7 +76,30 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   });
 });
 
+const FS_NOT_FOUND_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<document type="freeswitch/xml">
+  <section name="result">
+    <result status="not found" />
+  </section>
+</document>`;
+
 async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<void> {
+  // Guard: when FREESWITCH_WEBHOOK_SECRET is set, require FreeSWITCH to send
+  // it in the X-FreeSWITCH-Token header (configured in xml_curl.conf.xml).
+  // This prevents unauthenticated enumeration of extension credentials.
+  const dirSecret = process.env.FREESWITCH_WEBHOOK_SECRET;
+  if (dirSecret) {
+    const provided =
+      req.get("x-freeswitch-token") ??
+      req.get("x-fs-webhook-secret") ??
+      "";
+    if (provided !== dirSecret) {
+      res.setHeader("Content-Type", "text/xml");
+      res.status(403).send(FS_NOT_FOUND_XML);
+      return;
+    }
+  }
+
   await connectDB();
 
   // mod_xml_curl sends POST by default (form-encoded body).

@@ -505,7 +505,7 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
   const fsHost = process.env.FREESWITCH_DOMAIN ?? "YOUR_FREESWITCH_HOST";
   const appUrl = getAppUrl() || "https://rtc.PRaww.co.za";
   res.json({
-    "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl),
+    "autoload_configs/xml_curl.conf.xml":    xmlCurlConf(appUrl, process.env.FREESWITCH_WEBHOOK_SECRET),
     "autoload_configs/verto.conf.xml":        vertoConf(fsHost),
     "autoload_configs/event_socket.conf.xml": eventSocketConf(),
     "sip_profiles/prawwplus_mobile.xml":      sipProfileXml(fsHost, appUrl),

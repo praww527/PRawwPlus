@@ -179,7 +179,7 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
     await writeRemoteFile(
       conn,
       `${confDir}/autoload_configs/xml_curl.conf.xml`,
-      xmlCurlConf(directoryBaseUrl),
+      xmlCurlConf(directoryBaseUrl, process.env.FREESWITCH_WEBHOOK_SECRET),
     );
     steps.push("Wrote xml_curl.conf.xml");
 

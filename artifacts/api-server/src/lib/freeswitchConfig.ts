@@ -12,14 +12,17 @@
  * receives CHANNEL_ANSWER and CHANNEL_HANGUP_COMPLETE events directly from FreeSWITCH.
  */
 
-export function xmlCurlConf(appUrl: string): string {
+export function xmlCurlConf(appUrl: string, secret?: string): string {
   const directoryUrl = `${appUrl}/api/freeswitch/directory`;
+  const secretHeader = secret
+    ? `\n      <param name="xml-curl-header" value="X-FreeSWITCH-Token: ${secret}"/>`
+    : "";
   return `<configuration name="xml_curl.conf" description="XML Curl">
   <bindings>
     <binding name="directory">
       <param name="gateway-url" value="${directoryUrl}" bindings="directory"/>
       <param name="timeout" value="5"/>
-      <param name="disable-100-continue" value="true"/>
+      <param name="disable-100-continue" value="true"/>${secretHeader}
     </binding>
   </bindings>
 </configuration>`;

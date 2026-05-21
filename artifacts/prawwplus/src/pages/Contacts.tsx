@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   useListCalls, useListContacts,
   useCreateContact, useBulkImportContacts, useDeleteContact,
-  useMakeCall,
+  useMakeCall, useGetMe,
 } from "@workspace/api-client-react";
 import { Phone, Search, UserCircle2, Download, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -239,6 +239,8 @@ export default function Contacts() {
   const createContact = useCreateContact();
   const bulkImport = useBulkImportContacts();
   const deleteContact = useDeleteContact();
+  const { data: user } = useGetMe();
+  const primaryNumber = (user as any)?.phone ? { number: (user as any).phone as string } : undefined;
 
   const callCounts = new Map<string, number>();
   for (const call of callData?.calls ?? []) {

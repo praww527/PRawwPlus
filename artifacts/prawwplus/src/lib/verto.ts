@@ -126,20 +126,27 @@ export class VertoClient {
     this.remoteSdpSet  = false;
     this.remoteStream  = null;
 
-    const pc = await this.setupPeerConnection();
+    try {
+      const pc = await this.setupPeerConnection();
 
-    const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-    await pc.setLocalDescription(offer);
-    await this.waitForIce(pc);
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+      await pc.setLocalDescription(offer);
+      await this.waitForIce(pc);
 
-    await this.request("verto.invite", {
-      callID:       callId,
-      sessid:       this.sessId,
-      sdp:          pc.localDescription!.sdp,
-      dialogParams: this.buildDialogParams(callId, to),
-    });
+      await this.request("verto.invite", {
+        callID:       callId,
+        sessid:       this.sessId,
+        sdp:          pc.localDescription!.sdp,
+        dialogParams: this.buildDialogParams(callId, to),
+      });
 
-    return callId;
+      return callId;
+    } catch (err) {
+      // Reset state so a stale callId is never used by a subsequent hangup()
+      this.currentCallId = null;
+      this.cleanupMedia();
+      throw err;
+    }
   }
 
   async answerCall(callId: string, remoteSdp: string): Promise<void> {
