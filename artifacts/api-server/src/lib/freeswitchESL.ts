@@ -645,11 +645,23 @@ class FreeSwitchESL {
     }
     if (destUser.notificationPrefs?.incomingCalls === false) return;
 
-    const pushData = {
-      type: "incoming_call",
-      fromExtension: callerExt,
+    // Resolve caller's phone/name so push notifications never expose raw extensions
+    const callerExtNum = /^[1-9]\d{3}$/.test(callerExt) ? parseInt(callerExt, 10) : null;
+    let callerDisplay = callerExt;
+    let callerPhone: string | undefined;
+    if (callerExtNum) {
+      const callerUser = await UserModel.findOne({ extension: callerExtNum })
+        .select("phone name")
+        .lean();
+      callerPhone   = callerUser?.phone ?? undefined;
+      callerDisplay = callerUser?.name ?? callerUser?.phone ?? callerExt;
+    }
+
+    const pushData: Record<string, string> = {
+      type:      "incoming_call",
+      callUuid:  bLegUuid,
+      ...(callerPhone ? { fromPhone: callerPhone } : { fromExtension: callerExt }),
       toExtension: destExt,
-      callUuid: bLegUuid,
     };
 
     if (destUser.fcmToken) {
@@ -659,7 +671,7 @@ class FreeSwitchESL {
       await sendExpoPush(
         destUser.expoPushToken,
         "📞 Incoming Call",
-        `Extension ${callerExt} is calling you`,
+        `${callerDisplay} is calling you`,
         pushData,
       );
     }
@@ -690,12 +702,26 @@ class FreeSwitchESL {
         logger.debug({ bLegUuid }, "[ESL] Missed call record already exists — skipping");
         return;
       }
+      // Resolve caller's phone number so call history never shows raw extensions
+      const callerExtNum = /^[1-9]\d{3}$/.test(callerExt) ? parseInt(callerExt, 10) : null;
+      let callerPhone = callerExt;
+      let destPhone: string | undefined;
+      if (callerExtNum) {
+        const callerUser = await UserModel.findOne({ extension: callerExtNum })
+          .select("phone")
+          .lean();
+        if (callerUser?.phone) callerPhone = callerUser.phone;
+      }
+      // Also resolve the callee's phone for recipientNumber
+      const destUserFull = await UserModel.findById(destUser._id).select("phone").lean();
+      destPhone = destUserFull?.phone ?? destExt;
+
       const now = new Date();
       await CallModel.create({
         _id: randomUUID(),
         userId:          String(destUser._id),
-        callerNumber:    callerExt,
-        recipientNumber: destExt,
+        callerNumber:    callerPhone,
+        recipientNumber: destPhone,
         callType:        "internal",
         direction:       "inbound",
         status:          "missed",
@@ -721,8 +747,24 @@ class FreeSwitchESL {
     if (!destUser?.expoPushToken && !destUser?.fcmToken) return;
     if (destUser.notificationPrefs?.missedCalls === false) return;
 
+    // Resolve caller's phone/name so the push body never exposes raw extensions
+    const callerExtNum = /^[1-9]\d{3}$/.test(callerExt) ? parseInt(callerExt, 10) : null;
+    let callerDisplay = callerExt;
+    let callerPhone: string | undefined;
+    if (callerExtNum) {
+      const callerUser = await UserModel.findOne({ extension: callerExtNum })
+        .select("phone name")
+        .lean();
+      callerPhone   = callerUser?.phone ?? undefined;
+      callerDisplay = callerUser?.name ?? callerUser?.phone ?? callerExt;
+    }
+
     logger.info({ fsCallId, destExt, callerExt }, "[Push] Sending missed call notification");
-    const pushData = { type: "missed_call", fromExtension: callerExt, toExtension: destExt };
+    const pushData: Record<string, string> = {
+      type: "missed_call",
+      toExtension: destExt,
+      ...(callerPhone ? { fromPhone: callerPhone } : { fromExtension: callerExt }),
+    };
 
     if (destUser.fcmToken) {
       await sendFcmDataMessage(destUser.fcmToken, pushData);
@@ -731,7 +773,7 @@ class FreeSwitchESL {
       await sendExpoPush(
         destUser.expoPushToken,
         "📵 Missed Call",
-        `You missed a call from extension ${callerExt}`,
+        `You missed a call from ${callerDisplay}`,
         pushData,
       );
     }

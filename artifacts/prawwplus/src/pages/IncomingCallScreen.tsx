@@ -9,7 +9,8 @@ function avatarInitials(info: { number: string; name?: string } | null) {
     const parts = info.name.trim().split(/\s+/);
     return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
   }
-  return info.number.replace(/\D/g, "").slice(-2);
+  const digits = info.number.replace(/\D/g, "");
+  return digits ? digits.slice(-2) : "?";
 }
 
 export default function IncomingCallScreen() {

@@ -33,7 +33,8 @@ function avatarInitials(info: { number: string; name?: string } | null) {
     const parts = info.name.trim().split(/\s+/);
     return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
   }
-  return info.number.replace(/\D/g, "").slice(-2);
+  const digits = info.number.replace(/\D/g, "");
+  return digits ? digits.slice(-2) : "?";
 }
 
 export default function CallingScreen() {
@@ -258,12 +259,12 @@ export default function CallingScreen() {
         )}
 
         <p className="text-white text-[32px] font-bold leading-tight">
-          {callInfo?.name ?? callInfo?.number}
+          {callInfo?.name ?? (callInfo?.number || "PRaww+ User")}
         </p>
 
-        {callInfo?.name && (
+        {callInfo?.name && callInfo?.number ? (
           <p className="text-white/40 text-sm font-mono mt-1">{callInfo.number}</p>
-        )}
+        ) : null}
 
         {isInternal && (
           <span style={{
