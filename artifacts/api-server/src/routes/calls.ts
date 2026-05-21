@@ -47,7 +47,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   }
   await connectDB();
   const userId = (req as any).user.id;
-  const { recipientNumber, notes, fsCallId, direction } = req.body;
+  const { recipientNumber, notes, fsCallId, direction, callerNumber: bodyCallerNumber } = req.body;
 
   if (!recipientNumber) {
     res.status(400).json({ error: "recipientNumber is required" });
@@ -61,7 +61,8 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   }
 
   // Require a verified mobile number to make any call.
-  // Inbound webhooks from FreeSWITCH are exempt (direction === "inbound").
+  // Inbound call records created by the callee (direction === "inbound") are exempt —
+  // the callee has already proved identity by being logged in and connected to Verto.
   if (direction !== "inbound" && (!user.phone || !user.phoneVerified)) {
     res.status(403).json({
       error: "Phone number required",
@@ -133,7 +134,13 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     }
   }
 
-  const callerNumber = user.phone ?? (user.extension ? String(user.extension) : undefined);
+  // For inbound records the callee POSTs their own record after answering.
+  // The frontend sends the real caller's number as bodyCallerNumber so call
+  // history shows the correct "from" party.  For outbound, derive callerNumber
+  // from the authenticated user's profile as before.
+  const callerNumber = direction === "inbound" && bodyCallerNumber
+    ? String(bodyCallerNumber)
+    : (user.phone ?? (user.extension ? String(user.extension) : undefined));
   const callId = randomUUID();
 
   const callRecord = await CallModel.create({

@@ -380,39 +380,54 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     if (clientRef.current && callInfo?.callId && incomingSdpRef.current) {
-      try {
-        await clientRef.current.answerCall(callInfo.callId, incomingSdpRef.current);
-        setHangupInfo(null);
-        setCallPhase("connected");
-        setCallState("active");
+      // Capture the Verto UUID now — answerCall() needs it, but we may
+      // overwrite callInfo.callId below with the MongoDB record ID.
+      const vertoCallId = callInfo.callId;
 
-        // Create the inbound call record HERE — not in onAnswer.
-        // For the callee (B-leg) browser, verto.answer is sent as a JSON-RPC
-        // *request* to FreeSWITCH; FS only replies with a result — it never
-        // pushes a verto.answer notification back to the callee, so onAnswer
-        // never fires on this side.  acceptCall() is the correct place.
+      try {
+        // ── Step 1: Create the inbound DB record BEFORE answering ─────────
         //
-        // IMPORTANT: capture the returned CallRecord and immediately update
-        // callInfo.callId with the DB record's id (not the verto UUID).
-        // CallingScreen uses callInfo.callId as the REST path param for
-        // signalEndCall — if it stays as the verto UUID that call 404s.
+        // Doing this first guarantees that callInfo.callId is the MongoDB
+        // record ID before callPhase ever becomes "connected".  Without this
+        // ordering, a fast hangup would fire signalEndCall with the raw Verto
+        // UUID (which is owned by the *caller's* outbound record, not the
+        // callee's), causing a 404 and leaving the callee's record stuck in
+        // "initiated".
+        //
+        // IMPORTANT — do NOT pass fsCallId here.  The caller's outbound record
+        // already uses this Verto UUID as fsCallId.  Sharing the same value
+        // causes ESL's finalizeCall() to findOne() the wrong record and leave
+        // one of them permanently in "answered" state (silent data leak).
+        //
+        // Field semantics for the callee's inbound record:
+        //   recipientNumber = callee's own extension (this user)
+        //   callerNumber    = the person who called (pendingIncomingNumberRef)
         if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
           inboundRecordCreatedRef.current = true;
           try {
+            const ownExt = vertoConfigRef.current?.extension;
             const record = await createCallRecord({
               data: {
-                recipientNumber: pendingIncomingNumberRef.current,
-                direction: "inbound",
-                fsCallId: callInfo.callId,
+                recipientNumber: ownExt ? String(ownExt) : pendingIncomingNumberRef.current,
+                callerNumber:    pendingIncomingNumberRef.current,
+                direction:       "inbound",
               },
             } as any);
             if (record?.id) {
+              // Switch callInfo.callId to the DB record ID so signalEndCall
+              // always targets the correct document.
               setCallInfo((prev) => prev ? { ...prev, callId: record.id } : prev);
             }
           } catch (e) {
-            console.warn("[Call] inbound record create failed", e);
+            console.warn("[Call] inbound record create failed — call will still connect but history may be incomplete", e);
           }
         }
+
+        // ── Step 2: Answer the Verto call using the original UUID ──────────
+        await clientRef.current.answerCall(vertoCallId, incomingSdpRef.current);
+        setHangupInfo(null);
+        setCallPhase("connected");
+        setCallState("active");
       } catch (e) {
         console.warn("[Verto] answerCall error", e);
         setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "error" });
@@ -447,8 +462,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [callInfo]);
 
   const endCall = useCallback((_durationSecs?: number) => {
-    if (clientRef.current && callInfo?.callId) {
-      clientRef.current.hangup(callInfo.callId, "NORMAL_CLEARING", 16);
+    if (clientRef.current) {
+      // Pass undefined so hangup() falls back to this.currentCallId — the real
+      // Verto/FreeSWITCH UUID.  callInfo.callId is updated to the MongoDB
+      // record ID after acceptCall() (callee) or after initiateCall() (caller),
+      // so passing it directly would send verto.bye with an unrecognised callID
+      // and FreeSWITCH would silently ignore the hangup request.
+      clientRef.current.hangup(undefined, "NORMAL_CLEARING", 16);
     }
     setHangupInfo((prev) => prev ?? { cause: "NORMAL_CLEARING", causeCode: 16, message: "Call ended", icon: "ended" });
     setCallPhase("ended");
@@ -456,7 +476,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setCallState("idle");
       setCallInfo(null);
     }, 1500);
-  }, [callInfo]);
+  }, []);
 
   const setMuted   = useCallback((muted: boolean)    => { clientRef.current?.setMuted(muted); }, []);
   const setSpeaker = useCallback((enabled: boolean)  => { clientRef.current?.setSpeakerEnabled(enabled); }, []);

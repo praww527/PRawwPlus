@@ -24,7 +24,22 @@ function normalizePhoneForLookup(raw: string): string[] {
 }
 
 export async function resolvePhoneToExtension(recipientNumber: string): Promise<number | null> {
-  const candidates = normalizePhoneForLookup(recipientNumber);
+  if (!recipientNumber || typeof recipientNumber !== "string") return null;
+
+  const trimmed = recipientNumber.trim();
+
+  // Fast path: bare 4-digit extension number (e.g. "1002").
+  // The dialpad allows these directly; resolve by extension field rather than
+  // the phone-number normalisation path which would produce no candidates.
+  if (/^[1-9]\d{3}$/.test(trimmed)) {
+    const extNum = parseInt(trimmed, 10);
+    const byExt = await UserModel.findOne({
+      extension: extNum,
+    }).select("extension").lean();
+    return byExt?.extension ?? null;
+  }
+
+  const candidates = normalizePhoneForLookup(trimmed);
   if (candidates.length === 0) return null;
 
   const user = await UserModel.findOne({
