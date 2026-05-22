@@ -291,12 +291,24 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
 
         <!--
-          When execute_forward == 0 the ${FS_VAR}if(...?target:)} resolves to an
-          empty string and bridge fails instantly (no blocking delay).
+          ALWAYS-FORWARD SUCCESS GUARD — set hangup_after_bridge=true for the
+          three always-forward bridge attempts.  If the forward leg answers and
+          the call completes normally, FreeSWITCH will hang up the A-leg
+          immediately and NOT fall through to the main bridge.  Without this,
+          execution continues after the forward call ends and the original
+          extension gets rung a second time, which is wrong.
+
+          When execute_forward == 0 the ${FS_VAR}if(...?target:)} resolves to
+          an empty string; FreeSWITCH skips the empty bridge instantly, so
+          hangup_after_bridge=true is irrelevant (the bridge never answers).
+          We restore hangup_after_bridge=false before the main bridge so the
+          voicemail / unavailable forwarding logic can still run after it.
         -->
+        <action application="set" data="hangup_after_bridge=true"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
+        <action application="set" data="hangup_after_bridge=false"/>
 
         <!--
           Main bridge: ring both Verto (web/WebRTC) and SIP/WS (mobile) contacts

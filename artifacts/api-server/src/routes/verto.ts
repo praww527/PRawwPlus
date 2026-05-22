@@ -246,4 +246,120 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
 router.post("/freeswitch/directory", handleFreeSwitchDirectory);
 router.get("/freeswitch/directory", handleFreeSwitchDirectory);
 
+/**
+ * GET /api/freeswitch/status
+ *
+ * Diagnostic endpoint — verifies that the FreeSWITCH directory integration is
+ * working end-to-end.  Simulates a mod_xml_curl directory lookup for the
+ * requesting user's own extension so you can confirm the lookup chain:
+ *   FreeSWITCH → mod_xml_curl → this API → MongoDB → XML response
+ *
+ * Returns:
+ *   { ok: true, extension, domain, xmlPreview }   on success
+ *   { ok: false, reason }                          on failure
+ *
+ * Use this to quickly diagnose "connect failed" issues without SSH access:
+ *   curl -H "Cookie: <session>" https://your-app/api/freeswitch/status
+ */
+router.get("/freeswitch/status", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+
+  const user = await UserModel.findById(userId)
+    .select("extension fsPassword phone phoneVerified")
+    .lean();
+
+  if (!user) {
+    res.status(404).json({ ok: false, reason: "User not found in database" });
+    return;
+  }
+
+  if (!user.extension) {
+    res.status(200).json({
+      ok: false,
+      reason: "No extension assigned — call GET /api/verto/config first to trigger assignment",
+    });
+    return;
+  }
+
+  if (!user.fsPassword) {
+    res.status(200).json({
+      ok: false,
+      reason: "No FreeSWITCH password set — user record is incomplete in MongoDB",
+    });
+    return;
+  }
+
+  const domain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
+  const dirSecret = process.env.FREESWITCH_WEBHOOK_SECRET;
+
+  // Simulate exactly what mod_xml_curl sends — POST with form-encoded body.
+  // Use localhost to avoid TLS/hostname issues in the self-test; the handler
+  // is on this same process, so localhost:PORT always works.
+  const port = (req.socket as any)?.localPort ?? process.env.PORT ?? 8080;
+  const selfTestUrl = `http://127.0.0.1:${port}/api/freeswitch/directory`;
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+    if (dirSecret) {
+      headers["X-FreeSWITCH-Token"] = dirSecret;
+    }
+
+    const body = new URLSearchParams({
+      user:       String(user.extension),
+      domain,
+      section:    "directory",
+      tag_name:   "domain",
+      key_name:   "name",
+      key_value:  domain,
+    });
+
+    const resp = await fetch(selfTestUrl, {
+      method:  "POST",
+      headers,
+      body:    body.toString(),
+    });
+
+    const xml = await resp.text();
+
+    if (!resp.ok || xml.includes('status="not found"')) {
+      res.status(200).json({
+        ok:          false,
+        reason:
+          `Directory lookup returned HTTP ${resp.status} or "not found". ` +
+          `If FREESWITCH_WEBHOOK_SECRET is set, confirm FreeSWITCH sends ` +
+          `X-FreeSWITCH-Token with the same value.`,
+        httpStatus:  resp.status,
+        xmlPreview:  xml.slice(0, 500),
+      });
+      return;
+    }
+
+    const appBase = getBaseUrl(req);
+    const vertoWsUrl  = appBase.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws";
+    const directoryUrl = appBase.replace(/\/$/, "") + "/api/freeswitch/directory";
+
+    res.json({
+      ok:                     true,
+      extension:              user.extension,
+      domain,
+      phone:                  user.phone ?? null,
+      phoneVerified:          user.phoneVerified ?? false,
+      vertoWsUrl,
+      directoryUrl,
+      webhookSecretConfigured: Boolean(dirSecret),
+      xmlPreview:             xml.slice(0, 800),
+    });
+  } catch (err: any) {
+    res.status(200).json({
+      ok:     false,
+      reason: `Self-test fetch failed: ${err?.message ?? String(err)}`,
+    });
+  }
+});
+
 export default router;

@@ -138,7 +138,17 @@ export default function DialPad() {
         const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
         if (!vertoCallId) {
           endCall();
-          toast({ title: "Call failed", description: "Could not connect to the call server.", variant: "destructive" });
+          // isVertoConnected may have changed since we captured vertoActive
+          // (the Verto WS could have dropped during the initiateCall await).
+          // Give a targeted message so the user knows to wait for reconnection.
+          const stillConnected = Boolean(vertoConfig?.configured && isVertoConnected);
+          toast({
+            title:       "Call failed",
+            description: stillConnected
+              ? "FreeSWITCH rejected the call — check the server logs."
+              : "Call server disconnected. Wait for reconnection (green dot) and try again.",
+            variant: "destructive",
+          });
           return;
         }
       } else {

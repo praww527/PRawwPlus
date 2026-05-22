@@ -38,11 +38,17 @@ export async function resolvePhoneToExtension(recipientNumber: string): Promise<
   const candidates = normalizePhoneForLookup(trimmed);
   if (candidates.length === 0) return null;
 
+  // Prefer verified phone matches but do NOT block unverified ones for routing
+  // purposes.  Requiring phoneVerified:true here caused all internal calls to
+  // be mis-classified as external PSTN calls whenever the callee had not yet
+  // completed phone verification — the #1 cause of "No active subscription"
+  // errors on in-app extension-to-extension calls.
+  // Sort by phoneVerified desc so a verified match wins when two users share
+  // the same stored number (one verified, one not).
   const user = await UserModel.findOne({
     phone: { $in: candidates },
-    phoneVerified: true,
     extension: { $exists: true, $ne: null },
-  }).select("extension").lean();
+  }).sort({ phoneVerified: -1 }).select("extension").lean();
 
   return user?.extension ?? null;
 }
