@@ -137,11 +137,11 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
 
   // For inbound records the callee POSTs their own record after answering.
   // The frontend sends the real caller's number as bodyCallerNumber so call
-  // history shows the correct "from" party.  For outbound, derive callerNumber
-  // from the authenticated user's profile as before.
+  // history shows the correct "from" party.  For outbound, use the verified
+  // mobile number only — never fall back to the extension (backend-only field).
   const callerNumber = direction === "inbound" && bodyCallerNumber
     ? String(bodyCallerNumber)
-    : (user.phone ?? (user.extension ? String(user.extension) : undefined));
+    : (user.phone ?? undefined);
   const callId = randomUUID();
 
   const callRecord = await CallModel.create({

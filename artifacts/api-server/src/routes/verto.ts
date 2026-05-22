@@ -20,7 +20,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   }
 
   const user = await UserModel.findById(userId)
-    .select("coins ringtone ringtoneDuration dnd freeswitchHost freeswitchPort")
+    .select("coins ringtone ringtoneDuration dnd freeswitchHost freeswitchPort phone phoneVerified")
     .lean();
 
   const coins = user?.coins ?? 0;
@@ -56,6 +56,12 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     }
   }
 
+  // Only expose the phone number once it has been verified — unverified
+  // numbers must not be used as caller-ID and must not be forwarded to the
+  // WebRTC client.
+  const verifiedPhone: string | undefined =
+    user?.phoneVerified && user?.phone ? String(user.phone) : undefined;
+
   res.json({
     wsUrl,
     sipWsUrl,
@@ -65,6 +71,7 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     password: ext.fsPassword,
     coins,
     configured: Boolean(wsUrl),
+    phone: verifiedPhone,
     iceServers,
     settings: {
       ringtone: user?.ringtone ?? "default",

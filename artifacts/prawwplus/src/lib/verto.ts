@@ -29,6 +29,7 @@ export interface VertoConfig {
   password: string;
   coins: number;
   configured: boolean;
+  phone?: string;       // verified mobile number — used as caller-ID instead of extension
   iceServers?: RTCIceServer[];
 }
 
@@ -58,6 +59,41 @@ const ICE_TIMEOUT_MS      = 8_000;
 const RECONNECT_BASE_MS   = 5_000;   // 5 s initial backoff
 const RECONNECT_MAX_MS    = 60_000;  // 60 s cap
 const RECONNECT_PERM_MS   = 5 * 60_000; // 5 min backoff after repeated -32601
+
+/**
+ * Rewrite the SDP offer/answer to prefer the Opus codec and enable
+ * voice-optimised parameters: in-band FEC, 48 kHz, mono, generous bitrate.
+ * If Opus is absent (e.g. the server didn't include it) the SDP is returned
+ * unchanged so the call still works.
+ */
+function preferOpusCodec(sdp: string): string {
+  const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000/i);
+  if (!opusMatch) return sdp;
+  const pt = opusMatch[1];
+
+  // Move Opus payload type to the front of the m=audio line
+  sdp = sdp.replace(
+    /^(m=audio\s+\d+\s+\S+)([\s\d]+)/m,
+    (_m, prefix, payloads) => {
+      const pts = payloads.trim().split(/\s+/);
+      const reordered = [pt, ...pts.filter((p: string) => p !== pt)];
+      return `${prefix} ${reordered.join(" ")}`;
+    },
+  );
+
+  // Build the fmtp line for voice quality
+  const fmtp = `a=fmtp:${pt} minptime=10;useinbandfec=1;maxaveragebitrate=510000;stereo=0;maxplaybackrate=48000`;
+  if (sdp.includes(`a=fmtp:${pt} `) || sdp.includes(`a=fmtp:${pt}\r`)) {
+    sdp = sdp.replace(new RegExp(`a=fmtp:${pt}[^\r\n]*`), fmtp);
+  } else {
+    sdp = sdp.replace(
+      new RegExp(`(a=rtpmap:${pt} opus/[^\r\n]*)`),
+      `$1\r\n${fmtp}`,
+    );
+  }
+
+  return sdp;
+}
 
 export class VertoClient {
   private ws:             WebSocket | null = null;
@@ -129,7 +165,8 @@ export class VertoClient {
     try {
       const pc = await this.setupPeerConnection();
 
-      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+      const rawOffer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+      const offer = { type: rawOffer.type, sdp: preferOpusCodec(rawOffer.sdp ?? "") };
       await pc.setLocalDescription(offer);
       await this.waitForIce(pc);
 
@@ -156,7 +193,8 @@ export class VertoClient {
     await pc.setRemoteDescription({ type: "offer", sdp: remoteSdp });
     this.remoteSdpSet = true;
 
-    const answer = await pc.createAnswer();
+    const rawAnswer = await pc.createAnswer();
+    const answer = { type: rawAnswer.type, sdp: preferOpusCodec(rawAnswer.sdp ?? "") };
     await pc.setLocalDescription(answer);
     await this.waitForIce(pc);
 
@@ -483,7 +521,16 @@ export class VertoClient {
     }
 
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl:  { ideal: true },
+          sampleRate:       { ideal: 48000 },
+          channelCount:     { ideal: 1 },
+        },
+        video: false,
+      });
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? "Microphone permission denied or device unavailable";
       this.callbacks.onError(msg);
@@ -600,18 +647,24 @@ export class VertoClient {
 
   private buildDialogParams(callId: string, to: string): Record<string, unknown> {
     const ext = String(this.config.extension);
+    // Use the verified mobile number as caller-ID so the callee sees a real
+    // phone number immediately. FreeSWITCH's directory effective_caller_id_number
+    // will also override this at the FreeSWITCH level, but sending the phone
+    // number here avoids any brief flash of the raw extension on the callee's UI.
+    const callerId = this.config.phone ?? ext;
     return {
       callID:           callId,
       to:               to.includes("@") ? to : `${to}@${this.config.domain}`,
       from:             `${ext}@${this.config.domain}`,
-      caller_id_name:   ext,
-      caller_id_number: ext,
+      caller_id_name:   callerId,
+      caller_id_number: callerId,
       outgoingBandwidth: "default",
       incomingBandwidth: "default",
       audioParams: {
         googAutoGainControl:  true,
         googNoiseSuppression: true,
         googHighpassFilter:   true,
+        googEchoCancellation: true,
       },
       screenShare: false,
       useVideo:    false,

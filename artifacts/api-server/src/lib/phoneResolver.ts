@@ -28,16 +28,12 @@ export async function resolvePhoneToExtension(recipientNumber: string): Promise<
 
   const trimmed = recipientNumber.trim();
 
-  // Fast path: bare 4-digit extension number (e.g. "1002").
-  // The dialpad allows these directly; resolve by extension field rather than
-  // the phone-number normalisation path which would produce no candidates.
-  if (/^[1-9]\d{3}$/.test(trimmed)) {
-    const extNum = parseInt(trimmed, 10);
-    const byExt = await UserModel.findOne({
-      extension: extNum,
-    }).select("extension").lean();
-    return byExt?.extension ?? null;
-  }
+  // Extensions are strictly backend-only routing identifiers; users always
+  // dial by verified mobile number.  Bare 4-digit strings are therefore NOT
+  // treated as direct extension dials — they fall through to the phone-number
+  // normalisation path which will produce no candidates and return null,
+  // causing the call to be classified as external (PSTN) and rejected if no
+  // PSTN gateway is configured.  This prevents extension enumeration.
 
   const candidates = normalizePhoneForLookup(trimmed);
   if (candidates.length === 0) return null;

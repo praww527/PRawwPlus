@@ -94,6 +94,17 @@ export default function DialPad() {
       return;
     }
 
+    // Block bare 4-digit strings — these look like internal extensions which
+    // are backend-only identifiers and must never be dialled directly by users.
+    if (/^[1-9]\d{3}$/.test(number.trim())) {
+      toast({
+        title: "Invalid number",
+        description: "Please enter the full mobile number of the person you want to call.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const vertoActive = Boolean(vertoConfig?.configured && isVertoConnected);
     const fsCallId = crypto.randomUUID();
 
@@ -104,6 +115,9 @@ export default function DialPad() {
       if (record?.id) updateCallId(record.id);
 
       const routeType = record?.type;
+      // dialTarget is the backend routing key (extension for internal calls).
+      // It is used solely to establish the WebRTC leg and is NEVER displayed
+      // in the UI or logged to the console.
       const dialTarget = routeType === "internal" ? String(record.extension) : number;
       if (routeType) updateCallType(routeType);
 
