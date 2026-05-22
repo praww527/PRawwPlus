@@ -14,13 +14,15 @@ import {
   ChevronDown, Trash2, CheckCircle2, Shield, Settings, Megaphone,
   AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
   BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone, PhoneOff,
-  Loader2, Bell, BellRing, Send, Users2, Wrench, Info,
+  Loader2, Bell, BellRing, Send, Users2, Wrench, Info, Server, Database,
+  Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff,
 } from "lucide-react";
 
 const TABS = [
   { id: "overview",      label: "Overview",      icon: BarChart3   },
   { id: "users",         label: "Users",         icon: Users       },
   { id: "live",          label: "Live Calls",    icon: Activity    },
+  { id: "system",        label: "System",        icon: Server      },
   { id: "push",          label: "Push",          icon: PhoneCall   },
   { id: "referrals",     label: "Referrals",     icon: Link2       },
   { id: "earnings",      label: "Earnings",      icon: BadgeDollarSign },
@@ -1730,6 +1732,332 @@ function LiveCallsTab() {
   );
 }
 
+// ─── System Health Tab ─────────────────────────────────────────────────────────
+
+interface EnvVar { key: string; label: string; required: boolean; hint: string; set: boolean; }
+interface EslStatus { enabled: boolean; connected: boolean; host: string; port: number; reconnectAttempt?: number; lastConnectedAt?: number | null; lastEventAt?: number | null; lastDisconnectReason?: string | null; lastDisconnectedAt?: number | null; }
+interface SystemHealth {
+  db: { connected: boolean; error: string | null };
+  esl: EslStatus;
+  envVars: EnvVar[];
+  config: {
+    domain: string | null; appUrl: string | null; directoryUrl: string | null;
+    vertoWsUrl: string | null; sshUser: string; confDir: string;
+    eslHost: string | null; eslPort: number;
+  };
+}
+
+function SysRow({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+      <span style={{ width: 150, flexShrink: 0, fontSize: 12, color: "rgba(255,255,255,0.35)", paddingTop: 1 }}>{label}</span>
+      <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.85)", wordBreak: "break-all", fontFamily: mono ? "monospace" : undefined }}>{value}</span>
+    </div>
+  );
+}
+
+function SysSection({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, paddingLeft: 2 }}>
+        <span style={{ color: "rgba(255,255,255,0.3)" }}>{icon}</span>
+        <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{title}</p>
+      </div>
+      <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 14, overflow: "hidden" }}>{children}</div>
+    </div>
+  );
+}
+
+function StatusPill({ ok, labelOn, labelOff }: { ok: boolean; labelOn: string; labelOff: string }) {
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+      background: ok ? "rgba(48,209,88,0.15)" : "rgba(255,69,58,0.15)",
+      border: `1px solid ${ok ? "rgba(48,209,88,0.35)" : "rgba(255,69,58,0.35)"}`,
+      color: ok ? "#30d158" : "#ff453a",
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: ok ? "#30d158" : "#ff453a", boxShadow: `0 0 5px ${ok ? "#30d158" : "#ff453a"}` }} />
+      {ok ? labelOn : labelOff}
+    </span>
+  );
+}
+
+function SystemTab() {
+  const { toast } = useToast();
+  const [health,    setHealth]    = useState<SystemHealth | null>(null);
+  const [loading,   setLoading]   = useState(false);
+  const [pushLog,   setPushLog]   = useState<string[] | null>(null);
+  const [pushing,   setPushing]   = useState(false);
+  const [sshResult, setSshResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [sshTesting, setSshTesting] = useState(false);
+  const [expanded,  setExpanded]  = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await adminFetch("/admin/system-health");
+      setHealth(data);
+    } catch (e: any) {
+      toast({ title: "Health check failed", description: e.message, variant: "destructive" });
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const pushConfig = async () => {
+    setPushing(true);
+    setPushLog(null);
+    try {
+      const data = await adminFetch("/admin/freeswitch/push-config", { method: "POST" });
+      setPushLog(data.steps ?? []);
+      if (data.success) {
+        toast({ title: "Config pushed", description: "FreeSWITCH reloaded successfully." });
+      } else {
+        toast({ title: "Push failed", description: data.error ?? "Unknown error", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Push failed", description: e.message, variant: "destructive" });
+    } finally { setPushing(false); }
+  };
+
+  const testSsh = async () => {
+    setSshTesting(true);
+    setSshResult(null);
+    try {
+      const data = await adminFetch("/admin/freeswitch/test-ssh", { method: "POST" });
+      setSshResult(data);
+    } catch (e: any) {
+      setSshResult({ ok: false, error: e.message });
+    } finally { setSshTesting(false); }
+  };
+
+  const ts = (ms: number | null | undefined) =>
+    ms ? new Date(ms).toLocaleTimeString() : "—";
+
+  const requiredVars  = health?.envVars.filter((v) => v.required) ?? [];
+  const optionalVars  = health?.envVars.filter((v) => !v.required) ?? [];
+  const allRequiredOk = requiredVars.every((v) => v.set);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── Header row ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Production Health</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>FreeSWITCH · Database · Environment</p>
+        </div>
+        <button onClick={load} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: loading ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)", opacity: loading ? 0.5 : 1 }}>
+          <RefreshCw style={{ width: 11, height: 11, animation: loading ? "spin 1s linear infinite" : "none" }} />
+          {loading ? "Checking…" : "Refresh"}
+        </button>
+      </div>
+
+      {loading && !health && (
+        <div className="space-y-2">
+          {[80, 120, 160].map((h) => <div key={h} className="rounded-2xl bg-white/[0.04] animate-pulse" style={{ height: h }} />)}
+        </div>
+      )}
+
+      {health && (<>
+
+        {/* ── Quick status bar ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          {[
+            { label: "Database", ok: health.db.connected,    icon: <Database style={{ width: 13, height: 13 }} /> },
+            { label: "ESL",      ok: health.esl.connected,   icon: <Terminal  style={{ width: 13, height: 13 }} /> },
+            { label: "Env Vars", ok: allRequiredOk,           icon: <KeyRound  style={{ width: 13, height: 13 }} /> },
+          ].map(({ label, ok, icon }) => (
+            <div key={label} style={{
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+              padding: "14px 8px", borderRadius: 12,
+              background: ok ? "rgba(48,209,88,0.08)" : "rgba(255,69,58,0.08)",
+              border: `1px solid ${ok ? "rgba(48,209,88,0.2)" : "rgba(255,69,58,0.2)"}`,
+            }}>
+              <span style={{ color: ok ? "#30d158" : "#ff453a" }}>{icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: ok ? "#30d158" : "#ff453a" }}>{label}</span>
+              <span style={{ fontSize: 10, color: ok ? "rgba(48,209,88,0.7)" : "rgba(255,69,58,0.7)" }}>{ok ? "OK" : "FAIL"}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Database ── */}
+        <SysSection title="Database" icon={<Database style={{ width: 12, height: 12 }} />}>
+          <SysRow label="Status" value={<StatusPill ok={health.db.connected} labelOn="Connected" labelOff="Disconnected" />} />
+          {health.db.error && <SysRow label="Error" value={<span style={{ color: "#ff453a", fontSize: 11 }}>{health.db.error}</span>} />}
+        </SysSection>
+
+        {/* ── FreeSWITCH ESL ── */}
+        <SysSection title="FreeSWITCH ESL" icon={<Terminal style={{ width: 12, height: 12 }} />}>
+          <SysRow label="Status" value={<StatusPill ok={health.esl.connected} labelOn="Connected" labelOff="Disconnected" />} />
+          <SysRow label="Enabled"       value={health.esl.enabled ? "Yes" : <span style={{ color: "#ff9f0a" }}>No — FREESWITCH_DOMAIN not set</span>} />
+          <SysRow label="Host"          value={health.esl.host || <span style={{ color: "rgba(255,255,255,0.25)" }}>—</span>} mono />
+          <SysRow label="Port"          value={health.esl.port} />
+          <SysRow label="Last connected" value={ts(health.esl.lastConnectedAt)} />
+          <SysRow label="Last event"     value={ts(health.esl.lastEventAt)} />
+          {(health.esl.reconnectAttempt ?? 0) > 0 && (
+            <SysRow label="Reconnect attempts" value={<span style={{ color: "#ff9f0a" }}>{health.esl.reconnectAttempt}</span>} />
+          )}
+          {health.esl.lastDisconnectReason && (
+            <SysRow label="Disconnect reason" value={<span style={{ color: "rgba(255,255,255,0.45)", fontSize: 11 }}>{health.esl.lastDisconnectReason}</span>} />
+          )}
+        </SysSection>
+
+        {/* ── Config URLs ── */}
+        <SysSection title="Configuration" icon={<Globe2 style={{ width: 12, height: 12 }} />}>
+          <SysRow label="Domain"        value={health.config.domain      ?? <span style={{ color: "#ff453a" }}>Not set</span>} mono />
+          <SysRow label="App URL"       value={health.config.appUrl      ?? <span style={{ color: "#ff453a" }}>Not set</span>} mono />
+          <SysRow label="Directory URL" value={health.config.directoryUrl ?? <span style={{ color: "rgba(255,255,255,0.25)" }}>—</span>} mono />
+          <SysRow label="Verto WS"      value={health.config.vertoWsUrl  ?? <span style={{ color: "rgba(255,255,255,0.25)" }}>—</span>} mono />
+          <SysRow label="SSH user"      value={health.config.sshUser} />
+          <SysRow label="Conf dir"      value={health.config.confDir} mono />
+        </SysSection>
+
+        {/* ── Required env vars ── */}
+        <SysSection title="Required Environment Variables" icon={<KeyRound style={{ width: 12, height: 12 }} />}>
+          {requiredVars.map((v) => (
+            <SysRow
+              key={v.key}
+              label={v.label}
+              value={
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <StatusPill ok={v.set} labelOn="Set" labelOff="Missing" />
+                  {!v.set && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{v.hint}</span>}
+                </div>
+              }
+            />
+          ))}
+        </SysSection>
+
+        {/* ── Optional env vars (collapsible) ── */}
+        <div>
+          <button
+            onClick={() => setExpanded(expanded === "opt" ? null : "opt")}
+            style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: 600, padding: "4px 2px", textTransform: "uppercase", letterSpacing: "0.06em" }}
+          >
+            <ChevronDown style={{ width: 11, height: 11, transform: expanded === "opt" ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+            Optional variables ({optionalVars.filter((v) => v.set).length}/{optionalVars.length} set)
+          </button>
+          {expanded === "opt" && (
+            <div style={{ marginTop: 6, background: "rgba(255,255,255,0.04)", borderRadius: 14, overflow: "hidden" }}>
+              {optionalVars.map((v) => (
+                <SysRow
+                  key={v.key}
+                  label={v.label}
+                  value={
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <StatusPill ok={v.set} labelOn="Set" labelOff="Not set" />
+                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>{v.hint}</span>
+                    </div>
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Actions ── */}
+        <SysSection title="Actions" icon={<Settings style={{ width: 12, height: 12 }} />}>
+          {/* Push config */}
+          <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#fff", margin: 0 }}>Push Config to FreeSWITCH</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Writes dialplan, xml_curl, verto.conf via SSH and reloads modules</p>
+              </div>
+              <button
+                onClick={pushConfig}
+                disabled={pushing}
+                style={{
+                  flexShrink: 0, padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+                  border: "none", cursor: pushing ? "not-allowed" : "pointer",
+                  background: pushing ? "rgba(255,255,255,0.06)" : "rgba(26,140,255,0.2)",
+                  color: pushing ? "rgba(255,255,255,0.3)" : "#1a8cff",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {pushing ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <ArrowRight style={{ width: 12, height: 12 }} />}
+                {pushing ? "Pushing…" : "Push"}
+              </button>
+            </div>
+            {pushLog && (
+              <div style={{ marginTop: 10 }}>
+                <pre style={{
+                  background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: 8, padding: "10px 12px", fontSize: 10, color: "#a8ff78",
+                  fontFamily: "monospace", overflowX: "auto", margin: 0, lineHeight: 1.6,
+                  maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
+                }}>
+                  {pushLog.join("\n")}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* Test SSH */}
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#fff", margin: 0 }}>Test SSH Connection</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Verifies SSH key, connectivity, and FreeSWITCH status</p>
+              </div>
+              <button
+                onClick={testSsh}
+                disabled={sshTesting}
+                style={{
+                  flexShrink: 0, padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+                  border: "none", cursor: sshTesting ? "not-allowed" : "pointer",
+                  background: sshTesting ? "rgba(255,255,255,0.06)" : "rgba(167,139,250,0.2)",
+                  color: sshTesting ? "rgba(255,255,255,0.3)" : "#a78bfa",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {sshTesting ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <Wifi style={{ width: 12, height: 12 }} />}
+                {sshTesting ? "Testing…" : "Test"}
+              </button>
+            </div>
+            {sshResult && (
+              <div style={{
+                marginTop: 10, padding: "10px 12px", borderRadius: 8,
+                background: sshResult.ok ? "rgba(48,209,88,0.08)" : "rgba(255,69,58,0.08)",
+                border: `1px solid ${sshResult.ok ? "rgba(48,209,88,0.2)" : "rgba(255,69,58,0.2)"}`,
+                fontSize: 11, color: sshResult.ok ? "#30d158" : "#ff453a",
+                fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-all",
+              }}>
+                {sshResult.ok ? "✓ SSH OK\n" : "✗ SSH Failed\n"}{sshResult.error ?? ""}
+              </div>
+            )}
+          </div>
+        </SysSection>
+
+        {/* ── Production checklist ── */}
+        <SysSection title="Production Checklist" icon={<CheckCircle2 style={{ width: 12, height: 12 }} />}>
+          {[
+            { label: "MongoDB URI set",             ok: health.envVars.find((v) => v.key === "MONGODB_URI")?.set ?? false },
+            { label: "Database connected",          ok: health.db.connected },
+            { label: "FreeSWITCH domain set",       ok: Boolean(health.config.domain) },
+            { label: "SSH key set (config push)",   ok: health.envVars.find((v) => v.key === "FREESWITCH_SSH_KEY")?.set ?? false },
+            { label: "ESL password set",            ok: health.envVars.find((v) => v.key === "FREESWITCH_ESL_PASSWORD")?.set ?? false },
+            { label: "ESL connected",               ok: health.esl.connected },
+            { label: "App URL set (HTTPS)",         ok: health.envVars.find((v) => v.key === "APP_URL")?.set ?? false },
+            { label: "Session secret set",          ok: health.envVars.find((v) => v.key === "SESSION_SECRET")?.set ?? false },
+            { label: "Webhook secret set",          ok: health.envVars.find((v) => v.key === "FREESWITCH_WEBHOOK_SECRET")?.set ?? false },
+          ].map(({ label, ok }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+              {ok
+                ? <CheckCircle2 style={{ width: 14, height: 14, color: "#30d158", flexShrink: 0 }} />
+                : <AlertTriangle style={{ width: 14, height: 14, color: "#ff453a", flexShrink: 0 }} />}
+              <span style={{ fontSize: 12, color: ok ? "rgba(255,255,255,0.75)" : "#ff453a", fontWeight: ok ? 400 : 600 }}>{label}</span>
+            </div>
+          ))}
+        </SysSection>
+
+      </>)}
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -1775,6 +2103,7 @@ export default function Admin() {
         {tab === "overview"      && <OverviewTab />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
+        {tab === "system"        && <SystemTab />}
         {tab === "push"          && <PushTab />}
         {tab === "referrals"     && <ReferralsTab />}
         {tab === "earnings"      && <EarningsTab />}

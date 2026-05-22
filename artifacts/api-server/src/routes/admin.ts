@@ -1139,4 +1139,80 @@ router.post("/admin/monitoring/flags/:flagId/resolve", requireAdmin, async (req,
   res.json({ message: "Flag resolved", flag: { ...flag.toObject(), id: flag._id } });
 });
 
+// ── System health (production readiness) ──────────────────────────────────────
+
+router.get("/admin/system-health", requireAdmin, async (req, res) => {
+  const esl = eslStatus();
+  const appUrl = getAppUrl();
+
+  const ENV_VARS = [
+    { key: "MONGODB_URI",              label: "MongoDB URI",             required: true,  hint: "Primary database connection string" },
+    { key: "FREESWITCH_DOMAIN",        label: "FreeSWITCH Domain / IP",  required: true,  hint: "Hostname or IP of the FreeSWITCH server" },
+    { key: "FREESWITCH_SSH_KEY",       label: "SSH Private Key",         required: true,  hint: "Used to push config files and reload modules via SSH" },
+    { key: "FREESWITCH_ESL_PASSWORD",  label: "ESL Password",            required: true,  hint: "mod_event_socket auth password (default: ClueCon)" },
+    { key: "APP_URL",                  label: "App Public URL",          required: true,  hint: "Public HTTPS URL of this server (e.g. https://rtc.praww.co.za)" },
+    { key: "SESSION_SECRET",           label: "Session Secret",          required: true,  hint: "Random string for signing session cookies" },
+    { key: "FREESWITCH_WEBHOOK_SECRET",label: "Webhook Secret",          required: false, hint: "Shared secret between FreeSWITCH and this API (recommended)" },
+    { key: "PSTN_GATEWAY_NAME",        label: "PSTN Gateway Name",       required: false, hint: "Required only for external / outbound PSTN calls" },
+    { key: "PSTN_GATEWAY_USERNAME",    label: "PSTN Gateway Username",   required: false, hint: "SIP trunk username" },
+    { key: "PSTN_GATEWAY_PASSWORD",    label: "PSTN Gateway Password",   required: false, hint: "SIP trunk password" },
+    { key: "PSTN_GATEWAY_PROXY",       label: "PSTN Gateway Proxy",      required: false, hint: "SIP trunk proxy / host" },
+  ].map((v) => ({ ...v, set: Boolean(process.env[v.key]) }));
+
+  let dbConnected = false;
+  let dbError: string | null = null;
+  try {
+    await connectDB();
+    await UserModel.estimatedDocumentCount();
+    dbConnected = true;
+  } catch (e: any) {
+    dbError = e?.message ?? "Unknown DB error";
+  }
+
+  const fsDomain = process.env.FREESWITCH_DOMAIN ?? null;
+  const wsUrl = appUrl
+    ? appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/verto/ws"
+    : null;
+
+  res.json({
+    db: { connected: dbConnected, error: dbError },
+    esl,
+    envVars: ENV_VARS,
+    config: {
+      domain:       fsDomain,
+      appUrl:       appUrl ?? null,
+      directoryUrl: appUrl ? `${appUrl}/api/freeswitch/directory` : null,
+      vertoWsUrl:   wsUrl,
+      sshUser:      process.env.FREESWITCH_SSH_USER ?? "ubuntu",
+      confDir:      process.env.FREESWITCH_CONF_DIR ?? "/usr/local/freeswitch/conf",
+      eslHost:      process.env.FREESWITCH_ESL_HOST ?? fsDomain,
+      eslPort:      parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021"),
+    },
+  });
+});
+
+router.post("/admin/freeswitch/push-config", requireAdmin, async (_req, res) => {
+  const result = await pushFreeSwitchConfig({ lightReload: false });
+  res.status(result.success ? 200 : 500).json(result);
+});
+
+router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
+  const result = await testSSHConnection();
+  res.status(result.ok ? 200 : 500).json(result);
+});
+
+router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) => {
+  const appUrl = getAppUrl();
+  const fsDomain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
+  const fsHost = fsDomain.split(":")[0].replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "");
+
+  res.json({
+    xmlCurl:    xmlCurlConf(appUrl ?? "", process.env.FREESWITCH_WEBHOOK_SECRET),
+    verto:      vertoConf(fsHost),
+    eventSocket: eventSocketConf(),
+    dialplan:   dialplanXml(fsHost),
+    sipProfile: sipProfileXml(fsHost, appUrl ?? ""),
+  });
+});
+
 export default router;
