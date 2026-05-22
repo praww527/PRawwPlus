@@ -49,27 +49,45 @@ async function getInternalWsUrl(): Promise<string> {
   if (process.env.FREESWITCH_INTERNAL_WS_URL?.trim()) {
     return process.env.FREESWITCH_INTERNAL_WS_URL.trim();
   }
+
+  const fsDomain = (process.env.FREESWITCH_DOMAIN ?? "").trim();
+  const eslHost  = (process.env.FREESWITCH_ESL_HOST ?? "127.0.0.1").trim();
+
+  // Determine the actual remote host for FreeSWITCH.
+  // FREESWITCH_DOMAIN is the public IP/hostname of the VPS.
+  const remoteHost = fsDomain || eslHost;
+  const remoteIsLocal =
+    remoteHost === "127.0.0.1" || remoteHost === "localhost" || !remoteHost;
+
   if (process.env.FREESWITCH_WS_URL?.trim()) {
-    return process.env.FREESWITCH_WS_URL.trim();
+    const wsUrl = process.env.FREESWITCH_WS_URL.trim();
+    const wsHost = wsPort(wsUrl, 8081) && isLocalWsUrl(wsUrl) ? null : wsUrl;
+
+    // If FREESWITCH_WS_URL points to localhost but we are on a remote host
+    // (e.g. Replit connecting to a VPS), rewrite it to use the public IP.
+    if (isLocalWsUrl(wsUrl) && !remoteIsLocal) {
+      const port = wsPort(wsUrl, 8081);
+      logger.info(
+        { wsUrl, remoteHost, port },
+        "Verto proxy: FREESWITCH_WS_URL is localhost but FreeSWITCH is remote — rewriting to public IP",
+      );
+      return `ws://${remoteHost}:${port}/`;
+    }
+    return wsUrl;
   }
 
-  const eslHost = (process.env.FREESWITCH_ESL_HOST ?? "127.0.0.1").trim();
-  const eslIsLocal = eslHost === "127.0.0.1" || eslHost === "localhost";
-
-  if (eslIsLocal) {
+  if (remoteIsLocal) {
     // FreeSWITCH is on the SAME machine (VPS production).
-    // Connect directly — no SSH tunnel needed or desired.
     return "ws://127.0.0.1:8081/";
   }
 
   // FreeSWITCH is on a REMOTE host (e.g. Replit dev connecting to VPS).
-  // Port 8081 is typically firewalled externally; use an SSH tunnel that
-  // forwards a local port → remote 127.0.0.1:8081, same as the ESL tunnel.
+  // Try SSH tunnel first (port 8081 is often firewalled); fall back to direct.
   const tunnelUrl = await getSshForwardUrl(8081);
   if (tunnelUrl) return tunnelUrl;
 
-  // Fallback: direct connection — works only if port 8081 is publicly reachable.
-  return `ws://${eslHost}:8081/`;
+  // Fallback: direct connection — works if port 8081 is publicly reachable.
+  return `ws://${remoteHost}:8081/`;
 }
 
 const PENDING_BUFFER_LIMIT = 50;
