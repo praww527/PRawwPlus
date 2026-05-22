@@ -45,6 +45,7 @@ pnpm install --frozen-lockfile 2>/dev/null \
 
 echo "===== [5/7] Build shared library packages ====="
 pnpm --filter @workspace/db \
+     --filter @workspace/api-zod \
      --filter @workspace/auth-web \
      --filter @workspace/api-client-react \
      run build
