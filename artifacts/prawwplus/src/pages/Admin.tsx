@@ -10,7 +10,7 @@ import {
   Users, TrendingUp, DollarSign, PhoneCall, ShieldAlert, Lock, Unlock, UserCheck,
   UserX, BarChart3, Link2, BadgeDollarSign, Receipt, CreditCard, RefreshCw,
   ChevronDown, Trash2, CheckCircle2, XCircle, Shield, Settings, Megaphone,
-  AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight,
+  AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
 } from "lucide-react";
 
 const TABS = [
@@ -197,6 +197,9 @@ function UsersTab() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-white truncate">{u.name || u.username}</p>
                   <p className="text-xs text-white/40 truncate">{u.email}</p>
+                  {u.phone && (
+                    <p className="text-xs text-white/30 truncate font-mono mt-0.5">{u.phone}</p>
+                  )}
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", roleBadge(u.role ?? "user"))}>
                       {u.role ?? "user"}
@@ -204,6 +207,12 @@ function UsersTab() {
                     <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", statusBadge(u.approved ?? true, u.locked ?? false))}>
                       {statusLabel(u.approved ?? true, u.locked ?? false)}
                     </span>
+                    {u.phone && (
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium flex items-center gap-1", u.phoneVerified ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400" : "border-orange-500/25 bg-orange-500/10 text-orange-400")}>
+                        <Smartphone className="w-2.5 h-2.5" />
+                        {u.phoneVerified ? "Phone ✓" : "Phone unverified"}
+                      </span>
+                    )}
                     {u.referralCode && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full border border-blue-500/25 bg-blue-500/10 text-blue-400 font-mono">
                         {u.referralCode}
@@ -241,6 +250,11 @@ function UsersTab() {
                 {u.phoneOtpLockedUntil && new Date(u.phoneOtpLockedUntil) > new Date() && (
                   <Button size="sm" variant="outline" className="h-7 text-xs border-orange-500/30 text-orange-400 hover:bg-orange-500/10" disabled={acting} onClick={() => act(u.id, "unlock-otp")}>
                     <ShieldAlert className="w-3 h-3 mr-1" /> Clear OTP Lock
+                  </Button>
+                )}
+                {u.phone && !u.phoneVerified && (
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" disabled={acting} onClick={() => act(u.id, "verify-phone")}>
+                    <Smartphone className="w-3 h-3 mr-1" /> Verify Phone
                   </Button>
                 )}
                 <Button size="sm" variant="outline" className="h-7 text-xs border-white/10 text-white/50 hover:bg-white/5" disabled={acting} onClick={() => { setActionUser(u); setNewRole(u.role ?? "user"); setActionType("role"); }}>

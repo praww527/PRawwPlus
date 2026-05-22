@@ -378,12 +378,17 @@ export default function ResellerDashboard() {
   const [tab, setTab] = useState<TabId>("overview");
   const [stats, setStats] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
   const loadStats = useCallback(() => {
     setLoadingStats(true);
-    resellerFetch("/reseller/stats").then(setStats).catch(() => {}).finally(() => setLoadingStats(false));
+    setStatsError(null);
+    resellerFetch("/reseller/stats")
+      .then((data) => { setStats(data); setStatsError(null); })
+      .catch((err: any) => setStatsError(err?.message ?? "Failed to load dashboard data"))
+      .finally(() => setLoadingStats(false));
   }, []);
 
   useEffect(() => { loadStats(); }, [loadStats]);
@@ -419,6 +424,22 @@ export default function ResellerDashboard() {
           <RefreshCw className={cn("w-3.5 h-3.5", loadingStats && "animate-spin")} />
         </button>
       </div>
+
+      {/* Stats error banner */}
+      {statsError && (
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/8 p-4 flex gap-3 items-start">
+          <div className="w-7 h-7 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-300">Failed to load dashboard</p>
+            <p className="text-xs text-white/50 mt-0.5">{statsError}</p>
+          </div>
+          <button onClick={loadStats} className="shrink-0 text-xs text-red-400 hover:text-red-300 font-semibold transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Announcement Banners */}
       {visibleAnnouncements.map((a) => {

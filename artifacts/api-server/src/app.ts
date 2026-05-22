@@ -17,6 +17,7 @@ app.set(
   "trust proxy",
   process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true",
 );
+app.disable("x-powered-by");
 
 // In production, serve the pre-built frontend from the same process.
 // STATIC_DIR env var can override. Default resolves relative to cwd (repo root).
@@ -125,6 +126,9 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=()");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   // Relaxed CSP — the SPA loads scripts, fonts, and inline styles
   const connectSrc = ["'self'", fsWsOrigin].filter(Boolean).join(" ");
   res.setHeader(

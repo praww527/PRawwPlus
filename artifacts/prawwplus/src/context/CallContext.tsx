@@ -83,6 +83,7 @@ interface CallContextValue {
   hangupInfo:       HangupInfo | null;
   vertoConfig:      VertoConfig | null;
   isVertoConnected: boolean;
+  vertoError:       string | null;
   startOutgoing:    (info: CallInfo) => void;
   updateCallId:     (callId: string) => void;
   updateCallType:   (callType: "internal" | "external") => void;
@@ -107,6 +108,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [hangupInfo,       setHangupInfo]       = useState<HangupInfo | null>(null);
   const [vertoConfig,      setVertoConfigState] = useState<VertoConfig | null>(null);
   const [isVertoConnected, setIsVertoConnected] = useState(false);
+  const [vertoError,       setVertoError]       = useState<string | null>(null);
 
   const clientRef      = useRef<VertoClient | null>(null);
   const incomingSdpRef = useRef<string>("");
@@ -139,9 +141,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!vertoConfig?.configured || !vertoConfig.wsUrl) return;
 
     const client = new VertoClient(vertoConfig, {
-      onConnected:    () => setIsVertoConnected(true),
+      onConnected:    () => { setIsVertoConnected(true); setVertoError(null); },
       onDisconnected: () => setIsVertoConnected(false),
-      onError:        (err) => console.warn("[Verto]", err),
+      onError:        (err) => { console.warn("[Verto]", err); setVertoError(err); },
 
       onRinging: (_callId) => {
         setCallPhase((prev) => (prev === "calling" ? "ringing" : prev));
@@ -492,7 +494,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   return (
     <CallContext.Provider value={{
       callState, callPhase, callInfo, hangupInfo,
-      vertoConfig, isVertoConnected,
+      vertoConfig, isVertoConnected, vertoError,
       startOutgoing, updateCallId, updateCallType, connectCall,
       acceptCall, declineCall, endCall,
       setMuted, setSpeaker,

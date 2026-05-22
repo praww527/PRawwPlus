@@ -10,6 +10,7 @@ import {
   PayoutModel,
   AnnouncementModel,
   AbuseFlagModel,
+  SessionModel,
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
@@ -164,6 +165,13 @@ router.post("/admin/users/:userId/approve", requireAdmin, async (req, res) => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.approved = true;
   await user.save();
+  try {
+    const sessions = await SessionModel.find({ "sess.user.id": userId } as any);
+    for (const session of sessions) {
+      const sess = session.sess as any;
+      if (sess?.user) { sess.user.approved = true; session.markModified("sess"); await session.save(); }
+    }
+  } catch { /* non-critical — user will see new access on next login if this fails */ }
   res.json({ message: "User approved", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -174,6 +182,13 @@ router.post("/admin/users/:userId/reject", requireAdmin, async (req, res) => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.approved = false;
   await user.save();
+  try {
+    const sessions = await SessionModel.find({ "sess.user.id": userId } as any);
+    for (const session of sessions) {
+      const sess = session.sess as any;
+      if (sess?.user) { sess.user.approved = false; session.markModified("sess"); await session.save(); }
+    }
+  } catch { /* non-critical */ }
   res.json({ message: "User rejected", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -229,6 +244,23 @@ router.post("/admin/users/:userId/set-role", requireAdmin, async (req, res) => {
   }
 
   await user.save();
+
+  // Immediately update all active sessions for this user so role changes
+  // take effect without requiring the user to log out and back in.
+  try {
+    const isAdminRole = role === "admin";
+    const sessions = await SessionModel.find({ "sess.user.id": userId } as any);
+    for (const session of sessions) {
+      const sess = session.sess as any;
+      if (sess?.user) {
+        sess.user.role = role;
+        sess.user.isAdmin = isAdminRole;
+        session.markModified("sess");
+        await session.save();
+      }
+    }
+  } catch { /* non-critical — user will see new role on next login if this fails */ }
+
   res.json({ message: `Role set to ${role}`, user: { ...user.toObject(), id: user._id } });
 });
 
@@ -244,14 +276,44 @@ router.post("/admin/users/:userId/verify-email", requireAdmin, async (req, res) 
   res.json({ message: "Email verified successfully", user: { ...user.toObject(), id: user._id } });
 });
 
+router.post("/admin/users/:userId/verify-phone", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+  const user = await UserModel.findById(userId);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (!user.phone) {
+    res.status(400).json({ error: "User has no phone number to verify" });
+    return;
+  }
+  user.phoneVerified = true;
+  user.phoneOtp = undefined;
+  user.phoneOtpExpiry = undefined;
+  user.phoneOtpAttempts = 0;
+  user.phoneOtpLockedUntil = undefined;
+  await user.save();
+  res.json({ message: "Phone number verified successfully", user: { ...user.toObject(), id: user._id } });
+});
+
 router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res) => {
   await connectDB();
   const { userId } = req.params;
   const { amount } = req.body;
-  if (amount === undefined) { res.status(400).json({ error: "amount is required" }); return; }
+  if (amount === undefined || amount === null) {
+    res.status(400).json({ error: "amount is required" });
+    return;
+  }
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) {
+    res.status(400).json({ error: "amount must be a finite number" });
+    return;
+  }
+  if (parsed < -100_000 || parsed > 100_000) {
+    res.status(400).json({ error: "amount must be between -100,000 and 100,000" });
+    return;
+  }
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  user.coins = Math.max(0, user.coins + Number(amount));
+  user.coins = Math.max(0, user.coins + parsed);
   await user.save();
   res.json({ ...user.toObject(), id: user._id });
 });

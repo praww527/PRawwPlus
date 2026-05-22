@@ -49,7 +49,7 @@ export default function DialPad() {
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const {
     startOutgoing, updateCallId, updateCallType, connectCall, endCall,
-    isVertoConnected, vertoConfig,
+    isVertoConnected, vertoConfig, vertoError,
     makeVertoCall, callInfo: activeCallInfo,
   } = useCall();
   const [number, setNumber] = useState("");
@@ -163,13 +163,28 @@ export default function DialPad() {
           </span>
         </div>
 
-        {/* Connection dot — center */}
+        {/* Connection dot + status label — center */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <div style={{
             width: 10, height: 10, borderRadius: "50%",
             background: dotColor,
             boxShadow: `0 0 6px ${dotColor}`,
           }} />
+          {vertoConfig?.configured && (
+            <span style={{
+              fontSize: 11, fontWeight: 600,
+              color: isConnected ? "#30d158" : isConnecting ? "#ff9f0a" : "#ff453a",
+              maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {isConnected
+                ? "Registered"
+                : isConnecting
+                  ? "Connecting…"
+                  : vertoError
+                    ? vertoError.length > 30 ? vertoError.slice(0, 30) + "…" : vertoError
+                    : "Not registered"}
+            </span>
+          )}
         </div>
 
         {/* Profile avatar — top right */}
