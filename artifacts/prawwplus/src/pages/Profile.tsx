@@ -6,11 +6,11 @@ import {
 } from "@workspace/api-client-react";
 import type { OwnedNumber, PaymentRecord } from "@workspace/api-client-react";
 import {
-  ChevronRight, LogOut, Trash2, Phone, Coins, Receipt,
+  ChevronRight, LogOut, Trash2, Phone, Receipt,
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
   AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
-  Moon, Sun, Monitor,
+  Moon, Sun, Monitor, Settings, Info, Coins,
 } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { format } from "date-fns";
@@ -63,21 +63,18 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
           overflowX: "hidden",
         }}
       >
-        {/* Drag handle */}
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 6 }}>
           <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--sep-strong)" }} />
         </div>
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 20px 16px" }}>
           <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)" }}>{title}</p>
           <button
             onClick={onClose}
             style={{
               width: 30, height: 30, borderRadius: 15,
-              background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-              backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+              background: "var(--glass-bg)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer",
+              cursor: "pointer", border: "none",
             }}
           >
             <X style={{ width: 14, height: 14, color: "var(--text-2)" }} />
@@ -89,12 +86,11 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   );
 }
 
-/* ── Settings row ──────────────────────────────────────────────────── */
+/* ── Settings row — flat, grey circle icon, no colours ─────────────── */
 function Row({
-  icon, iconColor = "hsl(var(--primary))", iconBg = "rgba(10,132,255,0.18)",
-  label, value, chevron = true, onClick, danger = false,
+  icon, label, value, chevron = true, onClick, danger = false,
 }: {
-  icon: React.ReactNode; iconColor?: string; iconBg?: string;
+  icon: React.ReactNode;
   label: string; value?: string; chevron?: boolean; onClick?: () => void; danger?: boolean;
 }) {
   return (
@@ -102,39 +98,57 @@ function Row({
       onClick={onClick}
       disabled={!onClick}
       style={{
-        display: "flex", alignItems: "center", gap: 12,
-        width: "100%", padding: "11px 16px", textAlign: "left",
+        display: "flex", alignItems: "center", gap: 14,
+        width: "100%", padding: "13px 16px", textAlign: "left",
         background: "transparent", border: "none",
         cursor: onClick ? "pointer" : "default",
         transition: "background 0.12s",
+        WebkitTapHighlightColor: "transparent",
       }}
-      onPointerDown={(e) => onClick && (e.currentTarget.style.background = "var(--glass-bg-strong)")}
+      onPointerDown={(e) => onClick && (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
       onPointerUp={(e) => (e.currentTarget.style.background = "transparent")}
       onPointerLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
-      <div className="icon-badge" style={{ background: iconBg }}>
-        <span style={{ color: iconColor }}>{icon}</span>
+      <div style={{
+        width: 34, height: 34, borderRadius: "50%",
+        border: "1px solid rgba(128,128,128,0.40)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        <span style={{ color: danger ? "#ff453a" : "var(--text-2)", display: "flex" }}>{icon}</span>
       </div>
-      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: danger ? "#ff453a" : "var(--text-1)", textAlign: "left" }}>
+      <span style={{ flex: 1, fontSize: 16, fontWeight: 400, color: danger ? "#ff453a" : "var(--text-1)", textAlign: "left" }}>
         {label}
       </span>
-      {value && <span style={{ fontSize: 13, color: "var(--text-3)", marginRight: 2, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>}
-      {chevron && onClick && <ChevronRight style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />}
+      {value && (
+        <span style={{ fontSize: 14, color: "var(--text-3)", marginRight: chevron && onClick ? 2 : 0, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {value}
+        </span>
+      )}
+      {chevron && onClick && <ChevronRight style={{ width: 16, height: 16, color: "var(--text-3)", flexShrink: 0 }} />}
     </button>
   );
 }
 
-/* ── Section wrapper ───────────────────────────────────────────────── */
+/* ── Section — flat rows with hairline separators, no card ─────────── */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const kids = Children.toArray(children).filter(Boolean);
   return (
-    <div>
-      <p className="section-label" style={{ paddingLeft: 4, marginBottom: 6 }}>{title}</p>
-      <div className="section-card">
+    <div style={{ marginTop: 32 }}>
+      <p style={{
+        fontSize: 12, fontWeight: 600, letterSpacing: "0.07em",
+        textTransform: "uppercase", color: "var(--text-3)",
+        padding: "0 16px 8px",
+      }}>
+        {title}
+      </p>
+      <div>
         {kids.map((child, i) => (
           <div key={i}>
             {child}
-            {i < kids.length - 1 && <div className="row-sep" />}
+            {i < kids.length - 1 && (
+              <div style={{ height: 1, background: "var(--sep)", marginLeft: 64 }} />
+            )}
           </div>
         ))}
       </div>
@@ -142,7 +156,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/* ── Inline: Notifications toggles ────────────────────────────────── */
+/* ── Toggle switch ─────────────────────────────────────────────────── */
 function ToggleSwitch({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
   return (
     <div
@@ -151,42 +165,6 @@ function ToggleSwitch({ enabled, onToggle }: { enabled: boolean; onToggle: () =>
       onClick={onToggle}
     >
       <div className="toggle-thumb" style={{ left: enabled ? 22 : 2 }} />
-    </div>
-  );
-}
-
-function InlineToggleRow({ icon, iconBg, iconColor, label, description, enabled, onToggle }: {
-  icon: React.ReactNode; iconBg: string; iconColor: string;
-  label: string; description?: string; enabled: boolean; onToggle: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
-      <div className="icon-badge" style={{ background: iconBg, flexShrink: 0 }}>
-        <span style={{ color: iconColor }}>{icon}</span>
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-1)", margin: 0 }}>{label}</p>
-        {description && <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", lineHeight: 1.3 }}>{description}</p>}
-      </div>
-      <ToggleSwitch enabled={enabled} onToggle={onToggle} />
-    </div>
-  );
-}
-
-function InlineSelectRow({ icon, iconBg, iconColor, label, value, options, onChange }: {
-  icon: React.ReactNode; iconBg: string; iconColor: string;
-  label: string; value: string; options: string[]; onChange: (v: string) => void;
-}) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
-      <div className="icon-badge" style={{ background: iconBg, flexShrink: 0 }}>
-        <span style={{ color: iconColor }}>{icon}</span>
-      </div>
-      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: "var(--text-1)" }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}
-        style={{ background: "var(--glass-bg)", border: "1px solid var(--glass-border)", borderRadius: 8, color: "var(--text-2)", fontSize: 13, padding: "4px 8px", cursor: "pointer", outline: "none" }}>
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
     </div>
   );
 }
@@ -208,6 +186,41 @@ function InlineSection({ title, children }: { title: string; children: React.Rea
   );
 }
 
+function InlineToggleRow({ icon, label, description, enabled, onToggle }: {
+  icon: React.ReactNode; label: string; description?: string; enabled: boolean; onToggle: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(128,128,128,0.40)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <span style={{ color: "var(--text-2)", display: "flex" }}>{icon}</span>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 500, color: "var(--text-1)", margin: 0 }}>{label}</p>
+        {description && <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0", lineHeight: 1.3 }}>{description}</p>}
+      </div>
+      <ToggleSwitch enabled={enabled} onToggle={onToggle} />
+    </div>
+  );
+}
+
+function InlineSelectRow({ icon, label, value, options, onChange }: {
+  icon: React.ReactNode;
+  label: string; value: string; options: string[]; onChange: (v: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
+      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(128,128,128,0.40)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <span style={{ color: "var(--text-2)", display: "flex" }}>{icon}</span>
+      </div>
+      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: "var(--text-1)" }}>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        style={{ background: "var(--glass-bg)", border: "none", borderRadius: 8, color: "var(--text-2)", fontSize: 13, padding: "4px 8px", cursor: "pointer", outline: "none" }}>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function NotificationsSheet() {
   const [s, setS] = useState({
     incomingCalls: true, missedCalls: true, voicemail: true,
@@ -218,26 +231,18 @@ function NotificationsSheet() {
   return (
     <div>
       <InlineSection title="Calls">
-        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
-          label="Incoming Calls" description="Alert when someone calls you" enabled={s.incomingCalls} onToggle={() => toggle("incomingCalls")} />
-        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(255,69,58,0.18)" iconColor="#ff453a"
-          label="Missed Calls" description="Notify when you miss a call" enabled={s.missedCalls} onToggle={() => toggle("missedCalls")} />
-        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(94,92,230,0.18)" iconColor="#5e5ce6"
-          label="Voicemail" description="Alert when you receive a voicemail" enabled={s.voicemail} onToggle={() => toggle("voicemail")} />
+        <InlineToggleRow icon={<Phone size={15} />} label="Incoming Calls" description="Alert when someone calls you" enabled={s.incomingCalls} onToggle={() => toggle("incomingCalls")} />
+        <InlineToggleRow icon={<Phone size={15} />} label="Missed Calls" description="Notify when you miss a call" enabled={s.missedCalls} onToggle={() => toggle("missedCalls")} />
+        <InlineToggleRow icon={<Bell size={15} />} label="Voicemail" description="Alert when you receive a voicemail" enabled={s.voicemail} onToggle={() => toggle("voicemail")} />
       </InlineSection>
       <InlineSection title="Account">
-        <InlineToggleRow icon={<Zap size={15} />} iconBg="rgba(255,149,0,0.18)" iconColor="#ff9500"
-          label="Low Balance Alert" description="Notify when coins drop below 5" enabled={s.lowBalance} onToggle={() => toggle("lowBalance")} />
-        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
-          label="SMS Notifications" description="Receive alerts via text message" enabled={s.sms} onToggle={() => toggle("sms")} />
+        <InlineToggleRow icon={<Zap size={15} />} label="Low Balance Alert" description="Notify when coins drop below 5" enabled={s.lowBalance} onToggle={() => toggle("lowBalance")} />
+        <InlineToggleRow icon={<Bell size={15} />} label="SMS Notifications" description="Receive alerts via text message" enabled={s.sms} onToggle={() => toggle("sms")} />
       </InlineSection>
       <InlineSection title="Delivery">
-        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
-          label="Sound" description="Play sound for notifications" enabled={s.sound} onToggle={() => toggle("sound")} />
-        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(120,65,190,0.18)" iconColor="#bf5af2"
-          label="Vibration" description="Vibrate on notification" enabled={s.vibration} onToggle={() => toggle("vibration")} />
-        <InlineToggleRow icon={<Bell size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
-          label="App Badge" description="Show unread count on app icon" enabled={s.badge} onToggle={() => toggle("badge")} />
+        <InlineToggleRow icon={<Bell size={15} />} label="Sound" description="Play sound for notifications" enabled={s.sound} onToggle={() => toggle("sound")} />
+        <InlineToggleRow icon={<Bell size={15} />} label="Vibration" description="Vibrate on notification" enabled={s.vibration} onToggle={() => toggle("vibration")} />
+        <InlineToggleRow icon={<Bell size={15} />} label="App Badge" description="Show unread count on app icon" enabled={s.badge} onToggle={() => toggle("badge")} />
       </InlineSection>
       <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)" }}>Settings saved automatically</p>
     </div>
@@ -256,34 +261,23 @@ function CallSettingsSheet() {
   return (
     <div>
       <InlineSection title="Audio & Quality">
-        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
-          label="Wi-Fi Calling" description="Use internet for better call quality" enabled={s.wifiCalling} onToggle={() => toggle("wifiCalling")} />
-        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
-          label="Noise Cancellation" description="Filter background noise" enabled={s.noiseCancellation} onToggle={() => toggle("noiseCancellation")} />
-        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(94,92,230,0.18)" iconColor="#5e5ce6"
-          label="HD Voice" description="High-definition audio when supported" enabled={s.hd} onToggle={() => toggle("hd")} />
-        <InlineSelectRow icon={<Mic size={15} />} iconBg="rgba(120,65,190,0.18)" iconColor="#bf5af2"
-          label="Audio Codec" value={codec} options={["Opus HD", "G.711", "G.722", "G.729"]} onChange={setCodec} />
+        <InlineToggleRow icon={<Mic size={15} />} label="Wi-Fi Calling" description="Use internet for better call quality" enabled={s.wifiCalling} onToggle={() => toggle("wifiCalling")} />
+        <InlineToggleRow icon={<Mic size={15} />} label="Noise Cancellation" description="Filter background noise" enabled={s.noiseCancellation} onToggle={() => toggle("noiseCancellation")} />
+        <InlineToggleRow icon={<Mic size={15} />} label="HD Voice" description="High-definition audio when supported" enabled={s.hd} onToggle={() => toggle("hd")} />
+        <InlineSelectRow icon={<Mic size={15} />} label="Audio Codec" value={codec} options={["Opus HD", "G.711", "G.722", "G.729"]} onChange={setCodec} />
       </InlineSection>
       <InlineSection title="Incoming Calls">
-        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(255,149,0,0.18)" iconColor="#ff9500"
-          label="Auto-Answer" description="Answer calls after 5 seconds" enabled={s.autoAnswer} onToggle={() => toggle("autoAnswer")} />
-        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.15)" iconColor="#30d158"
-          label="Call Waiting Tone" description="Tone when another call comes in" enabled={s.waitingTone} onToggle={() => toggle("waitingTone")} />
-        <InlineSelectRow icon={<Phone size={15} />} iconBg="rgba(255,214,10,0.15)" iconColor="#ffd60a"
-          label="Ringtone" value={ringtone} options={["Default", "Chime", "Classic", "Silent"]} onChange={setRingtone} />
+        <InlineToggleRow icon={<Phone size={15} />} label="Auto-Answer" description="Answer calls after 5 seconds" enabled={s.autoAnswer} onToggle={() => toggle("autoAnswer")} />
+        <InlineToggleRow icon={<Phone size={15} />} label="Call Waiting Tone" description="Tone when another call comes in" enabled={s.waitingTone} onToggle={() => toggle("waitingTone")} />
+        <InlineSelectRow icon={<Phone size={15} />} label="Ringtone" value={ringtone} options={["Default", "Chime", "Classic", "Silent"]} onChange={setRingtone} />
       </InlineSection>
       <InlineSection title="Call Forwarding">
-        <InlineToggleRow icon={<Phone size={15} />} iconBg="rgba(10,132,255,0.18)" iconColor="#1a8cff"
-          label="Forward Calls" description="Redirect incoming calls" enabled={s.forwarding} onToggle={() => toggle("forwarding")} />
-        <InlineSelectRow icon={<Phone size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
-          label="Forward To" value={forwardTo} options={["Voicemail", "Another Number", "Off"]} onChange={setForwardTo} />
+        <InlineToggleRow icon={<Phone size={15} />} label="Forward Calls" description="Redirect incoming calls" enabled={s.forwarding} onToggle={() => toggle("forwarding")} />
+        <InlineSelectRow icon={<Phone size={15} />} label="Forward To" value={forwardTo} options={["Voicemail", "Another Number", "Off"]} onChange={setForwardTo} />
       </InlineSection>
       <InlineSection title="Privacy">
-        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(48,209,88,0.18)" iconColor="#30d158"
-          label="Record Calls" description="Auto-record all calls locally" enabled={s.recordCalls} onToggle={() => toggle("recordCalls")} />
-        <InlineToggleRow icon={<Mic size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
-          label="Use Earpiece" description="Route audio to earpiece by default" enabled={s.earpiece} onToggle={() => toggle("earpiece")} />
+        <InlineToggleRow icon={<Mic size={15} />} label="Record Calls" description="Auto-record all calls locally" enabled={s.recordCalls} onToggle={() => toggle("recordCalls")} />
+        <InlineToggleRow icon={<Mic size={15} />} label="Use Earpiece" description="Route audio to earpiece by default" enabled={s.earpiece} onToggle={() => toggle("earpiece")} />
       </InlineSection>
       <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)" }}>Settings apply to all future calls</p>
     </div>
@@ -295,7 +289,7 @@ type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "priv
 export default function Profile() {
   const { logout, user: authUser } = useAuth();
   const { data: user, isLoading } = useGetMe();
-  const { theme, setTheme, isDark } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { data: paymentData } = useListPayments();
   const { data: numbersData, refetch: refetchNumbers } = useListMyNumbers();
   const { mutateAsync: subscribe, isPending: subscribing } = useInitiateSubscription();
@@ -362,7 +356,7 @@ export default function Profile() {
     setOtpStep(userPhone && !userPhoneVerified ? "enter-otp" : "enter-phone");
     setPhoneMsg(null);
     setDevOtp(null);
-    setOtpCountdown(userPhone && !userPhoneVerified ? null : null);
+    setOtpCountdown(null);
     setSheet("phone");
   };
 
@@ -409,9 +403,7 @@ export default function Profile() {
       const data = await res.json();
       if (!res.ok) {
         setPhoneMsg(data.error ?? "Invalid code");
-        if (res.status === 429) {
-          setOtpCountdown(0);
-        }
+        if (res.status === 429) setOtpCountdown(0);
       } else {
         toast({ title: "Mobile number verified!", description: "Your number is now your PRaww+ calling identity." });
         setSheet("none");
@@ -439,8 +431,8 @@ export default function Profile() {
   if (isLoading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 8 }}>
-        {[120, 80, 180, 180].map((h, i) => (
-          <div key={i} className="skeleton" style={{ height: h, borderRadius: 20 }} />
+        {[80, 100, 80, 200, 200].map((h, i) => (
+          <div key={i} className="skeleton" style={{ height: h, borderRadius: 16 }} />
         ))}
       </div>
     );
@@ -450,224 +442,215 @@ export default function Profile() {
   const themeLabel: Record<ThemePreference, string> = { system: "System", dark: "Dark", light: "Light" };
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
 
+  const displayName = user?.name || user?.username || "—";
+  const initials = displayName !== "—"
+    ? displayName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
+
   return (
-    <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8, paddingTop: 4 }}>
+    <div className="page-in" style={{ paddingBottom: 8, paddingTop: 4 }}>
       <PayFastRedirect data={pfData} />
 
-      {/* ── Page title ─────────────────────────────────────── */}
-      <p style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", letterSpacing: "-0.02em", margin: "2px 4px 2px" }}>Settings</p>
+      {/* ── Header row: Settings title + gear icon ───────────── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 4px 18px" }}>
+        <p style={{ fontSize: 30, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", letterSpacing: "-0.02em", margin: 0 }}>
+          Settings
+        </p>
+        <button
+          style={{
+            width: 36, height: 36, borderRadius: "50%",
+            border: "1px solid rgba(128,128,128,0.40)",
+            background: "transparent",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer",
+          }}
+          onClick={() => setTheme(themeNext[theme])}
+          title={`Theme: ${themeLabel[theme]}`}
+        >
+          <ThemeIcon style={{ width: 16, height: 16, color: "var(--text-2)" }} />
+        </button>
+      </div>
 
-      {/* ── User header ──────────────────────────────────── */}
-      {(() => {
-        const displayName = user?.name || user?.username || "—";
-        const initials = displayName !== "—"
-          ? displayName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
-          : "?";
-        return (
+      {/* ── Profile row ──────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "4px 4px 20px" }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: "50%", flexShrink: 0,
+          background: "rgba(128,128,128,0.30)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 20, fontWeight: 700, color: "var(--text-1)",
+          fontFamily: "var(--font-display)",
+        }}>
+          {initials}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", letterSpacing: "-0.01em", lineHeight: 1.2, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {displayName}
+          </p>
+          <p style={{ fontSize: 13, color: "var(--text-2)", margin: "3px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {user?.email ?? user?.username ?? ""}
+          </p>
           <div style={{
-            display: "flex", alignItems: "center", gap: 12,
-            padding: "14px 16px",
-            borderRadius: 16,
-            background: "var(--glass-bg)",
-            backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+            display: "inline-flex", alignItems: "center", gap: 4, marginTop: 7,
+            padding: "3px 10px", borderRadius: 20,
+            border: "1px solid rgba(128,128,128,0.35)",
+            fontSize: 11, fontWeight: 500, color: "var(--text-3)",
           }}>
-            {/* Avatar with initials */}
-            <div style={{
-              width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
-              background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 18, fontWeight: 700, color: "#fff",
-              fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
-              border: "2px solid rgba(255,255,255,0.18)",
-            }}>
-              {initials}
-            </div>
-
-            {/* Name / email / status */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{
-                fontSize: 17, fontWeight: 700, color: "var(--text-1)",
-                fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                lineHeight: 1.2,
-              }}>
-                {displayName}
-              </p>
-              <p style={{
-                fontSize: 12, color: "var(--text-2)", marginTop: 2,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>
-                {user?.email ?? user?.username ?? ""}
-              </p>
-              {primaryNumber && (
-                <p style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>
-                  {primaryNumber}
-                </p>
-              )}
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6,
-                padding: "3px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600,
-                background: isActive ? "rgba(48,209,88,0.14)" : "rgba(128,128,128,0.14)",
-                color: isActive ? "#30d158" : "var(--text-3)",
-                border: `1px solid ${isActive ? "rgba(48,209,88,0.25)" : "var(--sep)"}`,
-              }}>
-                {isActive
-                  ? <CheckCircle2 style={{ width: 10, height: 10 }} />
-                  : <AlertCircle style={{ width: 10, height: 10 }} />}
-                {isActive
-                  ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active`
-                  : "No Active Plan"}
-              </div>
-            </div>
+            <Info style={{ width: 10, height: 10, flexShrink: 0 }} />
+            {isActive
+              ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active`
+              : "No Active Plan"}
           </div>
-        );
-      })()}
+        </div>
+      </div>
 
-      {/* ── Quick stats ──────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+      {/* ── Stats row: Coins | Numbers | Plan ────────────────── */}
+      <div style={{
+        display: "flex",
+        borderTop: "1px solid var(--sep)",
+        borderBottom: "1px solid var(--sep)",
+        padding: "18px 0",
+        marginBottom: 0,
+      }}>
         {[
-          { label: "Coins", value: coins.toFixed(0), sub: "balance", color: "#ffd60a", bg: "rgba(255,214,10,0.12)" },
-          { label: "Numbers", value: `${myNumbers.length}/${maxNumbers}`, sub: "assigned", color: "hsl(var(--primary))", bg: "rgba(10,132,255,0.12)" },
-          { label: "Plan", value: isActive ? currentPlan.slice(0,1).toUpperCase() + currentPlan.slice(1) : "None", sub: isActive ? "active" : "inactive", color: isActive ? "#30d158" : "var(--text-3)", bg: isActive ? "rgba(48,209,88,0.12)" : "var(--surface-1)" },
-        ].map(({ label, value, sub, color, bg }) => (
+          {
+            icon: <Coins style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />,
+            value: coins.toFixed(0),
+            label: "Coins",
+            sub: "balance",
+          },
+          {
+            icon: <Hash style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />,
+            value: `${myNumbers.length}/${maxNumbers}`,
+            label: "Numbers",
+            sub: "assigned",
+          },
+          {
+            icon: <Star style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />,
+            value: isActive ? currentPlan.slice(0,1).toUpperCase() + currentPlan.slice(1) : "None",
+            label: "Plan",
+            sub: isActive ? "active" : "inactive",
+          },
+        ].map(({ icon, value, label, sub }, i) => (
           <div key={label} style={{
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-            padding: "14px 8px", borderRadius: 16,
-            background: bg, border: "1px solid var(--sep)",
-            backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+            flex: 1,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+            borderLeft: i > 0 ? "1px solid var(--sep)" : "none",
+            padding: "0 8px",
           }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color, lineHeight: 1 }}>{value}</span>
-            <span style={{ fontSize: 10, color: "var(--text-2)", fontWeight: 600 }}>{label}</span>
-            <span style={{ fontSize: 9, color: "var(--text-3)" }}>{sub}</span>
+            <div style={{
+              width: 38, height: 38, borderRadius: "50%",
+              border: "1px solid rgba(128,128,128,0.35)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              marginBottom: 4,
+            }}>
+              {icon}
+            </div>
+            <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)", lineHeight: 1 }}>{value}</span>
+            <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 500 }}>{label}</span>
+            <span style={{ fontSize: 11, color: "var(--text-3)" }}>{sub}</span>
           </div>
         ))}
       </div>
 
-      {/* ── Mobile Number Alert (if not verified) ─────────── */}
-      {!userPhone || !userPhoneVerified ? (
+      {/* ── Add mobile number banner (if not verified) ───────── */}
+      {(!userPhone || !userPhoneVerified) && (
         <button
           onClick={openPhoneSheet}
           style={{
             width: "100%", textAlign: "left",
-            padding: "14px 16px", borderRadius: 16,
-            background: "rgba(255,149,0,0.10)",
-            border: "1px solid rgba(255,149,0,0.30)",
-            display: "flex", alignItems: "center", gap: 12,
+            padding: "16px 16px",
+            background: "transparent", border: "none",
+            display: "flex", alignItems: "center", gap: 14,
             cursor: "pointer",
+            borderBottom: "1px solid var(--sep)",
+            WebkitTapHighlightColor: "transparent",
           }}
+          onPointerDown={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+          onPointerUp={(e) => (e.currentTarget.style.background = "transparent")}
+          onPointerLeave={(e) => (e.currentTarget.style.background = "transparent")}
         >
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,149,0,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Smartphone style={{ width: 16, height: 16, color: "#ff9f0a" }} />
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+            background: "rgba(255,255,255,0.08)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Smartphone style={{ width: 22, height: 22, color: "var(--text-1)", strokeWidth: 1.5 }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: "#ff9f0a", margin: 0 }}>
+            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", margin: 0 }}>
               {!userPhone ? "Add your mobile number" : "Verify your mobile number"}
             </p>
-            <p style={{ fontSize: 12, color: "var(--text-2)", margin: "2px 0 0", lineHeight: 1.3 }}>
+            <p style={{ fontSize: 13, color: "var(--text-2)", margin: "3px 0 0", lineHeight: 1.4 }}>
               {!userPhone
                 ? "Required to call and receive calls on PRaww+"
                 : `${userPhone} — tap to verify`}
             </p>
           </div>
-          <ChevronRight style={{ width: 14, height: 14, color: "#ff9f0a", flexShrink: 0 }} />
+          <ChevronRight style={{ width: 16, height: 16, color: "var(--text-3)", flexShrink: 0 }} />
         </button>
-      ) : null}
+      )}
 
-      {/* ── Account ───────────────────────────────────────── */}
+      {/* ── Account ───────────────────────────────────────────── */}
       <Section title="Account">
         <Row
           icon={<Smartphone size={15} />}
-          iconBg={userPhoneVerified ? "rgba(48,209,88,0.20)" : "rgba(255,149,0,0.20)"}
-          iconColor={userPhoneVerified ? "#30d158" : "#ff9f0a"}
           label="Mobile Number"
-          value={userPhone
-            ? (userPhoneVerified ? userPhone : `${userPhone} · Unverified`)
-            : "Not set"}
+          value={userPhone ? (userPhoneVerified ? userPhone : `${userPhone} · Unverified`) : "Not set"}
           onClick={openPhoneSheet}
         />
-        <Row icon={<Hash size={15} />} iconBg="rgba(10,132,255,0.20)" iconColor="hsl(var(--primary))"
-          label="DID Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
-        <Row icon={<Star size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
-          label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
+        <Row icon={<Hash size={15} />} label="DID Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
+        <Row icon={<Star size={15} />} label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
           onClick={() => { setSelectedPlan(currentPlan as "basic" | "pro"); setSheet("plan"); }} />
-        <Row icon={<Mail size={15} />} iconBg="rgba(120,65,190,0.20)" iconColor="#bf5af2"
-          label="Email / Login" value={user?.email ?? user?.username ?? ""} chevron={false} />
+        <Row icon={<Mail size={15} />} label="Email / Login" value={user?.email ?? user?.username ?? ""} chevron={false} />
       </Section>
 
-      {/* ── Billing ───────────────────────────────────────── */}
+      {/* ── Billing ───────────────────────────────────────────── */}
       <Section title="Billing">
-        <Row icon={<Coins size={15} />} iconBg="rgba(255,214,10,0.20)" iconColor="#ffd60a"
-          label="Coin Balance" value={`${coins} coins`} chevron={false} />
-        <Row icon={<Plus size={15} />} iconBg="rgba(48,209,88,0.20)" iconColor="#30d158"
-          label="Top Up Coins" onClick={() => setSheet("topup")} />
-        <Row icon={<CreditCard size={15} />} iconBg="rgba(94,92,230,0.20)" iconColor="#5e5ce6"
-          label="Payment Methods" value="PayFast" chevron={false} />
-        <Row icon={<Receipt size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
-          label="Transaction History" onClick={() => setSheet("history")} />
+        <Row icon={<Coins size={15} />} label="Coin Balance" value={`${coins} coins`} chevron={false} />
+        <Row icon={<Plus size={15} />} label="Top Up Coins" onClick={() => setSheet("topup")} />
+        <Row icon={<CreditCard size={15} />} label="Payment Methods" value="PayFast" chevron={false} />
+        <Row icon={<Receipt size={15} />} label="Transaction History" onClick={() => setSheet("history")} />
       </Section>
 
-      {/* ── Appearance ────────────────────────────────────── */}
-      <Section title="Appearance">
-        <Row
-          icon={<ThemeIcon size={15} />}
-          iconBg={isDark ? "rgba(94,92,230,0.20)" : "rgba(255,214,10,0.20)"}
-          iconColor={isDark ? "#5e5ce6" : "#ffd60a"}
-          label="Theme"
-          value={themeLabel[theme]}
-          onClick={() => setTheme(themeNext[theme])}
-        />
-      </Section>
-
-      {/* ── Preferences ───────────────────────────────────── */}
+      {/* ── Preferences ───────────────────────────────────────── */}
       <Section title="Preferences">
-        <Row icon={<Bell size={15} />} iconBg="rgba(255,69,58,0.20)" iconColor="#ff453a"
-          label="Notifications" onClick={() => setLocation("/notifications")} />
-        <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.20)" iconColor="#30d158"
-          label="Call Settings" onClick={() => setLocation("/call-settings")} />
-        <Row icon={<Mic size={15} />} iconBg="rgba(255,149,0,0.20)" iconColor="#ff9500"
-          label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
+        <Row icon={<ThemeIcon size={15} />} label="Theme" value={themeLabel[theme]} onClick={() => setTheme(themeNext[theme])} />
+        <Row icon={<Bell size={15} />} label="Notifications" onClick={() => setLocation("/notifications")} />
+        <Row icon={<Phone size={15} />} label="Call Settings" onClick={() => setLocation("/call-settings")} />
+        <Row icon={<Mic size={15} />} label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
 
-      {/* ── Dashboard Access ──────────────────────────────── */}
+      {/* ── Dashboard Access ──────────────────────────────────── */}
       {(authUser?.isAdmin || authUser?.role === "reseller") && (
-        <Section title="Dashboard Access">
+        <Section title="Dashboard">
           {authUser?.isAdmin && (
-            <Row icon={<Shield size={15} />} iconBg="rgba(255,69,58,0.20)" iconColor="#ff453a"
-              label="Admin Panel" onClick={() => setLocation("/admin")} />
+            <Row icon={<Shield size={15} />} label="Admin Panel" onClick={() => setLocation("/admin")} />
           )}
           {authUser?.role === "reseller" && (
-            <Row icon={<TrendingUp size={15} />} iconBg="rgba(175,82,222,0.20)" iconColor="#af52de"
-              label="Reseller Dashboard" onClick={() => setLocation("/reseller")} />
+            <Row icon={<TrendingUp size={15} />} label="Reseller Dashboard" onClick={() => setLocation("/reseller")} />
           )}
         </Section>
       )}
 
-      {/* ── Legal & Support ───────────────────────────────── */}
+      {/* ── Legal & Support ───────────────────────────────────── */}
       <Section title="Legal & Support">
-        <Row icon={<FileText size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
-          label="Terms of Service" onClick={() => setSheet("terms")} />
-        <Row icon={<ShieldCheck size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
-          label="Privacy Policy" onClick={() => setSheet("privacy")} />
-        <Row icon={<HelpCircle size={15} />} iconBg="rgba(10,132,255,0.20)" iconColor="hsl(var(--primary))"
-          label="Help / Support" value={CONTACT_EMAIL}
+        <Row icon={<FileText size={15} />} label="Terms of Service" onClick={() => setSheet("terms")} />
+        <Row icon={<ShieldCheck size={15} />} label="Privacy Policy" onClick={() => setSheet("privacy")} />
+        <Row icon={<HelpCircle size={15} />} label="Help / Support" value={CONTACT_EMAIL}
           onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=PRaww+ Support`, "_blank")} />
-        <Row icon={<Mail size={15} />} iconBg="rgba(48,209,88,0.20)" iconColor="#30d158"
-          label="Contact Us" value={CONTACT_EMAIL} onClick={() => setSheet("contact")} />
+        <Row icon={<Mail size={15} />} label="Contact Us" onClick={() => setSheet("contact")} />
       </Section>
 
-      {/* ── Bottom danger ─────────────────────────────────── */}
-      <div className="section-card">
-        <Row icon={<LogOut size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
-          label="Log Out" danger onClick={logout} />
-        <div className="row-sep" />
-        <Row icon={<Trash2 size={15} />} iconBg="rgba(255,69,58,0.15)" iconColor="#ff453a"
-          label="Delete Account" danger
+      {/* ── Account actions ───────────────────────────────────── */}
+      <Section title="Account Actions">
+        <Row icon={<LogOut size={15} />} label="Log Out" danger onClick={logout} />
+        <Row icon={<Trash2 size={15} />} label="Delete Account" danger
           onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=Delete My Account&body=Please delete my account. Email: ${user?.email ?? user?.username ?? ""}`, "_blank")} />
-      </div>
+      </Section>
 
-      <p style={{ textAlign: "center", fontSize: 10, color: "var(--text-3)", paddingBottom: 4 }}>PRaww+ · {CONTACT_EMAIL}</p>
+      <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)", padding: "24px 0 4px" }}>PRaww+ · {CONTACT_EMAIL}</p>
 
-      {/* ── Sheet: Top Up ─────────────────────────────────── */}
+      {/* ── Sheet: Top Up ─────────────────────────────────────── */}
       {sheet === "topup" && (
         <Modal title="Top Up Coins" onClose={() => setSheet("none")}>
           <p style={{ textAlign: "center", fontSize: 13, color: "var(--text-2)", marginBottom: 16 }}>1 coin ≈ R0.90 · ~1 min of call time</p>
@@ -680,10 +663,8 @@ export default function Profile() {
                   style={{
                     padding: "12px 0", borderRadius: 14, display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
                     background: active ? "rgba(255,214,10,0.15)" : "var(--glass-bg)",
-                    border: `1px solid ${active ? "rgba(255,214,10,0.30)" : "var(--glass-border)"}`,
-                    backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+                    border: `1px solid ${active ? "rgba(255,214,10,0.30)" : "transparent"}`,
                     cursor: "pointer", color: active ? "#ffd60a" : "var(--text-2)", fontWeight: 700,
-                    boxShadow: active ? "0 2px 12px rgba(255,214,10,0.20)" : "none",
                     transition: "all 0.18s",
                   }}>
                   <span style={{ fontSize: 13 }}>R{amt}</span>
@@ -699,11 +680,11 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Subscription Plan ───────────────────────── */}
+      {/* ── Sheet: Subscription Plan ───────────────────────────── */}
       {sheet === "plan" && (
         <Modal title="Subscription Plan" onClose={() => setSheet("none")}>
           {isActive && (
-            <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 14, background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)" }}>
+            <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 14, background: "rgba(48,209,88,0.10)" }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: "#30d158" }}>
                 {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} Plan — Active
               </p>
@@ -723,14 +704,12 @@ export default function Profile() {
                   style={{
                     padding: "16px 12px", borderRadius: 16, textAlign: "left",
                     background: active ? (isProPlan ? "rgba(120,65,190,0.18)" : "rgba(10,132,255,0.18)") : "var(--glass-bg)",
-                    border: `1px solid ${active ? (isProPlan ? "rgba(120,65,190,0.30)" : "rgba(10,132,255,0.30)") : "var(--glass-border)"}`,
-                    backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
-                    cursor: "pointer",
-                    transition: "all 0.18s",
+                    border: `1px solid ${active ? (isProPlan ? "rgba(120,65,190,0.30)" : "rgba(10,132,255,0.30)") : "transparent"}`,
+                    cursor: "pointer", transition: "all 0.18s",
                   }}>
-                  {isProPlan ? <Zap style={{ width: 16, height: 16, color: "#bf5af2", marginBottom: 8 }} /> : <Star style={{ width: 16, height: 16, color: "hsl(var(--primary))", marginBottom: 8 }} />}
+                  {isProPlan ? <Zap style={{ width: 16, height: 16, color: active ? "#bf5af2" : "var(--text-2)", marginBottom: 8 }} /> : <Star style={{ width: 16, height: 16, color: active ? "hsl(var(--primary))" : "var(--text-2)", marginBottom: 8 }} />}
                   <p style={{ fontSize: 14, fontWeight: 700, color: active ? (isProPlan ? "#bf5af2" : "hsl(var(--primary))") : "var(--text-1)" }}>{plan.name}</p>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: active ? (isProPlan ? "#bf5af2" : "hsl(var(--primary))") : "var(--text-2)", opacity: 0.85, marginTop: 2 }}>R{plan.price}/mo</p>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: active ? (isProPlan ? "#bf5af2" : "hsl(var(--primary))") : "var(--text-2)", marginTop: 2 }}>R{plan.price}/mo</p>
                   <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>{plan.maxNumbers} number{plan.maxNumbers > 1 ? "s" : ""}</p>
                 </button>
               );
@@ -743,7 +722,7 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Transaction History ──────────────────────── */}
+      {/* ── Sheet: Transaction History ──────────────────────────── */}
       {sheet === "history" && (
         <Modal title="Transaction History" onClose={() => setSheet("none")}>
           {recentPayments.length === 0 ? (
@@ -774,10 +753,8 @@ export default function Profile() {
                       <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)" }}>R{p.amount.toFixed(2)}</p>
                       <span style={{
                         display: "inline-block", marginTop: 4,
-                        fontSize: 10, fontWeight: 700, textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                        padding: "3px 8px", borderRadius: 6,
-                        background: statusBg, color: statusColor,
+                        fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
+                        padding: "3px 8px", borderRadius: 6, background: statusBg, color: statusColor,
                       }}>
                         {statusLabel}
                       </span>
@@ -805,7 +782,7 @@ export default function Profile() {
                 return (
                   <div key={n.id} className="tx-card" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(48,209,88,0.14)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid rgba(48,209,88,0.30)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                         <Phone style={{ width: 14, height: 14, color: "#30d158" }} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -815,7 +792,7 @@ export default function Profile() {
                       <button
                         onClick={() => { if (!locked) { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); } }}
                         disabled={locked}
-                        style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: locked ? "var(--surface-1)" : "var(--glass-bg)", border: "1px solid var(--glass-border)", color: locked ? "var(--text-3)" : "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: locked ? "default" : "pointer", opacity: locked ? 0.5 : 1 }}>
+                        style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: "var(--glass-bg)", border: "none", color: locked ? "var(--text-3)" : "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: locked ? "default" : "pointer", opacity: locked ? 0.5 : 1 }}>
                         <Shuffle style={{ width: 11, height: 11 }} /> Change
                       </button>
                       <button
@@ -826,7 +803,7 @@ export default function Profile() {
                       </button>
                     </div>
                     {locked && daysLeft > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 8, background: "rgba(255,149,0,0.10)", border: "1px solid rgba(255,149,0,0.22)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 8, background: "rgba(255,149,0,0.10)" }}>
                         <ShieldCheck style={{ width: 12, height: 12, color: "#ff9f0a", flexShrink: 0 }} />
                         <p style={{ fontSize: 11, color: "#ff9f0a", margin: 0 }}>
                           Locked for {daysLeft} more day{daysLeft !== 1 ? "s" : ""} · unlocks {lockedUntil ? format(lockedUntil, "MMM d, yyyy") : ""}
@@ -845,7 +822,7 @@ export default function Profile() {
             </div>
           )}
           <button onClick={() => { setSheet("none"); setLocation("/buy-number"); }} disabled={!isActive || !canAddMore}
-            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: isActive && canAddMore ? "hsl(var(--primary))" : "var(--glass-bg)", border: isActive && canAddMore ? "none" : "1px solid var(--glass-border)", color: isActive && canAddMore ? "#fff" : "var(--text-3)", fontSize: 15, fontWeight: 600, cursor: isActive && canAddMore ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: isActive && canAddMore ? "hsl(var(--primary))" : "var(--glass-bg)", border: "none", color: isActive && canAddMore ? "#fff" : "var(--text-3)", fontSize: 15, fontWeight: 600, cursor: isActive && canAddMore ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <Plus style={{ width: 16, height: 16 }} />
             {!isActive ? "Subscribe to buy numbers" : !canAddMore ? `Limit reached (${maxNumbers} max)` : "Add Number"}
           </button>
@@ -861,7 +838,7 @@ export default function Profile() {
                 Add your mobile number to enable app-to-app calling with other PRaww+ users worldwide. Each number can only be registered once.
               </p>
               {userPhoneVerified && userPhone && (
-                <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)" }}>
+                <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(48,209,88,0.10)" }}>
                   <p style={{ fontSize: 13, color: "#30d158", fontWeight: 600 }}>
                     <CheckCircle2 style={{ width: 13, height: 13, display: "inline", marginRight: 6 }} />
                     Current: {userPhone}
@@ -873,223 +850,96 @@ export default function Profile() {
                 type="tel"
                 value={phoneInput}
                 onChange={(e) => setPhoneInput(e.target.value)}
-                placeholder="+27821234567"
+                placeholder="+27 82 123 4567"
                 style={{
-                  width: "100%", padding: "14px 16px", borderRadius: 12,
-                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-                  color: "var(--text-1)", fontSize: 17, fontFamily: "monospace",
-                  outline: "none", boxSizing: "border-box",
+                  width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 16,
+                  background: "var(--glass-bg)", border: "none",
+                  color: "var(--text-1)", outline: "none", boxSizing: "border-box",
                 }}
-                onKeyDown={(e) => e.key === "Enter" && handleSendOtp()}
               />
               {phoneMsg && (
-                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") || phoneMsg.includes("generated") ? "#30d158" : "#ff453a" }}>
-                  {phoneMsg}
-                </p>
+                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>
               )}
-              <button
-                onClick={handleSendOtp}
-                disabled={phoneLoading || !phoneInput.trim()}
-                style={{
-                  width: "100%", padding: "14px 0", borderRadius: 14,
-                  background: "hsl(var(--primary))", border: "none",
-                  color: "#fff", fontSize: 15, fontWeight: 600,
-                  cursor: phoneLoading || !phoneInput.trim() ? "default" : "pointer",
-                  opacity: phoneLoading || !phoneInput.trim() ? 0.55 : 1,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}
-              >
-                {phoneLoading
-                  ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
-                  : "Send Verification Code"}
+              {devOtp && (
+                <div style={{ padding: "8px 12px", borderRadius: 10, background: "rgba(255,214,10,0.10)", textAlign: "center" }}>
+                  <p style={{ fontSize: 12, color: "#ffd60a" }}>Dev OTP: <strong>{devOtp}</strong></p>
+                </div>
+              )}
+              <button onClick={handleSendOtp} disabled={phoneLoading}
+                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Send Verification Code"}
               </button>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(10,132,255,0.14)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                  <Smartphone style={{ width: 22, height: 22, color: "hsl(var(--primary))" }} />
-                </div>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)" }}>Code sent!</p>
-                <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 4, lineHeight: 1.5 }}>
-                  A 6-digit code was sent via SMS to{" "}
-                  <span style={{ color: "var(--text-1)", fontWeight: 600 }}>{phoneInput}</span>
-                </p>
-              </div>
-
-              {/* Countdown timer */}
-              {otpCountdown !== null && (
-                <div style={{
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  padding: "10px 16px", borderRadius: 12,
-                  background: otpCountdown === 0
-                    ? "rgba(255,69,58,0.10)"
-                    : otpCountdown <= 30
-                      ? "rgba(255,149,0,0.10)"
-                      : "rgba(10,132,255,0.08)",
-                  border: `1px solid ${otpCountdown === 0 ? "rgba(255,69,58,0.30)" : otpCountdown <= 30 ? "rgba(255,149,0,0.30)" : "rgba(10,132,255,0.18)"}`,
-                }}>
-                  {otpCountdown === 0 ? (
-                    <p style={{ fontSize: 13, fontWeight: 600, color: "#ff453a", textAlign: "center" }}>
-                      Code expired — request a new one below
-                    </p>
-                  ) : (
-                    <>
-                      <p style={{ fontSize: 13, color: otpCountdown <= 30 ? "#ff9500" : "var(--text-2)" }}>
-                        Code expires in
-                      </p>
-                      <p style={{
-                        fontSize: 15, fontWeight: 700, fontFamily: "monospace",
-                        color: otpCountdown <= 30 ? "#ff453a" : otpCountdown <= 60 ? "#ff9500" : "hsl(var(--primary))",
-                        minWidth: 36, textAlign: "center",
-                      }}>
-                        {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, "0")}
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-
+              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
+                Enter the 6-digit code sent to {phoneInput}.
+                {otpCountdown !== null && otpCountdown > 0 && (
+                  <span style={{ color: "var(--text-3)" }}> Expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, "0")}</span>
+                )}
+              </p>
               {devOtp && (
-                <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(255,214,10,0.10)", border: "1px solid rgba(255,214,10,0.25)" }}>
-                  <p style={{ fontSize: 11, color: "#ffd60a", fontWeight: 600, marginBottom: 4 }}>DEV MODE — Code (SMS Portal not configured):</p>
-                  <p style={{ fontSize: 24, fontWeight: 700, fontFamily: "monospace", color: "#ffd60a", letterSpacing: 6 }}>{devOtp}</p>
+                <div style={{ padding: "8px 12px", borderRadius: 10, background: "rgba(255,214,10,0.10)", textAlign: "center" }}>
+                  <p style={{ fontSize: 12, color: "#ffd60a" }}>Dev OTP: <strong>{devOtp}</strong></p>
                 </div>
-              )}
-              {phoneMsg && (
-                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") || phoneMsg.includes("generated") ? "var(--text-2)" : "#ff453a" }}>
-                  {phoneMsg}
-                </p>
               )}
               <input
                 type="text"
                 inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
                 value={otpInput}
                 onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 placeholder="000000"
-                disabled={otpCountdown === 0}
                 style={{
-                  width: "100%", padding: "18px 16px", borderRadius: 12,
-                  background: otpCountdown === 0 ? "var(--glass-bg)" : "var(--glass-bg)",
-                  border: "1px solid var(--glass-border)",
-                  color: otpCountdown === 0 ? "var(--text-3)" : "var(--text-1)",
-                  fontSize: 28, fontFamily: "monospace",
-                  outline: "none", textAlign: "center", letterSpacing: 12,
-                  boxSizing: "border-box", opacity: otpCountdown === 0 ? 0.45 : 1,
-                  cursor: otpCountdown === 0 ? "not-allowed" : "text",
+                  width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 28,
+                  background: "var(--glass-bg)", border: "none",
+                  color: "var(--text-1)", outline: "none", boxSizing: "border-box",
+                  textAlign: "center", letterSpacing: "0.3em", fontWeight: 700,
                 }}
-                onKeyDown={(e) => e.key === "Enter" && handleVerifyOtp()}
-                autoFocus
               />
-              <button
-                onClick={handleVerifyOtp}
-                disabled={phoneLoading || otpInput.length !== 6 || otpCountdown === 0}
-                style={{
-                  width: "100%", padding: "14px 0", borderRadius: 14,
-                  background: "rgba(48,209,88,0.85)", border: "none",
-                  color: "#fff", fontSize: 15, fontWeight: 600,
-                  cursor: phoneLoading || otpInput.length !== 6 || otpCountdown === 0 ? "default" : "pointer",
-                  opacity: phoneLoading || otpInput.length !== 6 || otpCountdown === 0 ? 0.55 : 1,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}
-              >
-                {phoneLoading
-                  ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" />
-                  : "Verify Number"}
+              {phoneMsg && (
+                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>
+              )}
+              <button onClick={handleVerifyOtp} disabled={phoneLoading || otpInput.length < 6}
+                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: otpInput.length < 6 ? 0.5 : 1 }}>
+                {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Verify"}
               </button>
-              <button
-                onClick={() => {
-                  setPhoneMsg(null);
-                  setOtpInput("");
-                  handleSendOtp();
-                }}
-                disabled={phoneLoading}
-                style={{
-                  background: "none", border: "none", fontSize: 13, cursor: phoneLoading ? "default" : "pointer",
-                  textAlign: "center", opacity: phoneLoading ? 0.5 : 1,
-                  color: otpCountdown === 0 ? "#ff453a" : "hsl(var(--primary))",
-                  fontWeight: otpCountdown === 0 ? 600 : 400,
-                }}
-              >
-                {otpCountdown === 0 ? "Request new code" : "Resend code"}
-              </button>
-              <button
-                onClick={() => { setOtpStep("enter-phone"); setPhoneMsg(null); setOtpCountdown(null); }}
-                style={{ background: "none", border: "none", color: "var(--text-3)", fontSize: 12, cursor: "pointer", textAlign: "center" }}
-              >
-                Use a different number
+              <button onClick={() => { setOtpStep("enter-phone"); setPhoneMsg(null); }}
+                style={{ background: "none", border: "none", color: "var(--text-2)", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
+                ← Change number
               </button>
             </div>
           )}
         </Modal>
       )}
 
-      {/* ── Sheet: Terms of Service ────────────────────────── */}
+      {/* ── Sheet: Terms ──────────────────────────────────────── */}
       {sheet === "terms" && (
         <Modal title="Terms of Service" onClose={() => setSheet("none")}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16, fontSize: 14, color: "var(--text-2)", lineHeight: 1.6 }}>
-            <p style={{ color: "var(--text-1)", fontWeight: 600 }}>Last updated: March 2025</p>
-            {[
-              ["1. Acceptance of Terms", "By accessing or using PRaww+, you agree to be bound by these Terms of Service. If you do not agree, you may not use the service."],
-              ["2. Service Description", "PRaww+ provides VoIP calling services, virtual phone number management, and related communication tools for users in South Africa."],
-              ["3. Subscriptions & Billing", "Subscriptions are billed monthly via PayFast. Your subscription renews automatically unless cancelled. Coin balances are non-refundable once purchased and consumed."],
-              ["4. Acceptable Use", "You agree not to use the service for spam, harassment, illegal activities, or any purpose that violates South African law."],
-              ["5. Limitation of Liability", "PRaww+ is provided \"as is.\" We do not guarantee uninterrupted service and are not liable for any damages arising from use of the service."],
-            ].map(([title, body]) => (
-              <div key={title as string}>
-                <p style={{ fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>{title}</p>
-                <p>{body}</p>
-              </div>
-            ))}
-            <div style={{ paddingTop: 8, borderTop: "1px solid var(--sep)" }}>
-              <p>Questions? Contact us at <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "hsl(var(--primary))" }}>{CONTACT_EMAIL}</a></p>
-            </div>
-          </div>
+          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+            By using PRaww+, you agree to use the service for lawful purposes only. VoIP calls are subject to network availability. PRaww+ is not liable for call quality issues caused by network conditions. Subscription fees are billed monthly and are non-refundable.
+          </p>
         </Modal>
       )}
 
-      {/* ── Sheet: Privacy Policy ──────────────────────────── */}
+      {/* ── Sheet: Privacy ────────────────────────────────────── */}
       {sheet === "privacy" && (
         <Modal title="Privacy Policy" onClose={() => setSheet("none")}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16, fontSize: 14, color: "var(--text-2)", lineHeight: 1.6 }}>
-            <p style={{ color: "var(--text-1)", fontWeight: 600 }}>Last updated: March 2025</p>
-            {[
-              ["1. Information We Collect", "We collect your name, email address, phone numbers you claim, call metadata, and payment records. We do not store call audio."],
-              ["2. How We Use Your Information", "Your data is used to provide the service, process payments, send account-related emails, and improve our platform. We do not sell your personal information."],
-              ["3. Data Storage & Security", "Your data is stored securely in encrypted databases. Payment processing is handled by PayFast."],
-              ["4. Third-Party Services", "We use FreeSWITCH for VoIP services and PayFast for payments. These providers have their own privacy policies."],
-              ["5. Your Rights", "You may request access to, correction of, or deletion of your personal data by contacting us. Account deletion requests are processed within 30 days."],
-            ].map(([title, body]) => (
-              <div key={title as string}>
-                <p style={{ fontWeight: 600, color: "var(--text-1)", marginBottom: 4 }}>{title}</p>
-                <p>{body}</p>
-              </div>
-            ))}
-            <div style={{ paddingTop: 8, borderTop: "1px solid var(--sep)" }}>
-              <p>We comply with the Protection of Personal Information Act (POPIA) of South Africa.</p>
-            </div>
-          </div>
+          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+            PRaww+ collects minimal data required to operate the service. Your mobile number and email are used for authentication and calling identity. Call metadata may be stored for billing purposes. We do not sell your data to third parties.
+          </p>
         </Modal>
       )}
 
-      {/* ── Sheet: Contact ─────────────────────────────────── */}
+      {/* ── Sheet: Contact ────────────────────────────────────── */}
       {sheet === "contact" && (
         <Modal title="Contact Us" onClose={() => setSheet("none")}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div className="tx-card" style={{ padding: "16px" }}>
-              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
-                For support, billing queries, or feature requests, reach out to our team. We respond within 24 hours on business days.
-              </p>
-            </div>
-            <button
-              onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=PRaww+ Support`, "_blank")}
-              style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Mail style={{ width: 16, height: 16 }} />
-              Email Support
-            </button>
-          </div>
+          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 16 }}>
+            For support, billing enquiries, or general questions, reach us at:
+          </p>
+          <button onClick={() => window.open(`mailto:${CONTACT_EMAIL}`, "_blank")}
+            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            {CONTACT_EMAIL}
+          </button>
         </Modal>
       )}
     </div>

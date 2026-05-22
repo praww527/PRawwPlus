@@ -1,6 +1,6 @@
 import { useRef, useState, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Phone, Clock, Users, Voicemail, Settings } from "lucide-react";
+import { Phone, Clock, Users, Voicemail } from "lucide-react";
 import { VertoInit } from "@/components/VertoInit";
 
 interface LayoutProps {
@@ -14,11 +14,10 @@ export const NAV_Z          = 9999;
 export const MODAL_Z        = 300;
 
 const navItems = [
-  { href: "/dashboard", label: "Keypad",   icon: Phone    },
-  { href: "/calls",     label: "Recents",  icon: Clock    },
-  { href: "/voicemail", label: "Voicemail",icon: Voicemail },
-  { href: "/contacts",  label: "Contacts", icon: Users    },
-  { href: "/profile",   label: "Settings", icon: Settings },
+  { href: "/dashboard", label: "Keypad",    icon: Phone    },
+  { href: "/calls",     label: "Recents",   icon: Clock    },
+  { href: "/voicemail", label: "Voicemail", icon: Voicemail },
+  { href: "/contacts",  label: "Contacts",  icon: Users    },
 ];
 
 export function Layout({ children }: LayoutProps) {
