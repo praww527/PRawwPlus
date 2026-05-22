@@ -170,6 +170,12 @@ setInterval(() => {
 }, 60_000);
 
 app.use(cookieParser());
+// High-limit body parsers for endpoints that accept base64-encoded uploads
+// (profile images up to ~4 MB, verification docs up to ~5 MB).
+// These must be registered *before* the default parsers so Express uses the
+// correct limit for matching paths.
+app.use("/api/users/me/profile-image",      express.json({ limit: "6mb" }));
+app.use("/api/users/me/request-verification", express.json({ limit: "6mb" }));
 app.use(express.json({ limit: "256kb" }));
 app.use(express.urlencoded({ extended: true, limit: "256kb" }));
 app.use(authMiddleware);

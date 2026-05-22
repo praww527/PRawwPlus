@@ -73,7 +73,8 @@ export default function VoicemailPage() {
   const [expanded, setExpanded]   = useState<string | null>(null);
   const [filter, setFilter]       = useState<VMFilter>("all");
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef    = useRef<HTMLAudioElement | null>(null);
+  const fetchingRef = useRef<Set<string>>(new Set());
 
   const loadVoicemail = async (silent = false) => {
     if (!silent) setLoading(true); else setRefreshing(true);
@@ -98,6 +99,9 @@ export default function VoicemailPage() {
 
   const getAudioUrl = async (id: string): Promise<string | null> => {
     if (audioUrls[id]) return audioUrls[id];
+    // Prevent concurrent fetches for the same message (rapid double-click guard)
+    if (fetchingRef.current.has(id)) return null;
+    fetchingRef.current.add(id);
     try {
       const res  = await fetch(`/api/voicemail/message?path=${encodeURIComponent(id)}`, { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -108,6 +112,8 @@ export default function VoicemailPage() {
     } catch (err: any) {
       toast({ title: "Cannot load audio", description: err.message, variant: "destructive" });
       return null;
+    } finally {
+      fetchingRef.current.delete(id);
     }
   };
 

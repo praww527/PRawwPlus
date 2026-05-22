@@ -68,16 +68,30 @@ export default function ResetPassword() {
                   Go to Login
                 </Button>
               </div>
+            ) : !token ? (
+              /* No token in URL — show a clear error state instead of a
+                 confusing disabled form the user can't interact with. */
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-red-500/15 border border-red-500/25 flex items-center justify-center mx-auto mb-5">
+                  <Phone className="h-7 w-7 text-red-400" />
+                </div>
+                <h2 className="text-xl font-display font-bold text-white mb-2">Invalid reset link</h2>
+                <p className="text-white/55 text-sm mb-6">
+                  This link is missing a token, has expired, or has already been used.
+                  Request a new link from the login screen.
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full h-12 border-white/10 text-white/80 hover:bg-white/5"
+                  onClick={() => setLocation("/login")}
+                >
+                  Back to Login
+                </Button>
+              </div>
             ) : (
               <>
                 <h1 className="text-2xl font-display font-bold text-white mb-1">Reset password</h1>
                 <p className="text-white/45 text-sm mb-8">Choose a new password for your account</p>
-
-                {!token && (
-                  <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-red-400 text-sm mb-5">
-                    Invalid or expired reset link. Please request a new one.
-                  </div>
-                )}
 
                 <form onSubmit={handleSubmit} className="space-y-5">
                   <div className="space-y-1.5">
@@ -121,7 +135,7 @@ export default function ResetPassword() {
 
                   <Button
                     type="submit"
-                    disabled={loading || !token}
+                    disabled={loading}
                     className="w-full h-12 text-base bg-primary hover:bg-primary/90"
                   >
                     {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Reset Password"}

@@ -238,7 +238,9 @@ export class VertoClient {
     if (this.pc) {
       const sender = this.pc.getSenders().find((s) => s.track?.kind === "audio");
       if (sender && (sender as any).dtmf) {
-        try { (sender as any).dtmf.insertDTMF(digit, 100, 70); } catch {}
+        try { (sender as any).dtmf.insertDTMF(digit, 100, 70); } catch (dtmfErr) {
+          console.warn("[Verto] DTMF insertDTMF failed, falling back to verto.info only:", dtmfErr);
+        }
       }
     }
 
@@ -253,7 +255,7 @@ export class VertoClient {
   // ─── WebSocket Handlers ───────────────────────────────────────────────────
 
   private async handleOpen() {
-    console.log("[Verto] WebSocket open — sending login", {
+    console.info("[Verto] WebSocket open — sending login", {
       login:  this.config.login,
       sessid: this.sessId,
     });
@@ -268,9 +270,9 @@ export class VertoClient {
       // Successful login — reset backoff counters
       this.reconnectAttempt = 0;
       this.permDeniedCount  = 0;
-      console.log("[Verto] Login OK — sending verto.clientReady");
+      console.info("[Verto] Login OK — sending verto.clientReady");
       this.sendNotify("verto.clientReady", { sessid: this.sessId });
-      console.log("[Verto] verto.clientReady sent — marking connected");
+      console.info("[Verto] verto.clientReady sent — marking connected");
       this.callbacks.onConnected();
     } catch (err: unknown) {
       const rpcErr = err as Record<string, unknown> | null;
@@ -298,7 +300,7 @@ export class VertoClient {
   }
 
   private handleClose(ev: CloseEvent) {
-    console.log("[Verto] WebSocket closed", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
+    console.info("[Verto] WebSocket closed", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
     this.callbacks.onDisconnected();
     this.clearAllPending(new Error("WebSocket closed"));
     // Reset call state so stale IDs don't block new incoming calls after reconnect
@@ -330,7 +332,7 @@ export class VertoClient {
           RECONNECT_MAX_MS,
         );
       }
-      console.log(`[Verto] Reconnecting in ${delayMs}ms (attempt ${this.reconnectAttempt})`);
+      console.info(`[Verto] Reconnecting in ${delayMs}ms (attempt ${this.reconnectAttempt})`);
       this.reconnectTimer = setTimeout(() => this.connect(), delayMs);
     }
   }
@@ -386,10 +388,10 @@ export class VertoClient {
         // we must NOT set it again in verto.answer.
         const sdp = (params.sdp as string) ?? "";
         if (this.pc && sdp && !this.remoteSdpSet) {
-          console.log("[Verto] verto.media — applying early-media SDP");
+          console.info("[Verto] verto.media — applying early-media SDP");
           this.remoteSdpSet = true;
           this.pc.setRemoteDescription({ type: "answer", sdp })
-            .then(() => console.log("[Verto] verto.media: remote description set OK"))
+            .then(() => console.info("[Verto] verto.media: remote description set OK"))
             .catch((err: unknown) => {
               console.error("[Verto] verto.media: setRemoteDescription failed:", (err as Error)?.message);
             });
@@ -410,12 +412,12 @@ export class VertoClient {
             // Applying it a second time would throw "InvalidStateError: Cannot
             // set remote answer in state have-remote-answer" and kill audio.
             // The existing RTP session is already flowing — nothing to do.
-            console.log("[Verto] verto.answer: remote SDP already set (early media) — skipping setRemoteDescription");
+            console.info("[Verto] verto.answer: remote SDP already set (early media) — skipping setRemoteDescription");
           } else {
-            console.log("[Verto] verto.answer — applying answer SDP (no early media)");
+            console.info("[Verto] verto.answer — applying answer SDP (no early media)");
             this.remoteSdpSet = true;
             this.pc.setRemoteDescription({ type: "answer", sdp })
-              .then(() => console.log("[Verto] verto.answer: remote description set OK"))
+              .then(() => console.info("[Verto] verto.answer: remote description set OK"))
               .catch((err: unknown) => {
                 console.error("[Verto] verto.answer: setRemoteDescription failed:", (err as Error)?.message);
               });

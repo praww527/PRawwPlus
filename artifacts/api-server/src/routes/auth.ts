@@ -128,7 +128,9 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
           );
         }
       }
-    }).catch(() => {});
+    }).catch((err) => {
+      logger.warn({ err }, "Failed to query admins for new-user notification");
+    });
 
     if (smtpReady && verificationToken) {
       const baseUrl = getBaseUrl(req);

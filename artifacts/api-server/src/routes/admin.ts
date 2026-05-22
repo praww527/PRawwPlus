@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import {
   connectDB,
   UserModel,
@@ -19,6 +19,7 @@ import { eslStatus, sendEslApiCommand } from "../lib/freeswitchESL";
 import { sendAdminPush } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -36,9 +37,11 @@ function requireAdmin(req: any, res: any, next: any) {
 
 function generateReferralCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const charCount = chars.length; // 32 — power of 2, zero modulo bias
+  const buf = randomBytes(8);
   let code = "";
   for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[buf[i] % charCount];
   }
   return code;
 }
@@ -337,8 +340,13 @@ router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res)
   }
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const prevCoins = user.coins;
   user.coins = Math.max(0, user.coins + parsed);
   await user.save();
+  logger.info(
+    { adminId: (req as any).user?._id, targetUserId: userId, adjustment: parsed, prevCoins, newCoins: user.coins },
+    "Admin credit adjustment applied",
+  );
   res.json({ ...user.toObject(), id: user._id });
 });
 

@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { getBaseUrl } from "../lib/appUrl";
 import { getTrustedClientIp } from "../lib/clientIp";
 import { sendCommissionEarningEmail } from "../lib/email";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -62,7 +63,7 @@ function getPayFastCredentials() {
   const passphrase = process.env.PAYFAST_PASSPHRASE;
   const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
   if (isSandbox) {
-    console.warn("[PayFast] PAYFAST_MERCHANT_ID is not set — using sandbox credentials. Set PAYFAST_MERCHANT_ID in production.");
+    logger.warn("[PayFast] PAYFAST_MERCHANT_ID is not set — using sandbox credentials. Set PAYFAST_MERCHANT_ID in production.");
   }
   const paymentUrl = isSandbox
     ? "https://sandbox.payfast.co.za/eng/process"
@@ -268,7 +269,7 @@ router.post("/payments/webhook", async (req, res) => {
         }
       }
     } catch (commissionErr) {
-      console.error("[Commission] Failed to record commission:", commissionErr);
+      logger.error({ err: commissionErr }, "[Commission] Failed to record commission");
     }
 
     if (payment.paymentType === "subscription") {
