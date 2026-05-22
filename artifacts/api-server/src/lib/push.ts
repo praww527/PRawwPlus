@@ -1,5 +1,97 @@
 import { logger } from "./logger";
 
+/**
+ * sendAdminPush — sends a visible push notification from the admin panel.
+ *
+ * Unlike `sendFcmDataMessage` (data-only / silent), this also includes a
+ * FCM `notification` block so Android/iOS displays the banner natively even
+ * when the app is in background or terminated.
+ *
+ * Falls back to the Expo push gateway when only an Expo token is available.
+ */
+export async function sendAdminPush(
+  fcmToken:      string | null | undefined,
+  expoPushToken: string | null | undefined,
+  title:         string,
+  body:          string,
+  data:          Record<string, string> = {},
+): Promise<{ fcmSent: boolean; expoSent: boolean; error?: string }> {
+  let fcmSent  = false;
+  let expoSent = false;
+
+  if (fcmToken) {
+    const projectId    = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail  = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey   = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+    if (projectId && clientEmail && privateKey) {
+      try {
+        const now     = Math.floor(Date.now() / 1000);
+        const payload = {
+          iss: clientEmail, sub: clientEmail,
+          aud: "https://oauth2.googleapis.com/token",
+          iat: now, exp: now + 3600,
+          scope: "https://www.googleapis.com/auth/firebase.messaging",
+        };
+        const { createSign } = await import("node:crypto");
+        const header  = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+        const claims  = Buffer.from(JSON.stringify(payload)).toString("base64url");
+        const signing = `${header}.${claims}`;
+        const signer  = createSign("RSA-SHA256");
+        signer.update(signing);
+        const jwt = `${signing}.${signer.sign(privateKey, "base64url")}`;
+
+        const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const tokenData = (await tokenResp.json()) as { access_token?: string };
+        const accessToken = tokenData.access_token;
+
+        if (accessToken) {
+          const fcmResp = await fetch(
+            `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: {
+                  token: fcmToken,
+                  notification: { title, body },
+                  data: { ...data, title, body },
+                  android: { priority: "HIGH", ttl: "60s", notification: { channel_id: "admin" } },
+                  apns: { payload: { aps: { alert: { title, body }, sound: "default" } } },
+                },
+              }),
+              signal: AbortSignal.timeout(15_000),
+            },
+          );
+          if (fcmResp.ok) {
+            fcmSent = true;
+          } else {
+            logger.warn({ err: await fcmResp.text() }, "[FCM] sendAdminPush FCM error");
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, "[FCM] sendAdminPush threw");
+      }
+    }
+  }
+
+  if (!fcmSent && expoPushToken) {
+    try {
+      await sendExpoPush(expoPushToken, title, body, { ...data, title, body });
+      expoSent = true;
+    } catch (err) {
+      logger.error({ err }, "[Push] sendAdminPush Expo fallback threw");
+    }
+  }
+
+  return { fcmSent, expoSent };
+}
+
 export async function sendExpoPush(
   pushToken: string,
   title: string,

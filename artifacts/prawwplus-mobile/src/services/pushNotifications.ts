@@ -78,5 +78,21 @@ export function formatNotificationPayload(
       body: `You missed a call from extension ${data.fromExtension}`,
     };
   }
+  if (data.type === "call_terminated") {
+    return {
+      title: "Call Ended",
+      body: data.body ?? "Your call was ended by an administrator.",
+    };
+  }
+  if (data.type === "admin_message" || data.type === "update" || data.type === "maintenance") {
+    return {
+      title: data.title ?? "PRaww+",
+      body:  data.body  ?? "",
+    };
+  }
+  // Generic fallback: if the data has title+body, show it
+  if (data.title && data.body) {
+    return { title: data.title, body: data.body };
+  }
   return null;
 }

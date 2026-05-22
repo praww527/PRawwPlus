@@ -16,6 +16,7 @@ import {
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
 import { eslStatus, sendEslApiCommand } from "../lib/freeswitchESL";
+import { sendAdminPush } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
 
@@ -637,16 +638,117 @@ router.post("/admin/calls/:id/hangup", requireAdmin, async (req, res) => {
   (call as any).endedAt      = new Date();
   await call.save();
 
+  // Send push notification to the affected user so their device clears any
+  // stuck call UI immediately (e.g. an "answered" screen that never ended).
+  const callUser = await UserModel.findById(call.userId)
+    .select("fcmToken expoPushToken")
+    .lean();
+  let pushResult: { fcmSent: boolean; expoSent: boolean } = { fcmSent: false, expoSent: false };
+  if (callUser) {
+    pushResult = await sendAdminPush(
+      (callUser as any).fcmToken      ?? null,
+      (callUser as any).expoPushToken ?? null,
+      "Call Ended by Admin",
+      "An administrator has terminated your active call.",
+      {
+        type:    "call_terminated",
+        callId:  String(call._id),
+        fsCallId: call.fsCallId ?? "",
+      },
+    );
+  }
+
   res.json({
     ok:         true,
     eslSent,
     eslWarning,
+    pushResult,
     call: {
       id:        String(call._id),
       status:    call.status,
       fsCallId:  call.fsCallId ?? null,
       failReason: (call as any).failReason,
     },
+  });
+});
+
+// ── Admin Push Broadcast ───────────────────────────────────────────────────────
+
+/**
+ * POST /api/admin/push
+ *
+ * Send a push notification to one user, all users, or all resellers.
+ *
+ * Body:
+ *   target  — "all" | "resellers" | "users" | { userId: "<mongoId>" }
+ *   type    — "update" | "maintenance" | "info" | "admin_message"
+ *   title   — notification title (max 200 chars)
+ *   body    — notification body  (max 1000 chars)
+ *
+ * Returns:
+ *   { sent, fcmOk, expoOk, skipped, errors }
+ */
+router.post("/admin/push", requireAdmin, async (req, res) => {
+  await connectDB();
+
+  const { target, type = "admin_message", title, body } = req.body;
+  if (!title || !body) {
+    res.status(400).json({ error: "title and body are required" });
+    return;
+  }
+
+  const safeTitle = String(title).slice(0, 200);
+  const safeBody  = String(body).slice(0, 1000);
+  const safeType  = ["update", "maintenance", "info", "admin_message"].includes(type)
+    ? type : "admin_message";
+
+  // Resolve target users
+  let userQuery: Record<string, any> = {};
+  if (target && typeof target === "object" && target.userId) {
+    userQuery = { _id: target.userId };
+  } else if (target === "resellers") {
+    userQuery = { role: "reseller" };
+  } else if (target === "users") {
+    userQuery = { role: { $nin: ["reseller", "admin"] } };
+  }
+  // else "all" → empty query matches everyone
+
+  const recipients = await UserModel.find(userQuery)
+    .select("fcmToken expoPushToken")
+    .limit(500)
+    .lean();
+
+  let sent = 0, fcmOk = 0, expoOk = 0, skipped = 0, errors = 0;
+
+  await Promise.all(
+    recipients.map(async (u) => {
+      const fcmToken      = (u as any).fcmToken      ?? null;
+      const expoPushToken = (u as any).expoPushToken ?? null;
+
+      if (!fcmToken && !expoPushToken) { skipped++; return; }
+
+      try {
+        const result = await sendAdminPush(fcmToken, expoPushToken, safeTitle, safeBody, {
+          type: safeType,
+        });
+        sent++;
+        if (result.fcmSent)  fcmOk++;
+        if (result.expoSent) expoOk++;
+        if (!result.fcmSent && !result.expoSent) errors++;
+      } catch {
+        errors++;
+      }
+    }),
+  );
+
+  res.json({
+    ok: true,
+    recipients: recipients.length,
+    sent,
+    fcmOk,
+    expoOk,
+    skipped,
+    errors,
   });
 });
 

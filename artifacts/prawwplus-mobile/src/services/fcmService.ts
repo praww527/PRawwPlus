@@ -103,7 +103,20 @@ export function handleForegroundMessage(message: any): void {
     const uuid = data.callUuid ?? `call-${Date.now()}`;
     const from = data.fromExtension ?? "Unknown";
     callKeepService.displayIncomingCall(uuid, from, `Extension ${from}`);
+    return;
   }
+
+  if (data.type === "call_terminated") {
+    // Admin killed an active call — end any ringing CallKeep UI immediately
+    const uuid = data.callId ?? data.fsCallId;
+    if (uuid) {
+      try { callKeepService.endCall(uuid); } catch { /* ignore */ }
+    }
+    return;
+  }
+
+  // admin_message / update / maintenance / info are handled natively by the
+  // FCM notification payload on Android/iOS; no extra JS action needed in fg.
 }
 
 export function handleBackgroundMessage(message: any): Promise<void> {
@@ -114,6 +127,13 @@ export function handleBackgroundMessage(message: any): Promise<void> {
     const uuid = data.callUuid ?? `call-${Date.now()}`;
     const from = data.fromExtension ?? "Unknown";
     callKeepService.displayIncomingCall(uuid, from, `Extension ${from}`);
+  }
+
+  if (data.type === "call_terminated") {
+    const uuid = data.callId ?? data.fsCallId;
+    if (uuid) {
+      try { callKeepService.endCall(uuid); } catch { /* ignore */ }
+    }
   }
 
   return Promise.resolve();

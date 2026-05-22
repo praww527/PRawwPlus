@@ -14,13 +14,14 @@ import {
   ChevronDown, Trash2, CheckCircle2, Shield, Settings, Megaphone,
   AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
   BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone, PhoneOff,
-  Loader2,
+  Loader2, Bell, BellRing, Send, Users2, Wrench, Info,
 } from "lucide-react";
 
 const TABS = [
   { id: "overview",      label: "Overview",      icon: BarChart3   },
   { id: "users",         label: "Users",         icon: Users       },
   { id: "live",          label: "Live Calls",    icon: Activity    },
+  { id: "push",          label: "Push",          icon: PhoneCall   },
   { id: "referrals",     label: "Referrals",     icon: Link2       },
   { id: "earnings",      label: "Earnings",      icon: BadgeDollarSign },
   { id: "expenses",      label: "Expenses",      icon: Receipt     },
@@ -1079,6 +1080,253 @@ function AnnouncementsTab() {
   );
 }
 
+// ─── Push Notifications Tab ────────────────────────────────────────────────────
+
+const PUSH_TYPES = [
+  { value: "update",       label: "App Update",          icon: RefreshCw,  color: "#1a8cff", preset: { title: "Update Available", body: "A new version of PRaww+ is available. Please update your app." } },
+  { value: "maintenance",  label: "Maintenance",          icon: Wrench,     color: "#f59e0b", preset: { title: "Scheduled Maintenance", body: "PRaww+ will be undergoing maintenance. Service may be briefly interrupted." } },
+  { value: "info",         label: "Service Notice",       icon: Info,       color: "#30d158", preset: { title: "Service Notice", body: "" } },
+  { value: "admin_message",label: "Custom Message",       icon: BellRing,   color: "#a78bfa", preset: { title: "", body: "" } },
+] as const;
+
+const PUSH_TARGETS = [
+  { value: "all",        label: "All users",      icon: Users2   },
+  { value: "users",      label: "Regular users",  icon: Users    },
+  { value: "resellers",  label: "Resellers only", icon: DollarSign },
+] as const;
+
+interface PushResult { recipients: number; sent: number; fcmOk: number; expoOk: number; skipped: number; errors: number; }
+
+function PushTab() {
+  const { toast } = useToast();
+  const [msgType,  setMsgType]  = useState<string>("update");
+  const [target,   setTarget]   = useState<string>("all");
+  const [title,    setTitle]    = useState("");
+  const [body,     setBody]     = useState("");
+  const [sending,  setSending]  = useState(false);
+  const [result,   setResult]   = useState<PushResult | null>(null);
+  const [error,    setError]    = useState<string | null>(null);
+
+  // Auto-fill presets when type changes
+  const applyPreset = (type: string) => {
+    const preset = PUSH_TYPES.find((t) => t.value === type)?.preset;
+    if (preset) {
+      if (preset.title) setTitle(preset.title);
+      if (preset.body)  setBody(preset.body);
+    }
+    setMsgType(type);
+    setResult(null);
+    setError(null);
+  };
+
+  const handleSend = async () => {
+    if (!title.trim() || !body.trim()) {
+      setError("Title and message are required.");
+      return;
+    }
+    setSending(true);
+    setResult(null);
+    setError(null);
+    try {
+      const data = await adminFetch("/admin/push", {
+        method: "POST",
+        body: JSON.stringify({ target, type: msgType, title: title.trim(), body: body.trim() }),
+      });
+      setResult(data);
+      toast({ title: "Push sent", description: `Delivered to ${data.sent} / ${data.recipients} device(s).` });
+    } catch (e: any) {
+      setError(e.message ?? "Failed to send push");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const activeType = PUSH_TYPES.find((t) => t.value === msgType)!;
+  const TypeIcon   = activeType.icon;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 560 }}>
+
+      {/* ── Section: Message type ── */}
+      <div>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Message type</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {PUSH_TYPES.map(({ value, label, icon: Icon, color, preset }) => {
+            const active = msgType === value;
+            return (
+              <button
+                key={value}
+                onClick={() => applyPreset(value)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 9,
+                  padding: "10px 13px", borderRadius: 12,
+                  background: active ? `${color}18` : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${active ? color + "55" : "rgba(255,255,255,0.08)"}`,
+                  color: active ? color : "rgba(255,255,255,0.45)",
+                  fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  textAlign: "left", transition: "all 0.15s",
+                }}
+              >
+                <Icon style={{ width: 14, height: 14, flexShrink: 0 }} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Section: Target ── */}
+      <div>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Send to</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {PUSH_TARGETS.map(({ value, label, icon: Icon }) => {
+            const active = target === value;
+            return (
+              <button
+                key={value}
+                onClick={() => { setTarget(value); setResult(null); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  padding: "7px 14px", borderRadius: 20,
+                  background: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${active ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.07)"}`,
+                  color: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
+                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                <Icon style={{ width: 12, height: 12 }} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Section: Compose ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>Compose</p>
+        <Input
+          placeholder="Notification title"
+          value={title}
+          onChange={(e) => { setTitle(e.target.value); setResult(null); }}
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)", color: "#fff", borderRadius: 10, fontSize: 14 }}
+        />
+        <textarea
+          placeholder="Notification message body"
+          value={body}
+          onChange={(e) => { setBody(e.target.value); setResult(null); }}
+          rows={3}
+          style={{
+            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)",
+            borderRadius: 10, color: "#fff", fontSize: 13, padding: "10px 12px",
+            resize: "vertical", outline: "none", fontFamily: "inherit", lineHeight: 1.5,
+          }}
+        />
+      </div>
+
+      {/* ── Preview card ── */}
+      {(title || body) && (
+        <div style={{
+          background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12, padding: "12px 14px",
+        }}>
+          <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>Preview</p>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+              background: `${activeType.color}22`, border: `1px solid ${activeType.color}44`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <TypeIcon style={{ width: 16, height: 16, color: activeType.color }} />
+            </div>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: 0 }}>{title || "Notification title"}</p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: "3px 0 0", lineHeight: 1.4 }}>{body || "Your message body."}</p>
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: "4px 0 0" }}>now · PRaww+</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Error ── */}
+      {error && (
+        <div style={{
+          display: "flex", gap: 8, alignItems: "flex-start",
+          background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)",
+          borderRadius: 10, padding: "10px 14px",
+        }}>
+          <AlertTriangle style={{ width: 14, height: 14, color: "#f87171", flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 12, color: "#f87171" }}>{error}</span>
+        </div>
+      )}
+
+      {/* ── Result ── */}
+      {result && (
+        <div style={{
+          background: "rgba(48,209,88,0.08)", border: "1px solid rgba(48,209,88,0.25)",
+          borderRadius: 12, padding: "14px 16px",
+          display: "flex", flexDirection: "column", gap: 8,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <CheckCircle2 style={{ width: 15, height: 15, color: "#30d158" }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#30d158" }}>Push sent successfully</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+            {[
+              { label: "Recipients", value: result.recipients },
+              { label: "Delivered",  value: result.sent },
+              { label: "FCM",        value: result.fcmOk  },
+              { label: "Expo",       value: result.expoOk },
+              { label: "Skipped",    value: result.skipped },
+              { label: "Errors",     value: result.errors  },
+            ].map(({ label, value }) => (
+              <div key={label} style={{
+                background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 10px", textAlign: "center",
+              }}>
+                <p style={{ fontSize: 18, fontWeight: 700, fontFamily: "monospace", color: "#fff", margin: 0 }}>{value}</p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>{label}</p>
+              </div>
+            ))}
+          </div>
+          {result.skipped > 0 && (
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: 0 }}>
+              {result.skipped} user(s) skipped — no push token registered on their account.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Send button ── */}
+      <button
+        onClick={handleSend}
+        disabled={sending || !title.trim() || !body.trim()}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          padding: "13px 0", borderRadius: 14,
+          background: sending || !title.trim() || !body.trim()
+            ? "rgba(255,255,255,0.05)"
+            : `${activeType.color}22`,
+          border: `1px solid ${sending || !title.trim() || !body.trim() ? "rgba(255,255,255,0.08)" : activeType.color + "55"}`,
+          color: sending || !title.trim() || !body.trim() ? "rgba(255,255,255,0.2)" : activeType.color,
+          fontSize: 14, fontWeight: 700, cursor: sending ? "wait" : !title.trim() || !body.trim() ? "not-allowed" : "pointer",
+          transition: "all 0.15s",
+        }}
+      >
+        {sending
+          ? <Loader2 style={{ width: 15, height: 15, animation: "spin 1s linear infinite" }} />
+          : <Send style={{ width: 15, height: 15 }} />}
+        {sending ? "Sending…" : `Send to ${PUSH_TARGETS.find((t) => t.value === target)?.label ?? "all"}`}
+      </button>
+
+      <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", margin: 0 }}>
+        Push notifications are delivered to the PRaww+ mobile app only.
+        Users without a registered device token are automatically skipped.
+      </p>
+    </div>
+  );
+}
+
 // ─── Live Calls Tab ────────────────────────────────────────────────────────────
 
 interface LiveCall {
@@ -1527,6 +1775,7 @@ export default function Admin() {
         {tab === "overview"      && <OverviewTab />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
+        {tab === "push"          && <PushTab />}
         {tab === "referrals"     && <ReferralsTab />}
         {tab === "earnings"      && <EarningsTab />}
         {tab === "expenses"      && <ExpensesTab />}
