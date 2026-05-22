@@ -68,6 +68,11 @@ export interface IUser extends Document<string> {
   expoPushToken?: string;
   fcmToken?: string;
   notificationPrefs: INotificationPrefs;
+  verified?: boolean;
+  verificationStatus?: "none" | "pending" | "approved" | "rejected";
+  verificationDocUrl?: string;
+  verificationDocType?: "id" | "company";
+  verificationDocSubmittedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -124,6 +129,11 @@ const UserSchema = new Schema<IUser>(
     freeswitchPort: { type: Number },
     expoPushToken: { type: String },
     fcmToken: { type: String },
+    verified: { type: Boolean, default: false },
+    verificationStatus: { type: String, enum: ["none", "pending", "approved", "rejected"], default: "none" },
+    verificationDocUrl: { type: String },
+    verificationDocType: { type: String, enum: ["id", "company"] },
+    verificationDocSubmittedAt: { type: Date },
     notificationPrefs: {
       type: new Schema({
         incomingCalls: { type: Boolean, default: true },

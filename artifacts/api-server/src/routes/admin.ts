@@ -294,6 +294,28 @@ router.post("/admin/users/:userId/verify-phone", requireAdmin, async (req, res) 
   res.json({ message: "Phone number verified successfully", user: { ...user.toObject(), id: user._id } });
 });
 
+router.post("/admin/users/:userId/grant-badge", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+  const user = await UserModel.findById(userId);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  user.verified = true;
+  user.verificationStatus = "approved";
+  await user.save();
+  res.json({ message: "Verified badge granted", user: { ...user.toObject(), id: user._id } });
+});
+
+router.post("/admin/users/:userId/reject-badge", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+  const user = await UserModel.findById(userId);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  user.verified = false;
+  user.verificationStatus = "rejected";
+  await user.save();
+  res.json({ message: "Verification rejected", user: { ...user.toObject(), id: user._id } });
+});
+
 router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res) => {
   await connectDB();
   const { userId } = req.params;

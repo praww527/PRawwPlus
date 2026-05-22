@@ -1,4 +1,4 @@
-import { useState, Children, useEffect } from "react";
+import { useState, Children, useEffect, useRef } from "react";
 import { useAuth } from "@workspace/auth-web";
 import {
   useGetMe, useListPayments, useInitiateSubscription,
@@ -10,7 +10,8 @@ import {
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
   AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
-  Moon, Sun, Monitor, Settings, Info, Coins,
+  Moon, Sun, Monitor, Settings, Info, Coins, Camera, BadgeCheck,
+  Upload, Clock, Check, AlertTriangle,
 } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { format } from "date-fns";
@@ -38,7 +39,6 @@ function PayFastRedirect({ data }: { data: any }) {
 
 const SHEET_CLEAR = NAV_H + NAV_BOTTOM_GAP + 10;
 
-/* ── Modal sheet ───────────────────────────────────────────────────── */
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div
@@ -86,11 +86,11 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   );
 }
 
-/* ── Settings row — flat, grey circle icon, no colours ─────────────── */
 function Row({
-  icon, label, value, chevron = true, onClick, danger = false,
+  icon, iconBg, label, value, chevron = true, onClick, danger = false,
 }: {
   icon: React.ReactNode;
+  iconBg?: string;
   label: string; value?: string; chevron?: boolean; onClick?: () => void; danger?: boolean;
 }) {
   return (
@@ -99,7 +99,7 @@ function Row({
       disabled={!onClick}
       style={{
         display: "flex", alignItems: "center", gap: 14,
-        width: "100%", padding: "13px 16px", textAlign: "left",
+        width: "100%", padding: "12px 16px", textAlign: "left",
         background: "transparent", border: "none",
         cursor: onClick ? "pointer" : "default",
         transition: "background 0.12s",
@@ -110,8 +110,8 @@ function Row({
       onPointerLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <div style={{
-        width: 34, height: 34, borderRadius: "50%",
-        border: "1px solid rgba(128,128,128,0.40)",
+        width: 34, height: 34, borderRadius: 9,
+        background: iconBg ?? (danger ? "rgba(255,69,58,0.15)" : "rgba(128,128,128,0.18)"),
         display: "flex", alignItems: "center", justifyContent: "center",
         flexShrink: 0,
       }}>
@@ -130,19 +130,18 @@ function Row({
   );
 }
 
-/* ── Section — flat rows with hairline separators, no card ─────────── */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const kids = Children.toArray(children).filter(Boolean);
   return (
-    <div style={{ marginTop: 32 }}>
+    <div style={{ marginTop: 28 }}>
       <p style={{
-        fontSize: 12, fontWeight: 600, letterSpacing: "0.07em",
-        textTransform: "uppercase", color: "var(--text-3)",
+        fontSize: 13, fontWeight: 500, letterSpacing: "0.01em",
+        color: "var(--text-3)",
         padding: "0 16px 8px",
       }}>
         {title}
       </p>
-      <div>
+      <div style={{ background: "var(--glass-bg)", borderRadius: 14 }}>
         {kids.map((child, i) => (
           <div key={i}>
             {child}
@@ -156,7 +155,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/* ── Toggle switch ─────────────────────────────────────────────────── */
 function ToggleSwitch({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
   return (
     <div
@@ -191,7 +189,7 @@ function InlineToggleRow({ icon, label, description, enabled, onToggle }: {
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
-      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(128,128,128,0.40)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(128,128,128,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <span style={{ color: "var(--text-2)", display: "flex" }}>{icon}</span>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -209,7 +207,7 @@ function InlineSelectRow({ icon, label, value, options, onChange }: {
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0" }}>
-      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(128,128,128,0.40)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(128,128,128,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <span style={{ color: "var(--text-2)", display: "flex" }}>{icon}</span>
       </div>
       <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: "var(--text-1)" }}>{label}</span>
@@ -244,7 +242,6 @@ function NotificationsSheet() {
         <InlineToggleRow icon={<Bell size={15} />} label="Vibration" description="Vibrate on notification" enabled={s.vibration} onToggle={() => toggle("vibration")} />
         <InlineToggleRow icon={<Bell size={15} />} label="App Badge" description="Show unread count on app icon" enabled={s.badge} onToggle={() => toggle("badge")} />
       </InlineSection>
-      <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)" }}>Settings saved automatically</p>
     </div>
   );
 }
@@ -279,16 +276,15 @@ function CallSettingsSheet() {
         <InlineToggleRow icon={<Mic size={15} />} label="Record Calls" description="Auto-record all calls locally" enabled={s.recordCalls} onToggle={() => toggle("recordCalls")} />
         <InlineToggleRow icon={<Mic size={15} />} label="Use Earpiece" description="Route audio to earpiece by default" enabled={s.earpiece} onToggle={() => toggle("earpiece")} />
       </InlineSection>
-      <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)" }}>Settings apply to all future calls</p>
     </div>
   );
 }
 
-type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "phone";
+type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "phone" | "verify";
 
 export default function Profile() {
   const { logout, user: authUser } = useAuth();
-  const { data: user, isLoading } = useGetMe();
+  const { data: user, isLoading, refetch: refetchUser } = useGetMe();
   const { theme, setTheme } = useTheme();
   const { data: paymentData } = useListPayments();
   const { data: numbersData, refetch: refetchNumbers } = useListMyNumbers();
@@ -312,6 +308,15 @@ export default function Profile() {
   const [devOtp, setDevOtp] = useState<string | null>(null);
   const [otpCountdown, setOtpCountdown] = useState<number | null>(null);
 
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [verifyDocType, setVerifyDocType] = useState<"id" | "company">("id");
+  const [verifyDocFile, setVerifyDocFile] = useState<string | null>(null);
+  const [verifyDocName, setVerifyDocName] = useState<string>("");
+  const [submittingVerify, setSubmittingVerify] = useState(false);
+  const verifyFileRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (otpStep !== "enter-otp" || otpCountdown === null || otpCountdown <= 0) return;
     const id = setTimeout(() => {
@@ -328,6 +333,89 @@ export default function Profile() {
   const canAddMore    = myNumbers.length < maxNumbers;
   const primaryNumber = myNumbers[0]?.number ?? null;
   const recentPayments = paymentData?.payments?.slice(0, 20) ?? [];
+  const userVerified  = (user as any)?.verified as boolean | undefined;
+  const verificationStatus = (user as any)?.verificationStatus as string | undefined;
+
+  const handleProfilePhotoClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleProfilePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) {
+      toast({ title: "Image too large", description: "Please use an image under 3MB", variant: "destructive" });
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/users/me/profile-image", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileImage: base64 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      toast({ title: "Profile photo updated!" });
+      refetchUser();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleVerifyDocChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Max 5MB", variant: "destructive" });
+      return;
+    }
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    setVerifyDocFile(base64);
+    setVerifyDocName(file.name);
+  };
+
+  const handleSubmitVerification = async () => {
+    if (!verifyDocFile) {
+      toast({ title: "Please upload a document", variant: "destructive" });
+      return;
+    }
+    setSubmittingVerify(true);
+    try {
+      const res = await fetch("/api/users/me/request-verification", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ docType: verifyDocType, docUrl: verifyDocFile }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Submission failed");
+      toast({ title: "Verification submitted!", description: "An admin will review your document." });
+      setSheet("none");
+      setVerifyDocFile(null);
+      setVerifyDocName("");
+      refetchUser();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmittingVerify(false);
+    }
+  };
 
   const handleSubscribe = async () => {
     try {
@@ -446,23 +534,40 @@ export default function Profile() {
   const initials = displayName !== "—"
     ? displayName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
     : "?";
+  const profileImage = (user as any)?.profileImage as string | undefined;
+
+  const verificationBadgeColor = userVerified ? "#30d158" : "#0a84ff";
 
   return (
     <div className="page-in" style={{ paddingBottom: 8, paddingTop: 4 }}>
       <PayFastRedirect data={pfData} />
 
-      {/* ── Header row: Settings title + gear icon ───────────── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 4px 18px" }}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleProfilePhotoChange}
+      />
+      <input
+        ref={verifyFileRef}
+        type="file"
+        accept="image/*,application/pdf"
+        style={{ display: "none" }}
+        onChange={handleVerifyDocChange}
+      />
+
+      {/* ── Header row ───────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 4px 20px" }}>
         <p style={{ fontSize: 30, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", letterSpacing: "-0.02em", margin: 0 }}>
           Settings
         </p>
         <button
           style={{
             width: 36, height: 36, borderRadius: "50%",
-            border: "1px solid rgba(128,128,128,0.40)",
-            background: "transparent",
+            background: "rgba(128,128,128,0.18)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer",
+            cursor: "pointer", border: "none",
           }}
           onClick={() => setTheme(themeNext[theme])}
           title={`Theme: ${themeLabel[theme]}`}
@@ -471,65 +576,117 @@ export default function Profile() {
         </button>
       </div>
 
-      {/* ── Profile row ──────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "4px 4px 20px" }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: "50%", flexShrink: 0,
-          background: "rgba(128,128,128,0.30)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, fontWeight: 700, color: "var(--text-1)",
-          fontFamily: "var(--font-display)",
-        }}>
-          {initials}
+      {/* ── Profile card ─────────────────────── */}
+      <div style={{
+        background: "var(--glass-bg)", borderRadius: 18,
+        padding: "18px 16px 14px",
+        display: "flex", alignItems: "center", gap: 14,
+      }}>
+        {/* Avatar with upload */}
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <button
+            onClick={handleProfilePhotoClick}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", position: "relative", display: "block" }}
+          >
+            <div style={{
+              width: 64, height: 64, borderRadius: "50%",
+              background: profileImage ? "transparent" : "rgba(128,128,128,0.30)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 22, fontWeight: 700, color: "var(--text-1)",
+              fontFamily: "var(--font-display)", overflow: "hidden",
+              flexShrink: 0,
+            }}>
+              {profileImage
+                ? <img src={profileImage} alt="Profile" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : initials
+              }
+            </div>
+            {/* Camera overlay */}
+            <div style={{
+              position: "absolute", bottom: 0, right: 0,
+              width: 22, height: 22, borderRadius: "50%",
+              background: uploadingPhoto ? "rgba(128,128,128,0.8)" : "rgba(60,60,60,0.95)",
+              border: "2px solid var(--bg)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {uploadingPhoto
+                ? <Loader2 style={{ width: 11, height: 11, color: "#fff" }} className="animate-spin" />
+                : <Camera style={{ width: 11, height: 11, color: "#fff" }} />
+              }
+            </div>
+          </button>
+
+          {/* Verified badge */}
+          {userVerified && (
+            <div style={{
+              position: "absolute", top: -2, left: -2,
+              width: 20, height: 20, borderRadius: "50%",
+              background: "#30d158",
+              border: "2px solid var(--bg)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Check style={{ width: 11, height: 11, color: "#fff", strokeWidth: 3 }} />
+            </div>
+          )}
         </div>
+
+        {/* Name + info */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 18, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", letterSpacing: "-0.01em", lineHeight: 1.2, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {displayName}
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <p style={{
+              fontSize: 18, fontWeight: 700, color: "var(--text-1)",
+              fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
+              lineHeight: 1.2, margin: 0,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {displayName}
+            </p>
+            {userVerified && (
+              <BadgeCheck style={{ width: 18, height: 18, color: "#30d158", flexShrink: 0 }} />
+            )}
+          </div>
           <p style={{ fontSize: 13, color: "var(--text-2)", margin: "3px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {user?.email ?? user?.username ?? ""}
           </p>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 4, marginTop: 7,
-            padding: "3px 10px", borderRadius: 20,
-            border: "1px solid rgba(128,128,128,0.35)",
-            fontSize: 11, fontWeight: 500, color: "var(--text-3)",
-          }}>
-            <Info style={{ width: 10, height: 10, flexShrink: 0 }} />
-            {isActive
-              ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active`
-              : "No Active Plan"}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "3px 10px", borderRadius: 20,
+              background: "rgba(128,128,128,0.15)",
+              fontSize: 11, fontWeight: 500, color: "var(--text-3)",
+            }}>
+              <Info style={{ width: 10, height: 10, flexShrink: 0 }} />
+              {isActive
+                ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active`
+                : "No Active Plan"}
+            </div>
+            {verificationStatus === "pending" && !userVerified && (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                padding: "3px 10px", borderRadius: 20,
+                background: "rgba(255,214,10,0.12)",
+                fontSize: 11, fontWeight: 500, color: "#ffd60a",
+              }}>
+                <Clock style={{ width: 10, height: 10, flexShrink: 0 }} />
+                Under review
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ── Stats row: Coins | Numbers | Plan ────────────────── */}
+      {/* ── Stats row ───────────────────────── */}
       <div style={{
         display: "flex",
-        borderTop: "1px solid var(--sep)",
-        borderBottom: "1px solid var(--sep)",
-        padding: "18px 0",
-        marginBottom: 0,
+        background: "var(--glass-bg)",
+        borderRadius: 14,
+        padding: "16px 0",
+        marginTop: 16,
       }}>
         {[
-          {
-            icon: <Coins style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />,
-            value: coins.toFixed(0),
-            label: "Coins",
-            sub: "balance",
-          },
-          {
-            icon: <Hash style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />,
-            value: `${myNumbers.length}/${maxNumbers}`,
-            label: "Numbers",
-            sub: "assigned",
-          },
-          {
-            icon: <Star style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />,
-            value: isActive ? currentPlan.slice(0,1).toUpperCase() + currentPlan.slice(1) : "None",
-            label: "Plan",
-            sub: isActive ? "active" : "inactive",
-          },
+          { icon: <Coins style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />, value: coins.toFixed(0), label: "Coins", sub: "balance" },
+          { icon: <Hash style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />, value: `${myNumbers.length}/${maxNumbers}`, label: "Numbers", sub: "assigned" },
+          { icon: <Star style={{ width: 20, height: 20, strokeWidth: 1.5, color: "var(--text-2)" }} />, value: isActive ? currentPlan.slice(0,1).toUpperCase() + currentPlan.slice(1) : "None", label: "Plan", sub: isActive ? "active" : "inactive" },
         ].map(({ icon, value, label, sub }, i) => (
           <div key={label} style={{
             flex: 1,
@@ -539,7 +696,7 @@ export default function Profile() {
           }}>
             <div style={{
               width: 38, height: 38, borderRadius: "50%",
-              border: "1px solid rgba(128,128,128,0.35)",
+              background: "rgba(128,128,128,0.18)",
               display: "flex", alignItems: "center", justifyContent: "center",
               marginBottom: 4,
             }}>
@@ -552,96 +709,132 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* ── Add mobile number banner (if not verified) ───────── */}
+      {/* ── Add mobile number banner ─────────── */}
       {(!userPhone || !userPhoneVerified) && (
         <button
           onClick={openPhoneSheet}
           style={{
             width: "100%", textAlign: "left",
-            padding: "16px 16px",
-            background: "transparent", border: "none",
+            padding: "14px 16px",
+            background: "rgba(10,132,255,0.08)", border: "none", borderRadius: 14,
             display: "flex", alignItems: "center", gap: 14,
             cursor: "pointer",
-            borderBottom: "1px solid var(--sep)",
+            marginTop: 16,
             WebkitTapHighlightColor: "transparent",
           }}
-          onPointerDown={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-          onPointerUp={(e) => (e.currentTarget.style.background = "transparent")}
-          onPointerLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          onPointerDown={(e) => (e.currentTarget.style.background = "rgba(10,132,255,0.14)")}
+          onPointerUp={(e) => (e.currentTarget.style.background = "rgba(10,132,255,0.08)")}
+          onPointerLeave={(e) => (e.currentTarget.style.background = "rgba(10,132,255,0.08)")}
         >
           <div style={{
             width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-            background: "rgba(255,255,255,0.08)",
+            background: "rgba(10,132,255,0.18)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <Smartphone style={{ width: 22, height: 22, color: "var(--text-1)", strokeWidth: 1.5 }} />
+            <Smartphone style={{ width: 22, height: 22, color: "#0a84ff", strokeWidth: 1.5 }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", margin: 0 }}>
               {!userPhone ? "Add your mobile number" : "Verify your mobile number"}
             </p>
             <p style={{ fontSize: 13, color: "var(--text-2)", margin: "3px 0 0", lineHeight: 1.4 }}>
-              {!userPhone
-                ? "Required to call and receive calls on PRaww+"
-                : `${userPhone} — tap to verify`}
+              {!userPhone ? "Required to call and receive calls" : `${userPhone} — tap to verify`}
             </p>
           </div>
           <ChevronRight style={{ width: 16, height: 16, color: "var(--text-3)", flexShrink: 0 }} />
         </button>
       )}
 
-      {/* ── Account ───────────────────────────────────────────── */}
+      {/* ── Account ─────────────────────────── */}
       <Section title="Account">
         <Row
           icon={<Smartphone size={15} />}
+          iconBg="rgba(48,209,88,0.15)"
           label="Mobile Number"
           value={userPhone ? (userPhoneVerified ? userPhone : `${userPhone} · Unverified`) : "Not set"}
           onClick={openPhoneSheet}
         />
-        <Row icon={<Hash size={15} />} label="DID Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
-        <Row icon={<Star size={15} />} label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
+        <Row icon={<Hash size={15} />} iconBg="rgba(10,132,255,0.15)" label="DID Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
+        <Row icon={<Star size={15} />} iconBg="rgba(255,214,10,0.15)" label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
           onClick={() => { setSelectedPlan(currentPlan as "basic" | "pro"); setSheet("plan"); }} />
-        <Row icon={<Mail size={15} />} label="Email / Login" value={user?.email ?? user?.username ?? ""} chevron={false} />
+        <Row icon={<Mail size={15} />} iconBg="rgba(128,128,128,0.18)" label="Email / Login" value={user?.email ?? user?.username ?? ""} chevron={false} />
       </Section>
 
-      {/* ── Billing ───────────────────────────────────────────── */}
+      {/* ── Billing ─────────────────────────── */}
       <Section title="Billing">
-        <Row icon={<Coins size={15} />} label="Coin Balance" value={`${coins} coins`} chevron={false} />
-        <Row icon={<Plus size={15} />} label="Top Up Coins" onClick={() => setSheet("topup")} />
-        <Row icon={<CreditCard size={15} />} label="Payment Methods" value="PayFast" chevron={false} />
-        <Row icon={<Receipt size={15} />} label="Transaction History" onClick={() => setSheet("history")} />
+        <Row icon={<Coins size={15} />} iconBg="rgba(255,149,0,0.15)" label="Coin Balance" value={`${coins} coins`} chevron={false} />
+        <Row icon={<Plus size={15} />} iconBg="rgba(48,209,88,0.15)" label="Top Up Coins" onClick={() => setSheet("topup")} />
+        <Row icon={<CreditCard size={15} />} iconBg="rgba(128,128,128,0.18)" label="Payment Methods" value="PayFast" chevron={false} />
+        <Row icon={<Receipt size={15} />} iconBg="rgba(128,128,128,0.18)" label="Transaction History" onClick={() => setSheet("history")} />
       </Section>
 
-      {/* ── Preferences ───────────────────────────────────────── */}
+      {/* ── Verification ────────────────────── */}
+      <Section title="Verification">
+        {userVerified ? (
+          <Row
+            icon={<BadgeCheck size={15} />}
+            iconBg="rgba(48,209,88,0.15)"
+            label="Verified Business"
+            value="Approved"
+            chevron={false}
+          />
+        ) : verificationStatus === "pending" ? (
+          <Row
+            icon={<Clock size={15} />}
+            iconBg="rgba(255,214,10,0.15)"
+            label="Verification Pending"
+            value="Under Review"
+            chevron={false}
+          />
+        ) : verificationStatus === "rejected" ? (
+          <Row
+            icon={<AlertCircle size={15} />}
+            iconBg="rgba(255,69,58,0.15)"
+            label="Verification Rejected"
+            value="Resubmit"
+            onClick={() => setSheet("verify")}
+          />
+        ) : (
+          <Row
+            icon={<Shield size={15} />}
+            iconBg="rgba(10,132,255,0.15)"
+            label="Get Verified"
+            value="Upload ID or Docs"
+            onClick={() => setSheet("verify")}
+          />
+        )}
+      </Section>
+
+      {/* ── Preferences ─────────────────────── */}
       <Section title="Preferences">
-        <Row icon={<ThemeIcon size={15} />} label="Theme" value={themeLabel[theme]} onClick={() => setTheme(themeNext[theme])} />
-        <Row icon={<Bell size={15} />} label="Notifications" onClick={() => setLocation("/notifications")} />
-        <Row icon={<Phone size={15} />} label="Call Settings" onClick={() => setLocation("/call-settings")} />
-        <Row icon={<Mic size={15} />} label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
+        <Row icon={<ThemeIcon size={15} />} iconBg="rgba(128,128,128,0.18)" label="Theme" value={themeLabel[theme]} onClick={() => setTheme(themeNext[theme])} />
+        <Row icon={<Bell size={15} />} iconBg="rgba(255,149,0,0.15)" label="Notifications" onClick={() => setLocation("/notifications")} />
+        <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.15)" label="Call Settings" onClick={() => setLocation("/call-settings")} />
+        <Row icon={<Mic size={15} />} iconBg="rgba(128,128,128,0.18)" label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
 
-      {/* ── Dashboard Access ──────────────────────────────────── */}
+      {/* ── Dashboard Access ─────────────────── */}
       {(authUser?.isAdmin || authUser?.role === "reseller") && (
         <Section title="Dashboard">
           {authUser?.isAdmin && (
-            <Row icon={<Shield size={15} />} label="Admin Panel" onClick={() => setLocation("/admin")} />
+            <Row icon={<Shield size={15} />} iconBg="rgba(248,113,113,0.15)" label="Admin Panel" onClick={() => setLocation("/admin")} />
           )}
           {authUser?.role === "reseller" && (
-            <Row icon={<TrendingUp size={15} />} label="Reseller Dashboard" onClick={() => setLocation("/reseller")} />
+            <Row icon={<TrendingUp size={15} />} iconBg="rgba(129,140,248,0.15)" label="Reseller Dashboard" onClick={() => setLocation("/reseller")} />
           )}
         </Section>
       )}
 
-      {/* ── Legal & Support ───────────────────────────────────── */}
+      {/* ── Legal & Support ─────────────────── */}
       <Section title="Legal & Support">
-        <Row icon={<FileText size={15} />} label="Terms of Service" onClick={() => setSheet("terms")} />
-        <Row icon={<ShieldCheck size={15} />} label="Privacy Policy" onClick={() => setSheet("privacy")} />
-        <Row icon={<HelpCircle size={15} />} label="Help / Support" value={CONTACT_EMAIL}
+        <Row icon={<FileText size={15} />} iconBg="rgba(128,128,128,0.18)" label="Terms of Service" onClick={() => setSheet("terms")} />
+        <Row icon={<ShieldCheck size={15} />} iconBg="rgba(128,128,128,0.18)" label="Privacy Policy" onClick={() => setSheet("privacy")} />
+        <Row icon={<HelpCircle size={15} />} iconBg="rgba(10,132,255,0.15)" label="Help / Support" value={CONTACT_EMAIL}
           onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=PRaww+ Support`, "_blank")} />
-        <Row icon={<Mail size={15} />} label="Contact Us" onClick={() => setSheet("contact")} />
+        <Row icon={<Mail size={15} />} iconBg="rgba(128,128,128,0.18)" label="Contact Us" onClick={() => setSheet("contact")} />
       </Section>
 
-      {/* ── Account actions ───────────────────────────────────── */}
+      {/* ── Account actions ─────────────────── */}
       <Section title="Account Actions">
         <Row icon={<LogOut size={15} />} label="Log Out" danger onClick={logout} />
         <Row icon={<Trash2 size={15} />} label="Delete Account" danger
@@ -650,7 +843,7 @@ export default function Profile() {
 
       <p style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)", padding: "24px 0 4px" }}>PRaww+ · {CONTACT_EMAIL}</p>
 
-      {/* ── Sheet: Top Up ─────────────────────────────────────── */}
+      {/* ── Sheet: Top Up ─────────────────── */}
       {sheet === "topup" && (
         <Modal title="Top Up Coins" onClose={() => setSheet("none")}>
           <p style={{ textAlign: "center", fontSize: 13, color: "var(--text-2)", marginBottom: 16 }}>1 coin ≈ R0.90 · ~1 min of call time</p>
@@ -680,7 +873,7 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Subscription Plan ───────────────────────────── */}
+      {/* ── Sheet: Plan ─────────────────────── */}
       {sheet === "plan" && (
         <Modal title="Subscription Plan" onClose={() => setSheet("none")}>
           {isActive && (
@@ -722,7 +915,7 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Transaction History ──────────────────────────── */}
+      {/* ── Sheet: Transaction History ──────── */}
       {sheet === "history" && (
         <Modal title="Transaction History" onClose={() => setSheet("none")}>
           {recentPayments.length === 0 ? (
@@ -751,11 +944,7 @@ export default function Profile() {
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
                       <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text-1)" }}>R{p.amount.toFixed(2)}</p>
-                      <span style={{
-                        display: "inline-block", marginTop: 4,
-                        fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
-                        padding: "3px 8px", borderRadius: 6, background: statusBg, color: statusColor,
-                      }}>
+                      <span style={{ display: "inline-block", marginTop: 4, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", padding: "3px 8px", borderRadius: 6, background: statusBg, color: statusColor }}>
                         {statusLabel}
                       </span>
                     </div>
@@ -767,7 +956,7 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Phone Numbers ───────────────────────────── */}
+      {/* ── Sheet: Phone Numbers ────────────── */}
       {sheet === "numbers" && (
         <Modal title="Phone Numbers" onClose={() => setSheet("none")}>
           <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 12 }}>{myNumbers.length}/{maxNumbers} numbers on {currentPlan} plan</p>
@@ -776,28 +965,22 @@ export default function Profile() {
               {myNumbers.map((n: OwnedNumber) => {
                 const locked = n.locked ?? false;
                 const lockedUntil = n.lockedUntil ? new Date(n.lockedUntil) : null;
-                const daysLeft = lockedUntil
-                  ? Math.ceil((lockedUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                  : 0;
+                const daysLeft = lockedUntil ? Math.ceil((lockedUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
                 return (
                   <div key={n.id} className="tx-card" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid rgba(48,209,88,0.30)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(48,209,88,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                         <Phone style={{ width: 14, height: 14, color: "#30d158" }} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", fontFamily: "monospace" }}>{n.number}</p>
                         <p style={{ fontSize: 10, fontWeight: 600, color: "#30d158" }}>● Active</p>
                       </div>
-                      <button
-                        onClick={() => { if (!locked) { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); } }}
-                        disabled={locked}
+                      <button onClick={() => { if (!locked) { setSheet("none"); setLocation(`/buy-number?mode=change&oldId=${n.id}&oldNumber=${encodeURIComponent(n.number)}`); } }} disabled={locked}
                         style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: 8, background: "var(--glass-bg)", border: "none", color: locked ? "var(--text-3)" : "var(--text-2)", fontSize: 11, fontWeight: 600, cursor: locked ? "default" : "pointer", opacity: locked ? 0.5 : 1 }}>
                         <Shuffle style={{ width: 11, height: 11 }} /> Change
                       </button>
-                      <button
-                        onClick={() => !locked && handleRemoveNumber(n.id, n.number)}
-                        disabled={removingId === n.id || removing || locked}
+                      <button onClick={() => !locked && handleRemoveNumber(n.id, n.number)} disabled={removingId === n.id || removing || locked}
                         style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,69,58,0.12)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: locked ? "default" : "pointer", opacity: (removingId === n.id || locked) ? 0.4 : 1 }}>
                         {removingId === n.id ? <Loader2 style={{ width: 13, height: 13, color: "#ff453a" }} className="animate-spin" /> : <Trash2 style={{ width: 13, height: 13, color: "#ff453a" }} />}
                       </button>
@@ -829,13 +1012,13 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Mobile Number Verification ─────────────── */}
+      {/* ── Sheet: Mobile Number Verification ─ */}
       {sheet === "phone" && (
         <Modal title={otpStep === "enter-phone" ? "Mobile Number" : "Verify Code"} onClose={() => setSheet("none")}>
           {otpStep === "enter-phone" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
-                Add your mobile number to enable app-to-app calling with other PRaww+ users worldwide. Each number can only be registered once.
+                Add your mobile number to enable app-to-app calling with other PRaww+ users worldwide.
               </p>
               {userPhoneVerified && userPhone && (
                 <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(48,209,88,0.10)" }}>
@@ -851,15 +1034,9 @@ export default function Profile() {
                 value={phoneInput}
                 onChange={(e) => setPhoneInput(e.target.value)}
                 placeholder="+27 82 123 4567"
-                style={{
-                  width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 16,
-                  background: "var(--glass-bg)", border: "none",
-                  color: "var(--text-1)", outline: "none", boxSizing: "border-box",
-                }}
+                style={{ width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 16, background: "var(--glass-bg)", border: "none", color: "var(--text-1)", outline: "none", boxSizing: "border-box" }}
               />
-              {phoneMsg && (
-                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>
-              )}
+              {phoneMsg && <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>}
               {devOtp && (
                 <div style={{ padding: "8px 12px", borderRadius: 10, background: "rgba(255,214,10,0.10)", textAlign: "center" }}>
                   <p style={{ fontSize: 12, color: "#ffd60a" }}>Dev OTP: <strong>{devOtp}</strong></p>
@@ -889,57 +1066,123 @@ export default function Profile() {
                 value={otpInput}
                 onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 placeholder="000000"
-                style={{
-                  width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 28,
-                  background: "var(--glass-bg)", border: "none",
-                  color: "var(--text-1)", outline: "none", boxSizing: "border-box",
-                  textAlign: "center", letterSpacing: "0.3em", fontWeight: 700,
-                }}
+                style={{ width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 24, letterSpacing: "0.4em", textAlign: "center", background: "var(--glass-bg)", border: "none", color: "var(--text-1)", outline: "none", boxSizing: "border-box" }}
               />
               {phoneMsg && (
-                <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>
+                <p style={{ fontSize: 13, color: "#ff453a", textAlign: "center" }}>{phoneMsg}</p>
               )}
-              <button onClick={handleVerifyOtp} disabled={phoneLoading || otpInput.length < 6}
-                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: otpInput.length < 6 ? 0.5 : 1 }}>
-                {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Verify"}
+              <button onClick={handleVerifyOtp} disabled={phoneLoading}
+                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Verify Code"}
               </button>
-              <button onClick={() => { setOtpStep("enter-phone"); setPhoneMsg(null); }}
-                style={{ background: "none", border: "none", color: "var(--text-2)", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
-                ← Change number
-              </button>
+              {otpCountdown === 0 && (
+                <button onClick={() => setOtpStep("enter-phone")}
+                  style={{ background: "none", border: "none", color: "hsl(var(--primary))", fontSize: 14, cursor: "pointer", textAlign: "center", padding: "4px 0" }}>
+                  Change number or resend
+                </button>
+              )}
             </div>
           )}
         </Modal>
       )}
 
-      {/* ── Sheet: Terms ──────────────────────────────────────── */}
+      {/* ── Sheet: Business Verification ──────── */}
+      {sheet === "verify" && (
+        <Modal title="Business Verification" onClose={() => setSheet("none")}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ padding: "12px 14px", borderRadius: 14, background: "rgba(10,132,255,0.08)" }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#0a84ff", margin: "0 0 4px" }}>
+                <BadgeCheck style={{ width: 14, height: 14, display: "inline", marginRight: 6 }} />
+                Get a Verified Badge
+              </p>
+              <p style={{ fontSize: 12, color: "var(--text-2)", margin: 0, lineHeight: 1.5 }}>
+                Upload a government-issued ID or company registration document. An admin will review and grant your badge within 24–48 hours.
+              </p>
+            </div>
+
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-2)", marginBottom: 8 }}>Document Type</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {([["id", "Personal ID", "SA ID / Passport"], ["company", "Company Docs", "CIPC / COR14"]] as const).map(([type, label, sub]) => (
+                  <button
+                    key={type}
+                    onClick={() => setVerifyDocType(type)}
+                    style={{
+                      padding: "12px 14px", borderRadius: 14, textAlign: "left", cursor: "pointer",
+                      background: verifyDocType === type ? "rgba(10,132,255,0.15)" : "var(--glass-bg)",
+                      border: `1px solid ${verifyDocType === type ? "rgba(10,132,255,0.35)" : "transparent"}`,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <p style={{ fontSize: 13, fontWeight: 600, color: verifyDocType === type ? "#0a84ff" : "var(--text-1)", margin: 0 }}>{label}</p>
+                    <p style={{ fontSize: 11, color: "var(--text-3)", margin: "3px 0 0" }}>{sub}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-2)", marginBottom: 8 }}>Upload Document</p>
+              <button
+                onClick={() => verifyFileRef.current?.click()}
+                style={{
+                  width: "100%", padding: "20px 0", borderRadius: 14,
+                  background: verifyDocFile ? "rgba(48,209,88,0.08)" : "var(--glass-bg)",
+                  border: `2px dashed ${verifyDocFile ? "rgba(48,209,88,0.35)" : "rgba(128,128,128,0.25)"}`,
+                  cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                  transition: "all 0.15s",
+                }}
+              >
+                {verifyDocFile
+                  ? <><Check style={{ width: 24, height: 24, color: "#30d158" }} /><p style={{ fontSize: 13, fontWeight: 600, color: "#30d158", margin: 0 }}>{verifyDocName || "File selected"}</p><p style={{ fontSize: 11, color: "var(--text-3)", margin: 0 }}>Tap to change</p></>
+                  : <><Upload style={{ width: 24, height: 24, color: "var(--text-3)" }} /><p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)", margin: 0 }}>Tap to upload</p><p style={{ fontSize: 11, color: "var(--text-3)", margin: 0 }}>JPG, PNG, or PDF · Max 5MB</p></>
+                }
+              </button>
+            </div>
+
+            <button
+              onClick={handleSubmitVerification}
+              disabled={submittingVerify || !verifyDocFile}
+              style={{
+                width: "100%", padding: "14px 0", borderRadius: 14,
+                background: verifyDocFile ? "hsl(var(--primary))" : "var(--glass-bg)",
+                border: "none", color: verifyDocFile ? "#fff" : "var(--text-3)",
+                fontSize: 15, fontWeight: 600, cursor: verifyDocFile ? "pointer" : "default",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}
+            >
+              {submittingVerify ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Submit for Review"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Sheet: Terms ─────────────────── */}
       {sheet === "terms" && (
         <Modal title="Terms of Service" onClose={() => setSheet("none")}>
-          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
-            By using PRaww+, you agree to use the service for lawful purposes only. VoIP calls are subject to network availability. PRaww+ is not liable for call quality issues caused by network conditions. Subscription fees are billed monthly and are non-refundable.
+          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+            By using PRaww+, you agree to use the service lawfully and not for harassment, fraud, or illegal activities. We reserve the right to suspend accounts in breach of these terms. Calls are billed by the minute from your coin balance. Subscriptions auto-renew unless cancelled before the renewal date.
           </p>
         </Modal>
       )}
-
-      {/* ── Sheet: Privacy ────────────────────────────────────── */}
       {sheet === "privacy" && (
         <Modal title="Privacy Policy" onClose={() => setSheet("none")}>
-          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
-            PRaww+ collects minimal data required to operate the service. Your mobile number and email are used for authentication and calling identity. Call metadata may be stored for billing purposes. We do not sell your data to third parties.
+          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+            We collect your email, phone number, and call logs to operate the service. We never sell your data to third parties. Call recordings are stored locally on your device if you enable that feature. You may request deletion of your account and all associated data by contacting us at {CONTACT_EMAIL}.
           </p>
         </Modal>
       )}
-
-      {/* ── Sheet: Contact ────────────────────────────────────── */}
       {sheet === "contact" && (
         <Modal title="Contact Us" onClose={() => setSheet("none")}>
-          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6, marginBottom: 16 }}>
-            For support, billing enquiries, or general questions, reach us at:
-          </p>
-          <button onClick={() => window.open(`mailto:${CONTACT_EMAIL}`, "_blank")}
-            style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
-            {CONTACT_EMAIL}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+              We're here to help. Reach out via email for billing, technical, or account questions.
+            </p>
+            <button onClick={() => window.open(`mailto:${CONTACT_EMAIL}`, "_blank")}
+              style={{ padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+              Email {CONTACT_EMAIL}
+            </button>
+          </div>
         </Modal>
       )}
     </div>

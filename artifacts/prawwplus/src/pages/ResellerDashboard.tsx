@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import {
-  Link2, DollarSign, Users, TrendingUp, Copy, CheckCircle, BarChart3,
+  Link2, Users, TrendingUp, Copy, CheckCircle, BarChart3,
   CreditCard, RefreshCw, BadgeDollarSign, ArrowUpCircle, Loader2,
   Megaphone, X, AlertTriangle, Info,
 } from "lucide-react";
@@ -12,15 +12,11 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 
-// ─── Design tokens ─────────────────────────────────────────────────────────────
-const PANEL = "rounded-lg border border-white/[0.12] bg-white/[0.025]";
-const ROWS  = "divide-y divide-white/[0.08]";
-
 const TABS = [
-  { id: "overview",  label: "Overview",  icon: BarChart3      },
+  { id: "overview",  label: "Overview",  icon: BarChart3       },
   { id: "earnings",  label: "Earnings",  icon: BadgeDollarSign },
-  { id: "referrals", label: "Referrals", icon: Users           },
-  { id: "payouts",   label: "Payouts",   icon: CreditCard      },
+  { id: "referrals", label: "Referrals", icon: Users            },
+  { id: "payouts",   label: "Payouts",   icon: CreditCard       },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -32,11 +28,11 @@ async function resellerFetch(path: string) {
   return data;
 }
 
-function Skel({ rows = 5, h = 48 }: { rows?: number; h?: number }) {
+function Skel({ rows = 5, h = 52 }: { rows?: number; h?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="rounded-md bg-white/[0.04] animate-pulse" style={{ height: h }} />
+        <div key={i} className="rounded-2xl bg-white/[0.04] animate-pulse" style={{ height: h }} />
       ))}
     </div>
   );
@@ -45,7 +41,7 @@ function Skel({ rows = 5, h = 48 }: { rows?: number; h?: number }) {
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#0d0d0d", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "8px 12px" }}>
+    <div style={{ background: "#0d0d0d", borderRadius: 8, padding: "8px 12px", boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
       <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginBottom: 2 }}>{label}</p>
       <p style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: "#fff" }}>R{(payload[0].value as number).toFixed(2)}</p>
     </div>
@@ -72,35 +68,45 @@ function ReferralCard({ code }: { code: string | null }) {
   if (!code) return null;
 
   return (
-    <div className={`${PANEL} p-4 space-y-3`}>
-      <div className="flex items-center justify-between">
+    <div style={{ background: "rgba(129,140,248,0.08)", borderRadius: 18, padding: "16px 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div>
-          <p className="text-sm font-semibold text-white">Referral Code</p>
-          <p className="text-xs text-white/35 mt-0.5">Share to earn 30% commission per purchase</p>
+          <p style={{ fontSize: 15, fontWeight: 700, color: "rgba(255,255,255,0.9)", margin: 0 }}>Your Referral Code</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginTop: 2, margin: "2px 0 0" }}>Earn 30% commission on every purchase</p>
         </div>
-        <Link2 className="w-4 h-4 text-white/25" />
+        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(129,140,248,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Link2 style={{ width: 15, height: 15, color: "#818cf8" }} />
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <div className="flex-1 rounded-md border border-white/[0.1] bg-white/[0.03] px-3 py-2.5">
-          <p className="text-lg font-bold font-mono text-white tracking-widest">{code}</p>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <div style={{ flex: 1, background: "rgba(255,255,255,0.06)", borderRadius: 12, padding: "10px 14px" }}>
+          <p style={{ fontSize: 22, fontWeight: 800, fontFamily: "monospace", color: "#fff", letterSpacing: "0.12em", margin: 0 }}>{code}</p>
         </div>
         <button
           onClick={() => copy(code, "Code")}
-          style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: copied ? "rgba(52,211,153,0.08)" : "rgba(255,255,255,0.04)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", color: copied ? "#34d399" : "rgba(255,255,255,0.4)", flexShrink: 0 }}
+          style={{
+            width: 44, height: 44, borderRadius: 12,
+            background: copied ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.08)",
+            border: "none", display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", transition: "all 0.15s",
+            color: copied ? "#34d399" : "rgba(255,255,255,0.5)", flexShrink: 0,
+          }}
         >
-          {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copied ? <CheckCircle style={{ width: 18, height: 18 }} /> : <Copy style={{ width: 18, height: 18 }} />}
         </button>
       </div>
+
       {referralLink && (
-        <div className="flex items-center gap-2">
-          <div className="flex-1 rounded-md border border-white/[0.07] bg-white/[0.02] px-3 py-2 overflow-hidden">
-            <p className="text-[11px] text-white/35 truncate font-mono">{referralLink}</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "8px 12px", overflow: "hidden" }}>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{referralLink}</p>
           </div>
           <button
             onClick={() => copy(referralLink, "Link")}
-            style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.4)", cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
+            style={{ padding: "7px 14px", borderRadius: 10, background: "rgba(129,140,248,0.12)", border: "none", fontSize: 12, fontWeight: 600, color: "#818cf8", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}
           >
-            Copy
+            Copy Link
           </button>
         </div>
       )}
@@ -124,10 +130,10 @@ function OverviewTab({ stats }: { stats: any }) {
   if (!stats) return null;
 
   const kpis = [
-    { label: "Total Earned", value: `R${(stats.totalEarnings   ?? 0).toFixed(2)}` },
-    { label: "Pending",      value: `R${(stats.pendingEarnings ?? 0).toFixed(2)}`, accent: "#f59e0b" },
-    { label: "Paid Out",     value: `R${(stats.paidEarnings    ?? 0).toFixed(2)}`, accent: "#34d399" },
-    { label: "Referrals",    value:  stats.totalReferrals ?? 0                                        },
+    { label: "Total Earned", value: `R${(stats.totalEarnings   ?? 0).toFixed(2)}`,  color: "rgba(255,255,255,0.9)" },
+    { label: "Pending",      value: `R${(stats.pendingEarnings ?? 0).toFixed(2)}`,  color: "#f59e0b" },
+    { label: "Paid Out",     value: `R${(stats.paidEarnings    ?? 0).toFixed(2)}`,  color: "#34d399" },
+    { label: "Referrals",    value:  String(stats.totalReferrals ?? 0),              color: "#818cf8" },
   ];
 
   return (
@@ -135,31 +141,31 @@ function OverviewTab({ stats }: { stats: any }) {
       <ReferralCard code={stats.referralCode} />
 
       {/* KPI strip */}
-      <div className={`${PANEL} grid`} style={{ gridTemplateColumns: `repeat(${kpis.length}, 1fr)` }}>
+      <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)` }}>
         {kpis.map((k, i) => (
-          <div key={k.label} className={cn("p-3 text-center", i > 0 && "border-l border-white/[0.08]")}>
-            <p className="text-base font-bold font-mono leading-none" style={{ color: k.accent ?? "rgba(255,255,255,0.9)" }}>{k.value}</p>
-            <p className="text-[10px] text-white/35 mt-1 uppercase tracking-wider leading-none">{k.label}</p>
+          <div key={k.label} style={{ padding: "14px 8px", textAlign: "center", borderLeft: i > 0 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
+            <p style={{ fontSize: 16, fontWeight: 800, fontFamily: "monospace", lineHeight: 1, margin: 0, color: k.color }}>{k.value}</p>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.06em", margin: "4px 0 0" }}>{k.label}</p>
           </div>
         ))}
       </div>
 
       {/* Earnings area chart */}
       {chartData.length > 0 && (
-        <div className={`${PANEL} p-4 space-y-3`}>
-          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">Earnings Trend</p>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, padding: "16px 16px 8px" }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12, margin: "0 0 12px" }}>Earnings Trend</p>
           <ResponsiveContainer width="100%" height={130}>
             <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
               <defs>
                 <linearGradient id="earnGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#818cf8" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#818cf8" stopOpacity={0}    />
+                  <stop offset="5%"  stopColor="#818cf8" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#818cf8" stopOpacity={0}   />
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "rgba(255,255,255,0.2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `R${v}`} />
-              <Tooltip content={<ChartTip />} cursor={{ stroke: "rgba(255,255,255,0.08)", strokeWidth: 1 }} />
-              <Area type="monotone" dataKey="amount" stroke="#818cf8" strokeWidth={1.5} fill="url(#earnGrad)" dot={false} />
+              <Tooltip content={<ChartTip />} cursor={{ stroke: "rgba(255,255,255,0.06)", strokeWidth: 1 }} />
+              <Area type="monotone" dataKey="amount" stroke="#818cf8" strokeWidth={2} fill="url(#earnGrad)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -167,19 +173,17 @@ function OverviewTab({ stats }: { stats: any }) {
 
       {/* Recent commissions */}
       {(stats.recentEarnings ?? []).length > 0 && (
-        <div className={PANEL}>
-          <div className="px-3.5 py-2.5 border-b border-white/[0.08]">
-            <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest">Recent Commissions</p>
-          </div>
-          <div className={ROWS}>
-            {stats.recentEarnings.map((e: any) => (
-              <div key={e.id} className="px-3.5 py-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-white font-mono">R{e.amount.toFixed(2)}</span>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, overflow: "hidden" }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", padding: "14px 16px 10px", margin: 0, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>Recent Commissions</p>
+          <div>
+            {stats.recentEarnings.map((e: any, i: number) => (
+              <div key={e.id} style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "monospace", color: "#fff" }}>R{e.amount.toFixed(2)}</span>
                     <span style={{ fontSize: 10, fontWeight: 600, color: e.status === "paid" ? "#34d399" : "#f59e0b" }}>{e.status}</span>
                   </div>
-                  <p className="text-xs text-white/30 capitalize">{e.type?.replace(/_/g, " ")} · {e.createdAt ? format(new Date(e.createdAt), "dd MMM yyyy") : "—"}</p>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", textTransform: "capitalize", margin: "2px 0 0" }}>{e.type?.replace(/_/g, " ")} · {e.createdAt ? format(new Date(e.createdAt), "dd MMM yyyy") : "—"}</p>
                 </div>
               </div>
             ))}
@@ -204,27 +208,27 @@ function EarningsTab() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-white/35">{data?.total ?? 0} commission records</p>
+      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", margin: 0 }}>{data?.total ?? 0} commission records</p>
       {earnings.length === 0 ? (
-        <div className={`${PANEL} p-8 text-center`}>
-          <BadgeDollarSign className="w-6 h-6 text-white/15 mx-auto mb-2" />
-          <p className="text-white/25 text-sm">No commissions yet</p>
-          <p className="text-white/15 text-xs mt-1">Share your referral link to start earning</p>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, padding: "40px 20px", textAlign: "center" }}>
+          <BadgeDollarSign style={{ width: 28, height: 28, color: "rgba(255,255,255,0.12)", margin: "0 auto 10px" }} />
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.25)", margin: 0 }}>No commissions yet</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.15)", marginTop: 4 }}>Share your referral link to start earning</p>
         </div>
       ) : (
-        <div className={`${PANEL} ${ROWS}`}>
-          {earnings.map((e) => (
-            <div key={e.id} className="px-3.5 py-3 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-bold text-white font-mono">R{e.amount.toFixed(2)}</span>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, overflow: "hidden" }}>
+          {earnings.map((e, i) => (
+            <div key={e.id} style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: "#fff" }}>R{e.amount.toFixed(2)}</span>
                   <span style={{ fontSize: 10, fontWeight: 600, color: e.status === "paid" ? "#34d399" : "#f59e0b" }}>{e.status}</span>
-                  <span className="text-[10px] text-white/30 capitalize">{e.type?.replace(/_/g, " ")}</span>
+                  <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "capitalize" }}>{e.type?.replace(/_/g, " ")}</span>
                 </div>
-                <p className="text-xs text-white/35 mt-0.5">
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "3px 0 0" }}>
                   From: {e.user?.name || e.user?.username || "Unknown"} · Purchase: R{e.purchaseAmount?.toFixed(2)}
                 </p>
-                <p className="text-[11px] text-white/20">{e.createdAt ? format(new Date(e.createdAt), "dd MMM yyyy, HH:mm") : "—"}</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", margin: "1px 0 0" }}>{e.createdAt ? format(new Date(e.createdAt), "dd MMM yyyy, HH:mm") : "—"}</p>
               </div>
             </div>
           ))}
@@ -248,30 +252,30 @@ function ReferralsTab() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-white/35">{data?.total ?? 0} referred users</p>
+      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", margin: 0 }}>{data?.total ?? 0} referred users</p>
       {referrals.length === 0 ? (
-        <div className={`${PANEL} p-8 text-center`}>
-          <Users className="w-6 h-6 text-white/15 mx-auto mb-2" />
-          <p className="text-white/25 text-sm">No referrals yet</p>
-          <p className="text-white/15 text-xs mt-1">Your sign-up link brings users here</p>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, padding: "40px 20px", textAlign: "center" }}>
+          <Users style={{ width: 28, height: 28, color: "rgba(255,255,255,0.12)", margin: "0 auto 10px" }} />
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.25)", margin: 0 }}>No referrals yet</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.15)", marginTop: 4 }}>Your sign-up link brings users here</p>
         </div>
       ) : (
-        <div className={`${PANEL} ${ROWS}`}>
-          {referrals.map((r) => (
-            <div key={r.id} className="px-3.5 py-3 flex items-center gap-3">
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)" }}>{(r.name || r.username || "?").slice(0, 2).toUpperCase()}</span>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, overflow: "hidden" }}>
+          {referrals.map((r, i) => (
+            <div key={r.id} style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(255,255,255,0.07)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.4)" }}>{(r.name || r.username || "?").slice(0, 2).toUpperCase()}</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{r.name || r.username}</p>
-                <p className="text-xs text-white/35 truncate">{r.email}</p>
-                <p className="text-[11px] text-white/20">{r.createdAt ? format(new Date(r.createdAt), "dd MMM yyyy") : "—"}</p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#fff", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.email}</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", margin: "1px 0 0" }}>{r.createdAt ? format(new Date(r.createdAt), "dd MMM yyyy") : "—"}</p>
               </div>
-              <div className="text-right shrink-0">
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
                 {(r.earnings?.count ?? 0) > 0 && (
-                  <p className="text-xs font-bold font-mono" style={{ color: "#34d399" }}>R{(r.earnings?.total ?? 0).toFixed(2)}</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: "#34d399", margin: 0 }}>R{(r.earnings?.total ?? 0).toFixed(2)}</p>
                 )}
-                <p className="text-[10px] text-white/25">{r.earnings?.count ?? 0} orders</p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", margin: "2px 0 0" }}>{r.earnings?.count ?? 0} order{(r.earnings?.count ?? 0) !== 1 ? "s" : ""}</p>
               </div>
             </div>
           ))}
@@ -325,17 +329,17 @@ function PayoutsTab({ pendingEarnings }: { pendingEarnings: number }) {
 
   const statusClr = (s: string) => s === "paid" ? "#34d399" : s === "requested" ? "#60a5fa" : "#f59e0b";
 
-  if (loading) return <Skel rows={4} h={52} />;
+  if (loading) return <Skel rows={4} h={56} />;
   const payouts: any[] = data?.payouts ?? [];
 
   return (
     <div className="space-y-3">
       {/* Payout CTA */}
-      <div className={PANEL}>
-        <div className="p-4 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">Request a Payout</p>
-            <p className="text-xs text-white/40 mt-0.5">
+      <div style={{ background: canRequest ? "rgba(129,140,248,0.08)" : "rgba(255,255,255,0.04)", borderRadius: 18, padding: "16px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "rgba(255,255,255,0.9)", margin: 0 }}>Request a Payout</p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 3, margin: "3px 0 0" }}>
               {canRequest
                 ? `R${pendingEarnings.toFixed(2)} available to withdraw`
                 : hasOutstandingRequest
@@ -347,41 +351,41 @@ function PayoutsTab({ pendingEarnings }: { pendingEarnings: number }) {
             onClick={() => setShowForm((v) => !v)}
             disabled={!canRequest}
             style={{
-              padding: "6px 14px", borderRadius: 7, fontSize: 12, fontWeight: 600,
-              display: "flex", alignItems: "center", gap: 5, cursor: canRequest ? "pointer" : "not-allowed",
-              border: "1px solid",
-              borderColor: canRequest ? "rgba(129,140,248,0.35)" : "rgba(255,255,255,0.08)",
-              background: canRequest ? "rgba(129,140,248,0.1)" : "rgba(255,255,255,0.03)",
+              padding: "8px 16px", borderRadius: 22, fontSize: 13, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 6,
+              cursor: canRequest ? "pointer" : "not-allowed",
+              border: "none",
+              background: canRequest ? "rgba(129,140,248,0.2)" : "rgba(255,255,255,0.06)",
               color: canRequest ? "#818cf8" : "rgba(255,255,255,0.25)",
               transition: "all 0.15s", flexShrink: 0,
             }}
           >
-            <ArrowUpCircle style={{ width: 13, height: 13 }} />
+            <ArrowUpCircle style={{ width: 14, height: 14 }} />
             Request
           </button>
         </div>
 
         {showForm && canRequest && (
-          <div className="px-4 pb-4 space-y-2 border-t border-white/[0.07] pt-3">
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional note (bank details, reference, etc.)"
               rows={2}
-              className="w-full bg-white/[0.03] border border-white/[0.1] rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 resize-none focus:outline-none focus:border-white/20"
+              style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 12, padding: "10px 14px", fontSize: 13, color: "#fff", resize: "none", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
             />
-            <div className="flex gap-2">
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
               <button
                 onClick={handleRequest}
                 disabled={requesting}
-                style={{ flex: 1, padding: "7px 0", borderRadius: 7, background: "rgba(129,140,248,0.15)", border: "1px solid rgba(129,140,248,0.3)", color: "#818cf8", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: requesting ? "not-allowed" : "pointer", opacity: requesting ? 0.6 : 1 }}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 12, background: "rgba(129,140,248,0.2)", border: "none", color: "#818cf8", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: requesting ? "not-allowed" : "pointer", opacity: requesting ? 0.6 : 1, transition: "opacity 0.15s" }}
               >
-                {requesting && <Loader2 className="w-3 h-3 animate-spin" />}
+                {requesting && <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />}
                 {requesting ? "Submitting…" : `Request R${pendingEarnings.toFixed(2)}`}
               </button>
               <button
                 onClick={() => setShowForm(false)}
-                style={{ padding: "7px 14px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", color: "rgba(255,255,255,0.4)", fontSize: 12, cursor: "pointer" }}
+                style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(255,255,255,0.06)", border: "none", color: "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer" }}
               >
                 Cancel
               </button>
@@ -391,22 +395,22 @@ function PayoutsTab({ pendingEarnings }: { pendingEarnings: number }) {
       </div>
 
       {payouts.length === 0 ? (
-        <div className={`${PANEL} p-8 text-center`}>
-          <CreditCard className="w-6 h-6 text-white/15 mx-auto mb-2" />
-          <p className="text-white/25 text-sm">No payouts yet</p>
-          <p className="text-white/15 text-xs mt-1">Request your first payout above</p>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, padding: "40px 20px", textAlign: "center" }}>
+          <CreditCard style={{ width: 28, height: 28, color: "rgba(255,255,255,0.12)", margin: "0 auto 10px" }} />
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.25)", margin: 0 }}>No payouts yet</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.15)", marginTop: 4 }}>Request your first payout above</p>
         </div>
       ) : (
-        <div className={`${PANEL} ${ROWS}`}>
-          {payouts.map((p) => (
-            <div key={p.id} className="px-3.5 py-3 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-white font-mono">R{p.amount.toFixed(2)}</span>
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, overflow: "hidden" }}>
+          {payouts.map((p, i) => (
+            <div key={p.id} style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, fontFamily: "monospace", color: "#fff" }}>R{p.amount.toFixed(2)}</span>
                   <span style={{ fontSize: 10, fontWeight: 600, color: statusClr(p.status), textTransform: "capitalize" }}>{p.status}</span>
                 </div>
-                {p.notes && <p className="text-xs text-white/35 mt-0.5 truncate">{p.notes}</p>}
-                <p className="text-[11px] text-white/20">
+                {p.notes && <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "3px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.notes}</p>}
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", margin: "2px 0 0" }}>
                   {p.requestedAt ? `Requested ${format(new Date(p.requestedAt), "dd MMM yyyy")}` : p.createdAt ? format(new Date(p.createdAt), "dd MMM yyyy") : "—"}
                   {p.paidAt ? ` · Paid ${format(new Date(p.paidAt), "dd MMM yyyy")}` : ""}
                 </p>
@@ -458,31 +462,30 @@ export default function ResellerDashboard() {
   return (
     <div className="space-y-4 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="pt-1 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-white/40 shrink-0" />
-          <div>
-            <h1 className="text-lg font-bold text-white leading-none">Reseller Dashboard</h1>
-            <p className="text-xs text-white/35 mt-0.5">Welcome back, {user?.name || user?.username}</p>
-          </div>
+      <div style={{ paddingTop: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#fff", lineHeight: 1, letterSpacing: "-0.02em", margin: 0 }}>Dashboard</h1>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)", marginTop: 3, margin: "3px 0 0" }}>
+            Welcome back, <span style={{ color: "rgba(255,255,255,0.6)", fontWeight: 600 }}>{user?.name || user?.username}</span>
+          </p>
         </div>
         <button
           onClick={loadStats}
-          style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "rgba(255,255,255,0.35)" }}
+          style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "rgba(255,255,255,0.4)", transition: "all 0.15s" }}
         >
-          <RefreshCw className={cn("w-3.5 h-3.5", loadingStats && "animate-spin")} />
+          <RefreshCw className={cn("w-4 h-4", loadingStats && "animate-spin")} />
         </button>
       </div>
 
       {/* Error banner */}
       {statsError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/[0.06] px-4 py-3 flex items-start gap-3">
-          <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-red-300">Failed to load dashboard</p>
-            <p className="text-xs text-white/40 mt-0.5">{statsError}</p>
+        <div style={{ background: "rgba(248,113,113,0.08)", borderRadius: 16, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <AlertTriangle style={{ width: 14, height: 14, color: "#f87171", flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "#f87171", margin: 0 }}>Failed to load dashboard</p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: "2px 0 0" }}>{statsError}</p>
           </div>
-          <button onClick={loadStats} style={{ fontSize: 11, fontWeight: 600, color: "#f87171", cursor: "pointer", background: "transparent", border: "none", flexShrink: 0 }}>Retry</button>
+          <button onClick={loadStats} style={{ fontSize: 12, fontWeight: 600, color: "#f87171", cursor: "pointer", background: "transparent", border: "none", flexShrink: 0 }}>Retry</button>
         </div>
       )}
 
@@ -493,64 +496,62 @@ export default function ResellerDashboard() {
         const clr       = isWarning ? "#f59e0b" : isPromo ? "#a78bfa" : "#60a5fa";
         const Icon      = isWarning ? AlertTriangle : isPromo ? Megaphone : Info;
         return (
-          <div key={a.id} style={{ borderRadius: 8, border: `1px solid ${clr}22`, background: `${clr}09`, padding: "12px 14px", display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <Icon style={{ width: 13, height: 13, color: clr, flexShrink: 0, marginTop: 1 }} />
-            <div className="flex-1 min-w-0">
-              <p style={{ fontSize: 13, fontWeight: 600, color: clr }}>{a.title}</p>
-              <p className="text-xs text-white/50 mt-0.5">{a.message}</p>
+          <div key={a.id} style={{ background: `${clr}10`, borderRadius: 16, padding: "12px 14px", display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <Icon style={{ width: 14, height: 14, color: clr, flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: clr, margin: 0 }}>{a.title}</p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "3px 0 0", lineHeight: 1.5 }}>{a.message}</p>
             </div>
-            <button onClick={() => dismissAnnouncement(a.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", flexShrink: 0, padding: 2 }}>
-              <X className="w-3.5 h-3.5" />
+            <button onClick={() => dismissAnnouncement(a.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", flexShrink: 0, padding: 2 }}>
+              <X style={{ width: 14, height: 14 }} />
             </button>
           </div>
         );
       })}
 
-      {/* Underline tab nav */}
-      <div className="flex overflow-x-auto no-scrollbar" style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: "8px 14px",
-              fontSize: 12,
-              fontWeight: 500,
-              color: tab === t.id ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.32)",
-              borderTop: "none",
-              borderLeft: "none",
-              borderRight: "none",
-              borderBottom: tab === t.id ? "2px solid rgba(255,255,255,0.8)" : "2px solid transparent",
-              marginBottom: -1,
-              background: "transparent",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-              transition: "color 0.15s, border-color 0.15s",
-            }}
-          >
-            <t.icon style={{ width: 12, height: 12 }} />
-            {t.label}
-          </button>
-        ))}
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none" }}>
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                padding: "7px 14px", borderRadius: 22,
+                fontSize: 13, fontWeight: 600, cursor: "pointer",
+                border: "none", transition: "all 0.15s",
+                background: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)",
+                color: active ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.4)",
+              }}
+            >
+              <Icon style={{ width: 13, height: 13 }} />
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Overview loading skeleton */}
-      {loadingStats && tab === "overview" && (
-        <div className="space-y-3">
-          <div className={`${PANEL} h-24 animate-pulse`} />
-          <div className={`${PANEL} h-16 animate-pulse`} />
-          <div className={`${PANEL} h-36 animate-pulse`} />
+      {/* Loading overlay */}
+      {loadingStats && !stats && (
+        <div className="space-y-2">
+          {[80, 120, 160].map((h, i) => (
+            <div key={i} className="rounded-2xl bg-white/[0.04] animate-pulse" style={{ height: h }} />
+          ))}
         </div>
       )}
 
-      {!loadingStats && tab === "overview"  && <OverviewTab stats={stats} />}
-      {tab === "earnings"                   && <EarningsTab />}
-      {tab === "referrals"                  && <ReferralsTab />}
-      {tab === "payouts"                    && <PayoutsTab pendingEarnings={stats?.pendingEarnings ?? 0} />}
+      {/* Tab content */}
+      {!loadingStats && !statsError && (
+        <>
+          {tab === "overview"  && <OverviewTab stats={stats} />}
+          {tab === "earnings"  && <EarningsTab />}
+          {tab === "referrals" && <ReferralsTab />}
+          {tab === "payouts"   && <PayoutsTab pendingEarnings={stats?.pendingEarnings ?? 0} />}
+        </>
+      )}
     </div>
   );
 }

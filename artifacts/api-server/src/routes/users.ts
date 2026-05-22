@@ -20,6 +20,88 @@ router.get("/users/me", async (req: Request, res: Response) => {
   res.json({ ...safeUser, id: user._id });
 });
 
+router.patch("/users/me/profile-image", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const { profileImage } = req.body;
+  if (!profileImage || typeof profileImage !== "string") {
+    res.status(400).json({ error: "profileImage is required" });
+    return;
+  }
+  if (profileImage.length > 2_000_000) {
+    res.status(400).json({ error: "Image too large (max 1.5MB)" });
+    return;
+  }
+  const user = await UserModel.findByIdAndUpdate(
+    userId,
+    { $set: { profileImage } },
+    { new: true }
+  ).lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  res.json({ message: "Profile image updated", profileImage: (user as any).profileImage });
+});
+
+router.patch("/users/me/name", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const { name } = req.body;
+  if (!name || typeof name !== "string" || name.trim().length < 1) {
+    res.status(400).json({ error: "name is required" });
+    return;
+  }
+  const user = await UserModel.findByIdAndUpdate(
+    userId,
+    { $set: { name: name.trim().slice(0, 80) } },
+    { new: true }
+  ).lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  res.json({ message: "Name updated", name: (user as any).name });
+});
+
+router.post("/users/me/request-verification", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const { docType, docUrl } = req.body;
+  if (!docType || !["id", "company"].includes(docType)) {
+    res.status(400).json({ error: "docType must be 'id' or 'company'" });
+    return;
+  }
+  if (!docUrl || typeof docUrl !== "string") {
+    res.status(400).json({ error: "docUrl is required" });
+    return;
+  }
+  if (docUrl.length > 5_000_000) {
+    res.status(400).json({ error: "Document too large" });
+    return;
+  }
+  const user = await UserModel.findByIdAndUpdate(
+    userId,
+    {
+      $set: {
+        verificationStatus: "pending",
+        verificationDocType: docType,
+        verificationDocUrl: docUrl,
+        verificationDocSubmittedAt: new Date(),
+      },
+    },
+    { new: true }
+  ).lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  res.json({ message: "Verification request submitted. An admin will review your document." });
+});
+
 router.get("/users/phone-lookup", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
