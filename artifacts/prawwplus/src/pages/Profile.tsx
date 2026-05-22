@@ -66,10 +66,10 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         className="modal-surface slide-up"
         style={{
           borderRadius: "24px 24px 0 0",
-          paddingBottom: `calc(24px + env(safe-area-inset-bottom, 0px))`,
           maxHeight: `calc(100dvh - 60px)`,
-          display: "flex",
-          flexDirection: "column",
+          overflowY: "auto",
+          overflowX: "hidden",
+          paddingBottom: `calc(24px + env(safe-area-inset-bottom, 0px))`,
         }}
       >
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 6 }}>
@@ -89,7 +89,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
             <X style={{ width: 14, height: 14, color: "var(--text-2)" }} />
           </button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "0 20px 8px" }}>
+        <div style={{ padding: "0 20px 8px" }}>
           {children}
         </div>
       </div>

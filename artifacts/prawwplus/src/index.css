@@ -475,15 +475,11 @@
   /* Modal / overlay */
   .overlay-backdrop {
     background: var(--overlay-bg);
-    backdrop-filter: blur(20px) saturate(1.6);
-    -webkit-backdrop-filter: blur(20px) saturate(1.6);
   }
 
   .modal-surface {
     background: var(--modal-bg);
     box-shadow: 0 -8px 48px rgba(0, 0, 0, 0.30);
-    backdrop-filter: blur(44px) saturate(1.9);
-    -webkit-backdrop-filter: blur(44px) saturate(1.9);
   }
 
   /* Section label */
