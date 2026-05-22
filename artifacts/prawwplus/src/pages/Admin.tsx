@@ -156,10 +156,10 @@ function OverviewTab() {
 
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl bg-white/[0.04]" style={{ display: "grid", gridTemplateColumns: `repeat(${topStats.length}, 1fr)` }}>
+      <div className="rounded-2xl bg-white/[0.04]" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
         {topStats.map((s, i) => (
-          <div key={s.label} className={cn("p-3 text-center", i > 0 && "border-l border-white/[0.07]")}>
-            <p className="text-lg font-bold text-white font-mono leading-none">{s.value ?? 0}</p>
+          <div key={s.label} style={{ padding: "12px 8px", textAlign: "center", borderLeft: i % 3 !== 0 ? "1px solid rgba(255,255,255,0.07)" : "none", borderTop: i >= 3 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
+            <p className="text-base font-bold text-white font-mono leading-none">{s.value ?? 0}</p>
             <p className="text-[10px] text-white/35 mt-1 uppercase tracking-wider leading-none">{s.label}</p>
           </div>
         ))}
@@ -1082,7 +1082,7 @@ export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-500">
+    <div data-theme="dark" className="space-y-4 animate-in fade-in duration-500">
       {/* Header */}
       <div className="pt-1 flex items-center gap-3">
         <Shield className="w-5 h-5 text-white/40 shrink-0" />

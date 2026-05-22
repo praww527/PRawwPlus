@@ -51,7 +51,6 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 
   return (
     <div
-      className="overlay-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -59,17 +58,20 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
+        background: "rgba(0,0,0,0.55)",
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="modal-surface slide-up"
+        className="slide-up"
         style={{
           borderRadius: "24px 24px 0 0",
           maxHeight: `calc(100dvh - 60px)`,
           overflowY: "auto",
           overflowX: "hidden",
           paddingBottom: `calc(24px + env(safe-area-inset-bottom, 0px))`,
+          background: "var(--modal-bg)",
+          boxShadow: "0 -8px 48px rgba(0,0,0,0.40)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 6 }}>

@@ -460,7 +460,7 @@ export default function ResellerDashboard() {
   const visibleAnnouncements = announcements.filter((a) => !dismissedIds.has(a.id));
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-500">
+    <div data-theme="dark" className="space-y-4 animate-in fade-in duration-500">
       {/* Header */}
       <div style={{ paddingTop: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
