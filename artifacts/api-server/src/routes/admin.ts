@@ -15,7 +15,7 @@ import {
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
-import { eslStatus } from "../lib/freeswitchESL";
+import { eslStatus, sendEslApiCommand } from "../lib/freeswitchESL";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
 
@@ -582,6 +582,72 @@ router.get("/admin/calls/live", requireAdmin, async (_req, res) => {
   });
 
   res.json({ calls, count: calls.length, asOf: new Date().toISOString() });
+});
+
+/**
+ * POST /api/admin/calls/:id/hangup
+ *
+ * Force-terminates a call via FreeSWITCH ESL.
+ *
+ * Steps:
+ *  1. Load the call record — must exist and be non-terminal.
+ *  2. If the call has an fsCallId, send `uuid_kill <fsCallId> NORMAL_CLEARING`
+ *     over ESL so FreeSWITCH tears down the media legs immediately.
+ *  3. Mark the DB record as "failed" with failReason "Admin force-hangup" so
+ *     it doesn't stay stuck in the active-calls view.
+ *  4. Return the updated call doc.
+ *
+ * ESL disconnected / no fsCallId:
+ *  - If ESL is not connected the command cannot be sent; we still update the
+ *    DB record and return a warning so the admin knows the FS leg may survive
+ *    until FreeSWITCH detects the dead socket.
+ */
+router.post("/admin/calls/:id/hangup", requireAdmin, async (req, res) => {
+  await connectDB();
+
+  const call = await CallModel.findById(req.params.id).exec();
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const TERMINAL = ["completed", "failed", "missed", "cancelled"];
+  if (TERMINAL.includes(call.status)) {
+    res.status(409).json({ error: "Call is already in a terminal state", status: call.status });
+    return;
+  }
+
+  let eslSent = false;
+  let eslWarning: string | null = null;
+
+  if (call.fsCallId) {
+    const ok = sendEslApiCommand(`uuid_kill ${call.fsCallId} NORMAL_CLEARING`);
+    if (ok) {
+      eslSent = true;
+    } else {
+      eslWarning = "ESL not connected — FreeSWITCH leg may still be active. DB record updated.";
+    }
+  } else {
+    eslWarning = "No fsCallId on record — could not send uuid_kill. DB record updated.";
+  }
+
+  call.status      = "failed";
+  (call as any).failReason   = "Admin force-hangup";
+  (call as any).hangupCause  = "NORMAL_CLEARING";
+  (call as any).endedAt      = new Date();
+  await call.save();
+
+  res.json({
+    ok:         true,
+    eslSent,
+    eslWarning,
+    call: {
+      id:        String(call._id),
+      status:    call.status,
+      fsCallId:  call.fsCallId ?? null,
+      failReason: (call as any).failReason,
+    },
+  });
 });
 
 router.get("/admin/calls", requireAdmin, async (req, res) => {

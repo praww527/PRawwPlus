@@ -13,7 +13,8 @@ import {
   UserX, BarChart3, Link2, BadgeDollarSign, Receipt, CreditCard, RefreshCw,
   ChevronDown, Trash2, CheckCircle2, Shield, Settings, Megaphone,
   AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
-  BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone,
+  BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone, PhoneOff,
+  Loader2,
 } from "lucide-react";
 
 const TABS = [
@@ -1182,11 +1183,19 @@ function FsmTimeline({ status }: { status: string }) {
   );
 }
 
-function CallTraceCard({ call }: { call: LiveCall }) {
+function CallTraceCard({ call, onForceHangup }: { call: LiveCall; onForceHangup: (id: string) => Promise<void> }) {
   const duration = useLiveDuration(call.startedAt, call.status);
   const caller   = call.callerNumber ?? call.user?.extension?.toString() ?? "—";
   const callee   = call.recipientNumber ?? "—";
   const statusColor = STATUS_COLOR[call.status] ?? "#fff";
+  const [hanging, setHanging] = useState(false);
+
+  const handleHangup = async () => {
+    if (hanging) return;
+    setHanging(true);
+    try { await onForceHangup(call.id); }
+    finally { setHanging(false); }
+  };
 
   return (
     <div style={{
@@ -1270,7 +1279,7 @@ function CallTraceCard({ call }: { call: LiveCall }) {
       {/* FSM timeline */}
       <FsmTimeline status={call.status} />
 
-      {/* Footer: fsCallId + age */}
+      {/* Footer: fsCallId + age + force-hangup */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         {call.fsCallId && (
           <span style={{
@@ -1284,6 +1293,27 @@ function CallTraceCard({ call }: { call: LiveCall }) {
         <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
           started {formatDistanceToNow(new Date(call.createdAt), { addSuffix: true })}
         </span>
+        {/* Force hangup button */}
+        <button
+          onClick={handleHangup}
+          disabled={hanging}
+          title="Force-terminate this call via ESL uuid_kill"
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+            padding: "3px 10px", borderRadius: 14,
+            background: hanging ? "rgba(248,113,113,0.06)" : "rgba(248,113,113,0.12)",
+            border: "1px solid rgba(248,113,113,0.3)",
+            color: hanging ? "rgba(248,113,113,0.4)" : "#f87171",
+            cursor: hanging ? "not-allowed" : "pointer",
+            transition: "all 0.15s",
+          }}
+        >
+          {hanging
+            ? <Loader2 style={{ width: 10, height: 10, animation: "spin 1s linear infinite" }} />
+            : <PhoneOff style={{ width: 10, height: 10 }} />}
+          {hanging ? "Hanging up…" : "Force hangup"}
+        </button>
       </div>
     </div>
   );
@@ -1296,6 +1326,7 @@ function LiveCallsTab() {
   const [asOf,      setAsOf]      = useState<Date | null>(null);
   const [paused,    setPaused]    = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { toast } = useToast();
 
   const fetchLive = useCallback(async () => {
     try {
@@ -1309,6 +1340,17 @@ function LiveCallsTab() {
       setLoading(false);
     }
   }, []);
+
+  const forceHangup = useCallback(async (id: string) => {
+    const data = await adminFetch(`/admin/calls/${id}/hangup`, { method: "POST" });
+    if (data.eslWarning) {
+      toast({ title: "Hung up (with warning)", description: data.eslWarning, variant: "destructive" });
+    } else {
+      toast({ title: "Call terminated", description: `uuid_kill sent${data.eslSent ? " to FreeSWITCH" : ""}. Record marked failed.` });
+    }
+    // Remove the hung-up call immediately from the list
+    setCalls((prev) => prev.filter((c) => c.id !== id));
+  }, [toast]);
 
   useEffect(() => {
     fetchLive();
@@ -1424,7 +1466,7 @@ function LiveCallsTab() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {calls.map((call) => (
-            <CallTraceCard key={call.id} call={call} />
+            <CallTraceCard key={call.id} call={call} onForceHangup={forceHangup} />
           ))}
         </div>
       )}
