@@ -77,12 +77,13 @@ jobs:
 
             echo "==> Building libraries"
             pnpm --filter @workspace/db \
+                 --filter @workspace/api-zod \
                  --filter @workspace/auth-web \
                  --filter @workspace/api-client-react \
                  run build
 
             echo "==> Building web app"
-            pnpm --filter @workspace/call-manager run build
+            pnpm --filter @workspace/prawwplus run build
 
             echo "==> Building API server"
             pnpm --filter @workspace/api-server run build

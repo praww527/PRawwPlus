@@ -122,7 +122,7 @@ export async function runStartup(): Promise<void> {
       });
   }
 
-  // ── 4. Find users without a FreeSWITCH extension ───────────────────────
+  // ── 5. Find users without a FreeSWITCH extension ───────────────────────
   try {
     const usersWithoutExt = await UserModel
       .find({ $or: [{ extension: { $exists: false } }, { extension: null }] })
@@ -145,7 +145,7 @@ export async function runStartup(): Promise<void> {
 
     let nextExt = maxUser?.extension != null ? maxUser.extension + 1 : EXTENSION_START;
 
-    // ── 3. Bulk-assign extensions ──────────────────────────────────────────
+    // ── 5a. Bulk-assign extensions ────────────────────────────────────────
     const bulkOps = usersWithoutExt.map((user: any) => {
       const ext = nextExt++;
       const fsPassword = generateSipPassword();
@@ -159,7 +159,7 @@ export async function runStartup(): Promise<void> {
 
     const result = await UserModel.bulkWrite(bulkOps, { ordered: false });
 
-    // ── 4. Log summary ─────────────────────────────────────────────────────
+    // ── 5b. Log summary ───────────────────────────────────────────────────
     logger.info(
       {
         provisioned:   result.modifiedCount,

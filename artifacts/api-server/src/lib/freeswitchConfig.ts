@@ -21,7 +21,7 @@ export function xmlCurlConf(appUrl: string, secret?: string): string {
   <bindings>
     <binding name="directory">
       <param name="gateway-url" value="${directoryUrl}" bindings="directory"/>
-      <param name="timeout" value="5"/>
+      <param name="timeout" value="10"/>
       <param name="disable-100-continue" value="true"/>${secretHeader}
     </binding>
   </bindings>
@@ -300,7 +300,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="should_forward=${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$)}"/>
         <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3)}"/>
         <action application="set" data="should_forward=${FS_VAR}expr(${FS_VAR}should_forward} &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
-        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
+        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}should_forward})"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
@@ -351,7 +351,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_target=${FS_VAR}user_data($1@${fsDomain} var callForwardBusyTo)}"/>
         <action application="set" data="forward_enabled=${FS_VAR}user_data($1@${fsDomain} var callForwardBusyEnabled)}"/>
         <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}regex(${FS_VAR}forward_enabled}|^true$) &amp;&amp; ${FS_VAR}strlen(${FS_VAR}forward_target}) &gt; 0 &amp;&amp; ${FS_VAR}forward_depth} &lt; 3 &amp;&amp; '${FS_VAR}forward_target}' != '$1')}"/>
-        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)"/>
+        <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>

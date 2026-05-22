@@ -66,7 +66,6 @@ async function getInternalWsUrl(): Promise<string> {
 
   if (process.env.FREESWITCH_WS_URL?.trim()) {
     const wsUrl = process.env.FREESWITCH_WS_URL.trim();
-    const wsHost = wsPort(wsUrl, 8081) && isLocalWsUrl(wsUrl) ? null : wsUrl;
 
     // If FREESWITCH_WS_URL points to localhost but we are on a remote host,
     // rewrite it to use the public IP.
