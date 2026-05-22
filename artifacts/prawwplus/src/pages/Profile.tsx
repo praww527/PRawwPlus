@@ -467,11 +467,9 @@ export default function Profile() {
           <div style={{
             display: "flex", alignItems: "center", gap: 12,
             padding: "14px 16px",
-            borderRadius: 20,
+            borderRadius: 16,
             background: "var(--glass-bg)",
-            border: "1px solid var(--glass-border)",
             backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-            boxShadow: "0 2px 16px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
           }}>
             {/* Avatar with initials */}
             <div style={{

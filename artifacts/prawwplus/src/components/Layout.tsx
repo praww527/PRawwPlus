@@ -76,8 +76,7 @@ export function Layout({ children }: LayoutProps) {
           background: "var(--nav-bg)",
           backdropFilter: "blur(40px) saturate(1.8)",
           WebkitBackdropFilter: "blur(40px) saturate(1.8)",
-          border: "1px solid var(--nav-border)",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.22), 0 1px 0 var(--glass-highlight) inset",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
         }}
       >
         {/* Sliding pill indicator */}
