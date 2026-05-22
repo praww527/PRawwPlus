@@ -29,6 +29,7 @@ import CallSettingsPage   from "@/pages/CallSettingsPage";
 import VoicemailPage      from "@/pages/Voicemail";
 import Favorites          from "@/pages/Favorites";
 import CompliancePage     from "@/pages/CompliancePage";
+import DiagnosticsPage   from "@/pages/DiagnosticsPage";
 
 initTheme();
 
@@ -152,6 +153,7 @@ function Router() {
       <Route path="/call-settings"   component={() => <ProtectedRoute component={CallSettingsPage} />} />
       <Route path="/numbers"         component={() => <Redirect to="/profile" />} />
       <Route path="/compliance"      component={() => <ProtectedRoute component={CompliancePage} />} />
+      <Route path="/diagnostics"     component={() => <ProtectedRoute component={DiagnosticsPage} />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
       <Route path="/reseller"        component={() => <ResellerRoute  component={ResellerDashboard} />} />
     </Switch>

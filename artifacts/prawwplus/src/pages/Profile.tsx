@@ -13,7 +13,7 @@ import {
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
   AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
   Moon, Sun, Monitor, Settings, Info, Coins, Camera, BadgeCheck,
-  Upload, Clock, Check, AlertTriangle,
+  Upload, Clock, Check, AlertTriangle, Activity,
 } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { format } from "date-fns";
@@ -839,6 +839,7 @@ export default function Profile() {
         <Row icon={<ThemeIcon size={15} />} iconBg="rgba(128,128,128,0.18)" label="Theme" value={themeLabel[theme]} onClick={() => setTheme(themeNext[theme])} />
         <Row icon={<Bell size={15} />} iconBg="rgba(255,149,0,0.15)" label="Notifications" onClick={() => setLocation("/notifications")} />
         <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.15)" label="Call Settings" onClick={() => setLocation("/call-settings")} />
+        <Row icon={<Activity size={15} />} iconBg="rgba(94,92,230,0.15)" label="Diagnostics" onClick={() => setLocation("/diagnostics")} />
         <Row icon={<Mic size={15} />} iconBg="rgba(128,128,128,0.18)" label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
       </Section>
 
