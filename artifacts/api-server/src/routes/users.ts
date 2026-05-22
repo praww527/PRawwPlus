@@ -73,7 +73,7 @@ router.post("/users/me/request-verification", async (req: Request, res: Response
   }
   await connectDB();
   const userId = (req as any).user.id;
-  const { docType, docUrl } = req.body;
+  const { docType, docUrl, policyAgreed } = req.body;
   if (!docType || !["id", "company"].includes(docType)) {
     res.status(400).json({ error: "docType must be 'id' or 'company'" });
     return;
@@ -86,20 +86,31 @@ router.post("/users/me/request-verification", async (req: Request, res: Response
     res.status(400).json({ error: "Document too large" });
     return;
   }
-  const user = await UserModel.findByIdAndUpdate(
-    userId,
-    {
-      $set: {
-        verificationStatus: "pending",
-        verificationDocType: docType,
-        verificationDocUrl: docUrl,
-        verificationDocSubmittedAt: new Date(),
-      },
-    },
-    { new: true }
-  ).lean();
+  if (!policyAgreed) {
+    res.status(400).json({ error: "You must agree to the Responsible Use Policy before submitting." });
+    return;
+  }
+  const update: Record<string, any> = {
+    verificationStatus: "pending",
+    verificationDocType: docType,
+    verificationDocUrl: docUrl,
+    verificationDocSubmittedAt: new Date(),
+    policyAgreedAt: new Date(),
+  };
+  const user = await UserModel.findByIdAndUpdate(userId, { $set: update }, { new: true }).lean();
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   res.json({ message: "Verification request submitted. An admin will review your document." });
+});
+
+router.post("/users/me/agree-policy", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  await UserModel.updateOne({ _id: userId }, { $set: { policyAgreedAt: new Date() } });
+  res.json({ message: "Responsible Use Policy agreed." });
 });
 
 router.get("/users/phone-lookup", async (req: Request, res: Response) => {

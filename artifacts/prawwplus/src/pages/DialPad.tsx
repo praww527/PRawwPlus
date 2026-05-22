@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, Loader2, UserCircle2, ChevronRight } from "lucide-react";
+import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
@@ -86,9 +86,22 @@ export default function DialPad() {
   const del = () => setNumber((n) => n.slice(0, -1));
 
   const coins = user?.coins ?? 0;
+  const verificationStatus = (user as any)?.verificationStatus as string | undefined;
+  const isVerificationGated = !verificationStatus || verificationStatus === "none" || verificationStatus === "rejected";
+  const isVerificationPending = verificationStatus === "pending";
+
   const minLength = 7;
 
   const handleCall = async () => {
+    if (isVerificationGated) {
+      toast({
+        title: "Verification required",
+        description: "Submit your business documents before making calls.",
+        variant: "destructive",
+      });
+      setLocation("/profile");
+      return;
+    }
     if (!number || number.length < minLength) {
       toast({ title: "Enter a valid mobile number", variant: "destructive" });
       return;
@@ -222,8 +235,61 @@ export default function DialPad() {
         </button>
       </div>
 
+      {/* Business verification gate banner */}
+      {isVerificationGated && (
+        <button
+          onClick={() => setLocation("/profile")}
+          style={{
+            width: "calc(100% - 32px)",
+            margin: "10px 16px 0",
+            padding: "12px 14px",
+            borderRadius: 14,
+            background: "rgba(255,69,58,0.10)",
+            border: "1px solid rgba(255,69,58,0.28)",
+            display: "flex", alignItems: "center", gap: 10,
+            cursor: "pointer", textAlign: "left",
+          }}
+        >
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,69,58,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Shield style={{ width: 14, height: 14, color: "#ff453a" }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 12, color: "#ff453a", fontWeight: 700, margin: 0 }}>
+              {verificationStatus === "rejected" ? "Verification rejected — resubmit to make calls" : "Business verification required to make calls"}
+            </p>
+            <p style={{ fontSize: 11, color: "rgba(255,69,58,0.75)", margin: "2px 0 0" }}>
+              Submit your business documents & agree to the Responsible Use Policy
+            </p>
+          </div>
+          <ChevronRight style={{ width: 13, height: 13, color: "#ff453a", flexShrink: 0 }} />
+        </button>
+      )}
+
+      {/* Pending verification banner */}
+      {isVerificationPending && (
+        <button
+          onClick={() => setLocation("/profile")}
+          style={{
+            width: "calc(100% - 32px)",
+            margin: "10px 16px 0",
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: "rgba(255,214,10,0.08)",
+            border: "1px solid rgba(255,214,10,0.22)",
+            display: "flex", alignItems: "center", gap: 10,
+            cursor: "pointer", textAlign: "left",
+          }}
+        >
+          <AlertTriangle style={{ width: 14, height: 14, color: "#ffd60a", flexShrink: 0 }} />
+          <span style={{ flex: 1, fontSize: 12, color: "#ffd60a", fontWeight: 600 }}>
+            Verification under review · calls may be limited until approved
+          </span>
+          <ChevronRight style={{ width: 13, height: 13, color: "#ffd60a", flexShrink: 0 }} />
+        </button>
+      )}
+
       {/* Phone verification banner */}
-      {showPhoneBanner && (
+      {showPhoneBanner && !isVerificationGated && (
         <button
           onClick={() => setLocation("/profile")}
           style={{
@@ -331,18 +397,20 @@ export default function DialPad() {
         <div style={{ width: BTN + COL_GAP * 2, display: "flex", justifyContent: "center" }}>
           <button
             onClick={handleCall}
-            disabled={isPending || number.length < minLength}
+            disabled={isPending || number.length < minLength || isVerificationGated}
             style={{
               width: BTN + 6, height: BTN + 6,
               borderRadius: "50%",
-              background: "linear-gradient(145deg, #3ddb6a, #28a84e)",
+              background: isVerificationGated
+                ? "rgba(255,69,58,0.30)"
+                : "linear-gradient(145deg, #3ddb6a, #28a84e)",
               border: "none",
               display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer",
-              opacity: number.length >= minLength ? 1 : 0.45,
+              cursor: isVerificationGated ? "default" : "pointer",
+              opacity: isVerificationGated ? 0.8 : number.length >= minLength ? 1 : 0.45,
               transition: "opacity 0.2s, transform 0.1s",
               flexShrink: 0,
-              boxShadow: "0 4px 20px rgba(48,209,88,0.35)",
+              boxShadow: isVerificationGated ? "none" : "0 4px 20px rgba(48,209,88,0.35)",
             }}
             onPointerDown={(e) => { e.currentTarget.style.transform = "scale(0.93)"; }}
             onPointerUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}

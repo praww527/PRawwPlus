@@ -1,5 +1,6 @@
 import { useState, Children, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { ImageCropper } from "@/components/ImageCropper";
 import { useAuth } from "@workspace/auth-web";
 import {
   useGetMe, useListPayments, useInitiateSubscription,
@@ -321,12 +322,14 @@ export default function Profile() {
   const [otpCountdown, setOtpCountdown] = useState<number | null>(null);
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [rawPhotoSrc, setRawPhotoSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [verifyDocType, setVerifyDocType] = useState<"id" | "company">("id");
   const [verifyDocFile, setVerifyDocFile] = useState<string | null>(null);
   const [verifyDocName, setVerifyDocName] = useState<string>("");
   const [submittingVerify, setSubmittingVerify] = useState(false);
+  const [policyAgreed, setPolicyAgreed] = useState(false);
   const verifyFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -355,23 +358,25 @@ export default function Profile() {
   const handleProfilePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) {
-      toast({ title: "Image too large", description: "Please use an image under 3MB", variant: "destructive" });
-      return;
-    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    setRawPhotoSrc(dataUrl);
+  };
+
+  const handleCropConfirm = async (croppedDataUrl: string) => {
+    setRawPhotoSrc(null);
     setUploadingPhoto(true);
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
       const res = await fetch("/api/users/me/profile-image", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileImage: base64 }),
+        body: JSON.stringify({ profileImage: croppedDataUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
@@ -381,7 +386,6 @@ export default function Profile() {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
       setUploadingPhoto(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -407,20 +411,25 @@ export default function Profile() {
       toast({ title: "Please upload a document", variant: "destructive" });
       return;
     }
+    if (!policyAgreed) {
+      toast({ title: "Agreement required", description: "Please agree to the Responsible Use Policy.", variant: "destructive" });
+      return;
+    }
     setSubmittingVerify(true);
     try {
       const res = await fetch("/api/users/me/request-verification", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docType: verifyDocType, docUrl: verifyDocFile }),
+        body: JSON.stringify({ docType: verifyDocType, docUrl: verifyDocFile, policyAgreed: true }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Submission failed");
-      toast({ title: "Verification submitted!", description: "An admin will review your document." });
+      toast({ title: "Verification submitted!", description: "An admin will review your document within 1–2 business days." });
       setSheet("none");
       setVerifyDocFile(null);
       setVerifyDocName("");
+      setPolicyAgreed(false);
       refetchUser();
     } catch (err: any) {
       toast({ title: "Failed", description: err.message, variant: "destructive" });
@@ -561,6 +570,14 @@ export default function Profile() {
         style={{ display: "none" }}
         onChange={handleProfilePhotoChange}
       />
+
+      {rawPhotoSrc && (
+        <ImageCropper
+          src={rawPhotoSrc}
+          onConfirm={handleCropConfirm}
+          onCancel={() => setRawPhotoSrc(null)}
+        />
+      )}
       <input
         ref={verifyFileRef}
         type="file"
@@ -841,6 +858,7 @@ export default function Profile() {
       <Section title="Legal & Support">
         <Row icon={<FileText size={15} />} iconBg="rgba(128,128,128,0.18)" label="Terms of Service" onClick={() => setSheet("terms")} />
         <Row icon={<ShieldCheck size={15} />} iconBg="rgba(128,128,128,0.18)" label="Privacy Policy" onClick={() => setSheet("privacy")} />
+        <Row icon={<Shield size={15} />} iconBg="rgba(10,132,255,0.15)" label="Responsible Use & Compliance" value="Guide" onClick={() => setLocation("/compliance")} />
         <Row icon={<HelpCircle size={15} />} iconBg="rgba(10,132,255,0.15)" label="Help / Support" value={CONTACT_EMAIL}
           onClick={() => window.open(`mailto:${CONTACT_EMAIL}?subject=PRaww+ Support`, "_blank")} />
         <Row icon={<Mail size={15} />} iconBg="rgba(128,128,128,0.18)" label="Contact Us" onClick={() => setSheet("contact")} />
@@ -1152,14 +1170,50 @@ export default function Profile() {
               </button>
             </div>
 
+            {/* Responsible Use Policy agreement */}
+            <div
+              onClick={() => setPolicyAgreed((v) => !v)}
+              style={{
+                display: "flex", alignItems: "flex-start", gap: 12,
+                padding: "14px", borderRadius: 14,
+                background: policyAgreed ? "rgba(48,209,88,0.08)" : "rgba(255,149,0,0.07)",
+                border: `1px solid ${policyAgreed ? "rgba(48,209,88,0.25)" : "rgba(255,149,0,0.22)"}`,
+                cursor: "pointer", transition: "all 0.15s",
+              }}
+            >
+              <div style={{
+                width: 20, height: 20, borderRadius: 6, flexShrink: 0, marginTop: 1,
+                background: policyAgreed ? "#30d158" : "rgba(128,128,128,0.20)",
+                border: `2px solid ${policyAgreed ? "#30d158" : "rgba(128,128,128,0.40)"}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.15s",
+              }}>
+                {policyAgreed && <Check style={{ width: 12, height: 12, color: "#fff", strokeWidth: 3 }} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", margin: 0 }}>
+                  I agree to the Responsible Use Policy
+                </p>
+                <p style={{ fontSize: 11, color: "var(--text-2)", margin: "3px 0 0", lineHeight: 1.4 }}>
+                  I confirm this is a legitimate South African business and I will only use PRaww+ for lawful communications.{" "}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSheet("none"); setLocation("/compliance"); }}
+                    style={{ background: "none", border: "none", color: "#0a84ff", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                  >
+                    Read full policy
+                  </button>
+                </p>
+              </div>
+            </div>
+
             <button
               onClick={handleSubmitVerification}
-              disabled={submittingVerify || !verifyDocFile}
+              disabled={submittingVerify || !verifyDocFile || !policyAgreed}
               style={{
                 width: "100%", padding: "14px 0", borderRadius: 14,
-                background: verifyDocFile ? "hsl(var(--primary))" : "var(--glass-bg)",
-                border: "none", color: verifyDocFile ? "#fff" : "var(--text-3)",
-                fontSize: 15, fontWeight: 600, cursor: verifyDocFile ? "pointer" : "default",
+                background: verifyDocFile && policyAgreed ? "hsl(var(--primary))" : "var(--glass-bg)",
+                border: "none", color: verifyDocFile && policyAgreed ? "#fff" : "var(--text-3)",
+                fontSize: 15, fontWeight: 600, cursor: verifyDocFile && policyAgreed ? "pointer" : "default",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
               }}
             >

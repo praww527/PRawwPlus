@@ -73,6 +73,7 @@ export interface IUser extends Document<string> {
   verificationDocUrl?: string;
   verificationDocType?: "id" | "company";
   verificationDocSubmittedAt?: Date;
+  policyAgreedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -134,6 +135,7 @@ const UserSchema = new Schema<IUser>(
     verificationDocUrl: { type: String },
     verificationDocType: { type: String, enum: ["id", "company"] },
     verificationDocSubmittedAt: { type: Date },
+    policyAgreedAt: { type: Date },
     notificationPrefs: {
       type: new Schema({
         incomingCalls: { type: Boolean, default: true },

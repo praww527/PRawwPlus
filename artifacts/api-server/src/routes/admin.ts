@@ -4,6 +4,7 @@ import {
   connectDB,
   UserModel,
   CallModel,
+  CdrModel,
   PaymentModel,
   EarningModel,
   ExpenseModel,
@@ -819,6 +820,108 @@ router.delete("/admin/announcements/:announcementId", requireAdmin, async (req, 
   const deleted = await AnnouncementModel.findByIdAndDelete(announcementId);
   if (!deleted) { res.status(404).json({ error: "Announcement not found" }); return; }
   res.json({ message: "Announcement deleted" });
+});
+
+// ── Abuse / Call Pattern Monitoring ──────────────────────────────────────────
+
+router.get("/admin/monitoring/scan", requireAdmin, async (req, res) => {
+  await connectDB();
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const pipeline = [
+    { $match: { createdAt: { $gte: since } } },
+    {
+      $group: {
+        _id: "$userId",
+        totalCalls:  { $sum: 1 },
+        shortCalls:  { $sum: { $cond: [{ $lt: ["$billsec", 10] }, 1, 0] } },
+        totalBillsec: { $sum: "$billsec" },
+        uniqueNumbers: { $addToSet: "$recipientNumber" },
+      },
+    },
+  ];
+
+  const rows = await CdrModel.aggregate(pipeline as any[]);
+
+  const created: { userId: string; reason: string; severity: string }[] = [];
+
+  for (const row of rows) {
+    const userId: string = row._id;
+    if (!userId) continue;
+
+    const checks: { reason: string; severity: "low" | "medium" | "high" }[] = [];
+
+    if (row.totalCalls > 50) {
+      checks.push({ reason: `High call volume: ${row.totalCalls} calls in 24 h`, severity: "high" });
+    }
+    const shortRatio = row.totalCalls > 0 ? row.shortCalls / row.totalCalls : 0;
+    if (shortRatio > 0.6 && row.totalCalls >= 10) {
+      checks.push({
+        reason: `Suspicious short-call ratio: ${Math.round(shortRatio * 100)}% of calls < 10 s`,
+        severity: "high",
+      });
+    }
+    const uniqueCount = Array.isArray(row.uniqueNumbers) ? row.uniqueNumbers.filter(Boolean).length : 0;
+    if (uniqueCount > 30) {
+      checks.push({ reason: `Broad dialling: ${uniqueCount} unique numbers called in 24 h`, severity: "medium" });
+    }
+
+    for (const check of checks) {
+      const exists = await AbuseFlagModel.findOne({ userId, reason: check.reason, createdAt: { $gte: since } }).lean();
+      if (!exists) {
+        await AbuseFlagModel.create({
+          _id: randomUUID(),
+          userId,
+          reason: check.reason,
+          severity: check.severity,
+          flaggedBy: "system",
+        });
+        created.push({ userId, ...check });
+      }
+    }
+  }
+
+  res.json({
+    scannedUsers: rows.length,
+    newFlags: created.length,
+    flags: created,
+  });
+});
+
+router.get("/admin/monitoring/flags", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { page, limit, skip } = parsePageLimit(req.query);
+  const resolved = req.query.resolved === "true";
+  const query: any = resolved ? { resolvedAt: { $exists: true } } : { resolvedAt: { $exists: false } };
+
+  const [flags, total] = await Promise.all([
+    AbuseFlagModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AbuseFlagModel.countDocuments(query),
+  ]);
+
+  const userIds = [...new Set(flags.map((f) => f.userId))];
+  const users = await UserModel.find({ _id: { $in: userIds } }).select("name username email").lean();
+  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+
+  res.json({
+    flags: flags.map((f) => ({ ...f, id: f._id, user: userMap[f.userId] ?? null })),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
+router.post("/admin/monitoring/flags/:flagId/resolve", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { flagId } = req.params;
+  const flag = await AbuseFlagModel.findById(flagId);
+  if (!flag) { res.status(404).json({ error: "Flag not found" }); return; }
+  flag.resolvedAt = new Date();
+  flag.notes = req.body.notes ?? flag.notes;
+  await flag.save();
+  res.json({ message: "Flag resolved", flag: { ...flag.toObject(), id: flag._id } });
 });
 
 export default router;
