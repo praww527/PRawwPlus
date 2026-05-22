@@ -1,4 +1,5 @@
 import { useState, Children, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@workspace/auth-web";
 import {
   useGetMe, useListPayments, useInitiateSubscription,
@@ -41,20 +42,17 @@ const SHEET_CLEAR = NAV_H + NAV_BOTTOM_GAP + 10;
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   useEffect(() => {
-    const main = document.querySelector("main") as HTMLElement | null;
-    if (main) {
-      const prev = main.style.overflow;
-      main.style.overflow = "hidden";
-      return () => { main.style.overflow = prev; };
-    }
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
   }, []);
 
-  return (
+  return createPortal(
     <div
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: MODAL_Z,
+        zIndex: 10000,
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
@@ -95,7 +93,8 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
