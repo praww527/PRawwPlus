@@ -238,6 +238,24 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
       } catch { /* ignore */ }
     }
 
+    // Remove stock FreeSWITCH default directory user files (extensions 1000-1019).
+    //
+    // FreeSWITCH ships with static XML files for these extensions in
+    // conf/directory/default/.  Those files use $${domain} as their domain
+    // name, which expands to FREESWITCH_DOMAIN (158.180.29.84).  When
+    // mod_verto authenticates a login for e.g. 1001@158.180.29.84 it finds
+    // these static files FIRST (before xml_curl is invoked) and compares the
+    // stored $${default_password} against our per-user password — mismatch →
+    // -32601 "Permission Denied".  Deleting the static files forces
+    // FreeSWITCH to fall through to xml_curl for every user lookup.
+    try {
+      await execCommand(
+        conn,
+        `rm -f ${confDir}/directory/default/10{0,1}{0,1,2,3,4,5,6,7,8,9}.xml`,
+      );
+      steps.push("Removed stock default directory user files (1000-1019) so xml_curl is used for auth");
+    } catch { /* ignore */ }
+
     // Locate fs_cli — try common install paths
     const fsCli = await execCommand(
       conn,
