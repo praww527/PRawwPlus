@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@workspace/auth-web";
+import { initTheme } from "@/hooks/useTheme";
 
 import { Layout } from "@/components/Layout";
 import { LoadingScreen } from "@/components/ui/spinner";
@@ -27,6 +28,8 @@ import NotificationsPage  from "@/pages/NotificationsPage";
 import CallSettingsPage   from "@/pages/CallSettingsPage";
 import VoicemailPage      from "@/pages/Voicemail";
 import Favorites          from "@/pages/Favorites";
+
+initTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },

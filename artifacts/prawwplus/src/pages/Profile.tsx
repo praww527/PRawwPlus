@@ -10,7 +10,9 @@ import {
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
   AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
+  Moon, Sun, Monitor,
 } from "lucide-react";
+import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -293,6 +295,7 @@ type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "priv
 export default function Profile() {
   const { logout, user: authUser } = useAuth();
   const { data: user, isLoading } = useGetMe();
+  const { theme, setTheme, isDark } = useTheme();
   const { data: paymentData } = useListPayments();
   const { data: numbersData, refetch: refetchNumbers } = useListMyNumbers();
   const { mutateAsync: subscribe, isPending: subscribing } = useInitiateSubscription();
@@ -443,9 +446,16 @@ export default function Profile() {
     );
   }
 
+  const themeNext: Record<ThemePreference, ThemePreference> = { system: "dark", dark: "light", light: "system" };
+  const themeLabel: Record<ThemePreference, string> = { system: "System", dark: "Dark", light: "Light" };
+  const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
+
   return (
-    <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: 8, paddingTop: 4 }}>
+    <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8, paddingTop: 4 }}>
       <PayFastRedirect data={pfData} />
+
+      {/* ── Page title ─────────────────────────────────────── */}
+      <p style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", letterSpacing: "-0.02em", margin: "2px 4px 2px" }}>Settings</p>
 
       {/* ── User header ──────────────────────────────────── */}
       {(() => {
@@ -455,21 +465,20 @@ export default function Profile() {
           : "?";
         return (
           <div style={{
-            display: "flex", alignItems: "center", gap: 16,
-            padding: "18px 20px",
-            borderRadius: 24,
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "14px 16px",
+            borderRadius: 20,
             background: "var(--glass-bg)",
             border: "1px solid var(--glass-border)",
             backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
-            boxShadow: "0 4px 28px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
+            boxShadow: "0 2px 16px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
           }}>
             {/* Avatar with initials */}
             <div style={{
-              width: 64, height: 64, borderRadius: "50%", flexShrink: 0,
+              width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
               background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 16px rgba(59,130,246,0.35), 0 1px 0 rgba(255,255,255,0.22) inset",
-              fontSize: 22, fontWeight: 700, color: "#fff",
+              fontSize: 18, fontWeight: 700, color: "#fff",
               fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
               border: "2px solid rgba(255,255,255,0.18)",
             }}>
@@ -479,7 +488,7 @@ export default function Profile() {
             {/* Name / email / status */}
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{
-                fontSize: 19, fontWeight: 700, color: "var(--text-1)",
+                fontSize: 17, fontWeight: 700, color: "var(--text-1)",
                 fontFamily: "var(--font-display)", letterSpacing: "-0.01em",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 lineHeight: 1.2,
@@ -487,26 +496,26 @@ export default function Profile() {
                 {displayName}
               </p>
               <p style={{
-                fontSize: 13, color: "var(--text-2)", marginTop: 3,
+                fontSize: 12, color: "var(--text-2)", marginTop: 2,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {user?.email ?? user?.username ?? ""}
               </p>
               {primaryNumber && (
-                <p style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace", marginTop: 2 }}>
+                <p style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace", marginTop: 1 }}>
                   {primaryNumber}
                 </p>
               )}
               <div style={{
-                display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8,
-                padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6,
+                padding: "3px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600,
                 background: isActive ? "rgba(48,209,88,0.14)" : "rgba(128,128,128,0.14)",
                 color: isActive ? "#30d158" : "var(--text-3)",
                 border: `1px solid ${isActive ? "rgba(48,209,88,0.25)" : "var(--sep)"}`,
               }}>
                 {isActive
-                  ? <CheckCircle2 style={{ width: 11, height: 11 }} />
-                  : <AlertCircle style={{ width: 11, height: 11 }} />}
+                  ? <CheckCircle2 style={{ width: 10, height: 10 }} />
+                  : <AlertCircle style={{ width: 10, height: 10 }} />}
                 {isActive
                   ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active`
                   : "No Active Plan"}
@@ -597,6 +606,18 @@ export default function Profile() {
           label="Payment Methods" value="PayFast" chevron={false} />
         <Row icon={<Receipt size={15} />} iconBg="rgba(100,100,110,0.28)" iconColor="var(--text-2)"
           label="Transaction History" onClick={() => setSheet("history")} />
+      </Section>
+
+      {/* ── Appearance ────────────────────────────────────── */}
+      <Section title="Appearance">
+        <Row
+          icon={<ThemeIcon size={15} />}
+          iconBg={isDark ? "rgba(94,92,230,0.20)" : "rgba(255,214,10,0.20)"}
+          iconColor={isDark ? "#5e5ce6" : "#ffd60a"}
+          label="Theme"
+          value={themeLabel[theme]}
+          onClick={() => setTheme(themeNext[theme])}
+        />
       </Section>
 
       {/* ── Preferences ───────────────────────────────────── */}
