@@ -25,12 +25,8 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const server = http.createServer(app);
-// Bind to 0.0.0.0 in production OR when REPLIT_DEV_DOMAIN is set (Replit dev environment).
-// This is required for Replit's port-detection health checks to work.
-const host =
-  process.env.NODE_ENV === "production" || process.env.REPLIT_DEV_DOMAIN
-    ? "0.0.0.0"
-    : "127.0.0.1";
+// Always bind to 0.0.0.0 so the server is reachable behind nginx/proxies.
+const host = "0.0.0.0";
 
 let shuttingDown = false;
 function shutdown(signal: string) {

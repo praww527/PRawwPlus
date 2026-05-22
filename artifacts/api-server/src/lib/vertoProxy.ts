@@ -63,8 +63,8 @@ async function getInternalWsUrl(): Promise<string> {
     const wsUrl = process.env.FREESWITCH_WS_URL.trim();
     const wsHost = wsPort(wsUrl, 8081) && isLocalWsUrl(wsUrl) ? null : wsUrl;
 
-    // If FREESWITCH_WS_URL points to localhost but we are on a remote host
-    // (e.g. Replit connecting to a VPS), rewrite it to use the public IP.
+    // If FREESWITCH_WS_URL points to localhost but we are on a remote host,
+    // rewrite it to use the public IP.
     if (isLocalWsUrl(wsUrl) && !remoteIsLocal) {
       const port = wsPort(wsUrl, 8081);
       logger.info(
@@ -81,7 +81,7 @@ async function getInternalWsUrl(): Promise<string> {
     return "ws://127.0.0.1:8081/";
   }
 
-  // FreeSWITCH is on a REMOTE host (e.g. Replit dev connecting to VPS).
+  // FreeSWITCH is on a REMOTE host.
   // Try SSH tunnel first (port 8081 is often firewalled); fall back to direct.
   const tunnelUrl = await getSshForwardUrl(8081);
   if (tunnelUrl) return tunnelUrl;

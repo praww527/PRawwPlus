@@ -143,7 +143,7 @@ PSTN_GATEWAY_REGISTER=true
 ```
 
 > **Do NOT set `FREESWITCH_SSH_KEY` or `FREESWITCH_SSH_USER` on the VPS.**
-> Those are only for the Replit dev environment where the API runs remotely and needs an SSH tunnel to reach FreeSWITCH.
+> Those are only for remote dev environments where the API runs off-site and needs an SSH tunnel to reach FreeSWITCH.
 > On the VPS, the API connects directly to `127.0.0.1:8021` — no tunnel needed.
 
 Then restart the service:

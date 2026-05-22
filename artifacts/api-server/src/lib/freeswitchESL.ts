@@ -221,8 +221,8 @@ class FreeSwitchESL {
     const isLocal = eslHostBare === "127.0.0.1" || eslHostBare === "localhost";
 
     // Only use SSH tunnel when ESL host is localhost (i.e. FreeSWITCH is on the
-    // same machine as this server). When connecting to a remote VPS from Replit,
-    // connect directly via TCP — SSH tunneling to a remote host is not needed
+    // same machine as this server). When connecting to a remote VPS directly,
+    // connect via TCP — SSH tunneling to a remote host is not needed
     // and the key auth would target the wrong machine.
     if (sshKey && isLocal) {
       this.connectViaSsh(sshKey);
