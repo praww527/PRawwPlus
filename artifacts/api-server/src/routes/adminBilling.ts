@@ -25,7 +25,7 @@ router.get("/admin/rate-plans", requireAdmin, async (req, res) => {
     RatePlanModel.countDocuments(),
   ]);
   res.json({
-    ratePlans: rows.map((r) => ({ ...r, id: r._id })),
+    ratePlans: rows.map((r: any) => ({ ...r, id: r._id })),
     total,
     page,
     limit,
@@ -132,14 +132,14 @@ router.post("/admin/invoices/generate", requireAdmin, async (req, res) => {
 
     if (cdr.length === 0) continue;
 
-    const lines = cdr.map((row) => ({
+    const lines = cdr.map((row: any) => ({
       description: `Call ${row.recipientNumber ?? ""}`.trim(),
       coins: row.coinsUsed ?? 0,
       callId: row.callId,
       cdrId: row._id,
     }));
 
-    const totalCoins = lines.reduce((acc, l) => acc + (Number(l.coins) || 0), 0);
+    const totalCoins = lines.reduce((acc: number, l: any) => acc + (Number(l.coins) || 0), 0);
     const invoiceId = `inv:${userId}:${parsed.key}`;
 
     await InvoiceModel.updateOne(

@@ -106,7 +106,7 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
     totalRevenue,
     callsToday,
     newUsersThisMonth,
-    recentPayments: recentPayments.map((p) => ({ ...p, id: p._id })),
+    recentPayments: recentPayments.map((p: any) => ({ ...p, id: p._id })),
     totalResellers,
     pendingApprovals,
     lockedUsers,
@@ -131,7 +131,7 @@ router.get("/admin/users", requireAdmin, async (req, res) => {
   ]);
 
   res.json({
-    users: users.map((u) => ({ ...u, id: u._id })),
+    users: users.map((u: any) => ({ ...u, id: u._id })),
     total,
     page,
     limit,
@@ -154,9 +154,9 @@ router.get("/admin/users/:userId", requireAdmin, async (req, res) => {
   ]);
   res.json({
     user: { ...user, id: user._id },
-    recentCalls: recentCalls.map((c) => ({ ...c, id: c._id })),
-    recentPayments: recentPayments.map((p) => ({ ...p, id: p._id })),
-    earnings: earnings.map((e) => ({ ...e, id: e._id })),
+    recentCalls: recentCalls.map((c: any) => ({ ...c, id: c._id })),
+    recentPayments: recentPayments.map((p: any) => ({ ...p, id: p._id })),
+    earnings: earnings.map((e: any) => ({ ...e, id: e._id })),
   });
 });
 
@@ -357,14 +357,14 @@ router.get("/admin/referrals", requireAdmin, async (req, res) => {
     UserModel.countDocuments({ referredBy: { $exists: true, $ne: null } }),
   ]);
 
-  const resellerIds = [...new Set(referredUsers.map((u) => u.referredBy).filter((id): id is string => Boolean(id)))];
+  const resellerIds = [...new Set(referredUsers.map((u: any) => u.referredBy).filter((id: any): id is string => Boolean(id)))];
   const resellers = await UserModel.find({ _id: { $in: resellerIds } })
     .select("name username email referralCode")
     .lean();
-  const resellerMap = Object.fromEntries(resellers.map((r) => [String(r._id), r]));
+  const resellerMap = Object.fromEntries(resellers.map((r: any) => [String(r._id), r]));
 
   res.json({
-    referrals: referredUsers.map((u) => ({
+    referrals: referredUsers.map((u: any) => ({
       ...u,
       id: u._id,
       reseller: resellerMap[u.referredBy as string] ?? null,
@@ -391,16 +391,16 @@ router.get("/admin/earnings", requireAdmin, async (req, res) => {
   ]);
 
   const userIds = [...new Set([
-    ...earnings.map((e) => e.resellerId),
-    ...earnings.map((e) => e.userId),
+    ...earnings.map((e: any) => e.resellerId),
+    ...earnings.map((e: any) => e.userId),
   ])];
   const users = await UserModel.find({ _id: { $in: userIds } })
     .select("name username email")
     .lean();
-  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
   res.json({
-    earnings: earnings.map((e) => ({
+    earnings: earnings.map((e: any) => ({
       ...e,
       id: e._id,
       reseller: userMap[e.resellerId] ?? null,
@@ -433,7 +433,7 @@ router.get("/admin/expenses", requireAdmin, async (req, res) => {
     ExpenseModel.countDocuments(),
   ]);
   res.json({
-    expenses: expenses.map((e) => ({ ...e, id: e._id })),
+    expenses: expenses.map((e: any) => ({ ...e, id: e._id })),
     total,
     page,
     limit,
@@ -484,14 +484,14 @@ router.get("/admin/payouts", requireAdmin, async (req, res) => {
     PayoutModel.countDocuments(query),
   ]);
 
-  const resellerIds = [...new Set(payouts.map((p) => p.resellerId))];
+  const resellerIds = [...new Set(payouts.map((p: any) => p.resellerId))];
   const resellers = await UserModel.find({ _id: { $in: resellerIds } })
     .select("name username email")
     .lean();
-  const resellerMap = Object.fromEntries(resellers.map((r) => [String(r._id), r]));
+  const resellerMap = Object.fromEntries(resellers.map((r: any) => [String(r._id), r]));
 
   res.json({
-    payouts: payouts.map((p) => ({
+    payouts: payouts.map((p: any) => ({
       ...p,
       id: p._id,
       reseller: resellerMap[p.resellerId] ?? null,
@@ -552,13 +552,13 @@ router.get("/admin/calls/live", requireAdmin, async (_req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  const userIds = [...new Set(activeCalls.map((c) => String(c.userId)).filter(Boolean))];
+  const userIds = [...new Set(activeCalls.map((c: any) => String(c.userId)).filter(Boolean))];
   const users   = await UserModel.find({ _id: { $in: userIds } })
     .select("username extension phone")
     .lean();
-  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
-  const calls = activeCalls.map((c) => {
+  const calls = activeCalls.map((c: any) => {
     const user = userMap[String(c.userId)] ?? null;
     return {
       id:              String(c._id),
@@ -721,9 +721,9 @@ router.post("/admin/push", requireAdmin, async (req, res) => {
   let sent = 0, fcmOk = 0, expoOk = 0, skipped = 0, errors = 0;
 
   await Promise.all(
-    recipients.map(async (u) => {
-      const fcmToken      = (u as any).fcmToken      ?? null;
-      const expoPushToken = (u as any).expoPushToken ?? null;
+    recipients.map(async (u: any) => {
+      const fcmToken      = u.fcmToken      ?? null;
+      const expoPushToken = u.expoPushToken ?? null;
 
       if (!fcmToken && !expoPushToken) { skipped++; return; }
 
@@ -765,11 +765,11 @@ router.get("/admin/calls", requireAdmin, async (req, res) => {
     CallModel.countDocuments(query),
   ]);
 
-  const userIds = [...new Set(callDocs.map((c) => c.userId))];
+  const userIds = [...new Set(callDocs.map((c: any) => c.userId))];
   const users = await UserModel.find({ _id: { $in: userIds } }).lean();
-  const userMap = Object.fromEntries(users.map((u) => [u._id, u.username]));
+  const userMap = Object.fromEntries(users.map((u: any) => [u._id, u.username]));
 
-  const calls = callDocs.map((c) => ({
+  const calls = callDocs.map((c: any) => ({
     ...c,
     id: c._id,
     username: userMap[c.userId] ?? null,
@@ -837,14 +837,14 @@ router.get("/admin/call-stats", requireAdmin, async (req, res) => {
 
   const total = (await CallModel.aggregate([{ $group: { _id: "$userId" } }, { $count: "n" }]))[0]?.n ?? 0;
 
-  const userIds = statsByUser.map((s) => s._id);
+  const userIds = statsByUser.map((s: any) => s._id);
   const users = await UserModel.find({ _id: { $in: userIds } })
     .select("name username email locked")
     .lean();
-  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
   res.json({
-    stats: statsByUser.map((s) => {
+    stats: statsByUser.map((s: any) => {
       const avgDuration = s.totalCalls > 0 ? Math.round(s.totalDuration / s.totalCalls) : 0;
       const failedRate = s.totalCalls > 0 ? parseFloat(((s.failedCalls / s.totalCalls) * 100).toFixed(1)) : 0;
       const user = userMap[s._id];
@@ -882,14 +882,14 @@ router.get("/admin/abuse-flags", requireAdmin, async (req, res) => {
     AbuseFlagModel.countDocuments(query),
   ]);
 
-  const userIds = [...new Set(flags.map((f) => f.userId))];
+  const userIds = [...new Set(flags.map((f: any) => f.userId))];
   const users = await UserModel.find({ _id: { $in: userIds } })
     .select("name username email locked approved")
     .lean();
-  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
   res.json({
-    flags: flags.map((f) => ({
+    flags: flags.map((f: any) => ({
       ...f,
       id: f._id,
       user: userMap[f.userId] ?? null,
@@ -958,14 +958,14 @@ router.get("/admin/announcements", requireAdmin, async (req, res) => {
     AnnouncementModel.countDocuments(),
   ]);
 
-  const creatorIds = [...new Set(announcements.map((a) => a.createdBy))];
+  const creatorIds = [...new Set(announcements.map((a: any) => a.createdBy))];
   const creators = await UserModel.find({ _id: { $in: creatorIds } })
     .select("name username")
     .lean();
-  const creatorMap = Object.fromEntries(creators.map((u) => [String(u._id), u]));
+  const creatorMap = Object.fromEntries(creators.map((u: any) => [String(u._id), u]));
 
   res.json({
-    announcements: announcements.map((a) => ({
+    announcements: announcements.map((a: any) => ({
       ...a,
       id: a._id,
       creator: creatorMap[a.createdBy] ?? null,
@@ -1115,12 +1115,12 @@ router.get("/admin/monitoring/flags", requireAdmin, async (req, res) => {
     AbuseFlagModel.countDocuments(query),
   ]);
 
-  const userIds = [...new Set(flags.map((f) => f.userId))];
+  const userIds = [...new Set(flags.map((f: any) => f.userId))];
   const users = await UserModel.find({ _id: { $in: userIds } }).select("name username email").lean();
-  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
   res.json({
-    flags: flags.map((f) => ({ ...f, id: f._id, user: userMap[f.userId] ?? null })),
+    flags: flags.map((f: any) => ({ ...f, id: f._id, user: userMap[f.userId] ?? null })),
     total,
     page,
     limit,

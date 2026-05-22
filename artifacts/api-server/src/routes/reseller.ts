@@ -72,7 +72,7 @@ router.get("/reseller/stats", requireReseller, async (req, res) => {
     pendingEarnings: pendingEarningsAgg[0]?.total ?? 0,
     paidEarnings: paidEarningsAgg[0]?.total ?? 0,
     totalReferrals,
-    recentEarnings: recentEarnings.map((e) => ({ ...e, id: e._id })),
+    recentEarnings: recentEarnings.map((e: any) => ({ ...e, id: e._id })),
     pendingPayouts: pendingPayoutsAgg[0]?.total ?? 0,
     paidPayouts: paidPayoutsAgg[0]?.total ?? 0,
     referralCode: reseller?.referralCode ?? null,
@@ -89,14 +89,14 @@ router.get("/reseller/earnings", requireReseller, async (req, res) => {
     EarningModel.countDocuments({ resellerId }),
   ]);
 
-  const userIds = [...new Set(earnings.map((e) => e.userId))];
+  const userIds = [...new Set(earnings.map((e: any) => e.userId))];
   const users = await UserModel.find({ _id: { $in: userIds } })
     .select("name username email")
     .lean();
-  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
   res.json({
-    earnings: earnings.map((e) => ({
+    earnings: earnings.map((e: any) => ({
       ...e,
       id: e._id,
       user: userMap[e.userId] ?? null,
@@ -123,17 +123,17 @@ router.get("/reseller/referrals", requireReseller, async (req, res) => {
     UserModel.countDocuments({ referredBy: resellerId }),
   ]);
 
-  const userIds = referredUsers.map((u) => String(u._id));
+  const userIds = referredUsers.map((u: any) => String(u._id));
   const earningsPerUser = await EarningModel.aggregate([
     { $match: { resellerId, userId: { $in: userIds } } },
     { $group: { _id: "$userId", total: { $sum: "$amount" }, count: { $sum: 1 } } },
   ]);
   const earningsMap = Object.fromEntries(
-    earningsPerUser.map((e) => [e._id, { total: e.total, count: e.count }])
+    earningsPerUser.map((e: any) => [e._id, { total: e.total, count: e.count }])
   );
 
   res.json({
-    referrals: referredUsers.map((u) => ({
+    referrals: referredUsers.map((u: any) => ({
       ...u,
       id: u._id,
       earnings: earningsMap[String(u._id)] ?? { total: 0, count: 0 },
@@ -149,7 +149,7 @@ router.get("/reseller/payouts", requireReseller, async (req, res) => {
   await connectDB();
   const resellerId = (req as any).user.id;
   const payouts = await PayoutModel.find({ resellerId }).sort({ createdAt: -1 }).lean();
-  res.json({ payouts: payouts.map((p) => ({ ...p, id: p._id })) });
+  res.json({ payouts: payouts.map((p: any) => ({ ...p, id: p._id })) });
 });
 
 router.post("/reseller/payouts/request", requireReseller, async (req, res) => {

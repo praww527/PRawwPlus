@@ -533,7 +533,7 @@ function EarningsTab() {
 
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl bg-white/[0.04] grid grid-cols-2" style={{ divide: "x" }}>
+      <div className="rounded-2xl bg-white/[0.04] grid grid-cols-2 divide-x divide-white/[0.06]">
         <div className="p-4">
           <p className="text-[10px] text-white/35 uppercase tracking-wider">Total</p>
           <p className="text-base font-bold text-white font-mono mt-0.5">R{total.toFixed(2)}</p>
@@ -1789,7 +1789,7 @@ function SystemTab() {
   const [loading,   setLoading]   = useState(false);
   const [pushLog,   setPushLog]   = useState<string[] | null>(null);
   const [pushing,   setPushing]   = useState(false);
-  const [sshResult, setSshResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [sshResult, setSshResult] = useState<{ ok: boolean; output?: string; error?: string } | null>(null);
   const [sshTesting, setSshTesting] = useState(false);
   const [expanded,  setExpanded]  = useState<string | null>(null);
 
@@ -2025,7 +2025,9 @@ function SystemTab() {
                 fontSize: 11, color: sshResult.ok ? "#30d158" : "#ff453a",
                 fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-all",
               }}>
-                {sshResult.ok ? "✓ SSH OK\n" : "✗ SSH Failed\n"}{sshResult.error ?? ""}
+                {sshResult.ok
+                  ? `✓ SSH OK\n${sshResult.output ?? ""}`.trim()
+                  : `✗ SSH Failed\n${sshResult.error ?? ""}`.trim()}
               </div>
             )}
           </div>

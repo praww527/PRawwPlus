@@ -115,7 +115,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     });
 
     // Notify all admins about the new signup (fire-and-forget, non-blocking)
-    UserModel.find({ isAdmin: true }).select("email").lean().then((admins) => {
+    UserModel.find({ isAdmin: true }).select("email").lean().then((admins: any[]) => {
       const newUserInfo = {
         name: user.name ?? email.split("@")[0],
         email: email.toLowerCase(),

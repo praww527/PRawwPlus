@@ -33,7 +33,7 @@ router.get("/announcements", async (req, res) => {
     return;
   }
 
-  const ids = announcements.map((a) => a._id);
+  const ids = announcements.map((a: any) => a._id);
   const views = await AnnouncementViewModel.find({
     announcementId: { $in: ids },
     userId: user.id,
@@ -41,10 +41,10 @@ router.get("/announcements", async (req, res) => {
     .select("announcementId")
     .lean();
 
-  const viewedSet = new Set(views.map((v) => v.announcementId));
+  const viewedSet = new Set(views.map((v: any) => v.announcementId));
 
   res.json({
-    announcements: announcements.map((a) => ({
+    announcements: announcements.map((a: any) => ({
       ...a,
       id: a._id,
       viewed: viewedSet.has(a._id),

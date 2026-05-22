@@ -38,7 +38,7 @@ router.get("/cdr", async (req, res) => {
   ]);
 
   res.json({
-    cdr: rows.map((r) => ({ ...r, id: r._id })),
+    cdr: rows.map((r: any) => ({ ...r, id: r._id })),
     total,
     page,
     limit,

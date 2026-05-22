@@ -32,7 +32,7 @@ router.get("/calls", async (req, res) => {
   ]);
 
   res.json({
-    calls: callDocs.map((c) => ({ ...c, id: c._id })),
+    calls: callDocs.map((c: any) => ({ ...c, id: c._id })),
     total,
     page,
     limit,

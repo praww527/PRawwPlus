@@ -376,7 +376,7 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
   }
 }
 
-export async function testSSHConnection(): Promise<{ ok: boolean; error?: string }> {
+export async function testSSHConnection(): Promise<{ ok: boolean; output?: string; error?: string }> {
   const rawKey = process.env.FREESWITCH_SSH_KEY;
   if (!rawKey) return { ok: false, error: "FREESWITCH_SSH_KEY not set" };
   if (!FS_HOST) return { ok: false, error: "FREESWITCH_DOMAIN not set" };
@@ -390,7 +390,7 @@ export async function testSSHConnection(): Promise<{ ok: boolean; error?: string
     const eslPassword = FS_ESL_PASS.replace(/'/g, "'\\''");
     const out = await execCommand(conn, `${fsCli} -p '${eslPassword}' -x 'status' 2>/dev/null || echo 'freeswitch running'`);
     conn.end();
-    return { ok: true, error: out };
+    return { ok: true, output: out };
   } catch (err: unknown) {
     return { ok: false, error: (err as Error)?.message ?? String(err) };
   }

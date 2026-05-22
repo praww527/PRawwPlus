@@ -253,7 +253,7 @@ router.post("/payments/webhook", async (req, res) => {
 
           if (earningCreated) {
             // Notify reseller by email (fire-and-forget)
-            UserModel.findById(reseller._id).select("email name username").lean().then(async (resellerUser) => {
+            UserModel.findById(reseller._id).select("email name username").lean().then(async (resellerUser: any) => {
               const buyer = await UserModel.findById(targetUserId).select("name username").lean();
               if (resellerUser?.email) {
                 sendCommissionEarningEmail(resellerUser.email, {
@@ -325,7 +325,7 @@ router.get("/payments/history", async (req, res) => {
   await connectDB();
   const userId = (req as any).user.id;
   const payments = await PaymentModel.find({ userId }).sort({ createdAt: -1 }).lean();
-  res.json({ payments: payments.map((p) => ({ ...p, id: String(p._id) })), total: payments.length });
+  res.json({ payments: payments.map((p: any) => ({ ...p, id: String(p._id) })), total: payments.length });
 });
 
 router.post("/credits/topup", async (req, res) => {

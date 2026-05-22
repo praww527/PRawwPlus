@@ -29,7 +29,7 @@ router.get("/invoices", async (req, res) => {
   ]);
 
   res.json({
-    invoices: rows.map((r) => ({ ...r, id: r._id })),
+    invoices: rows.map((r: any) => ({ ...r, id: r._id })),
     total,
     page,
     limit,

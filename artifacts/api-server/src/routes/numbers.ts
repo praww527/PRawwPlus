@@ -99,7 +99,7 @@ router.get("/numbers", async (req, res) => {
   const maxNumbers = PLAN_NUMBER_LIMITS[plan] ?? 1;
 
   res.json({
-    myNumbers: myNumbers.map((n) => {
+    myNumbers: myNumbers.map((n: any) => {
       const lockedUntil = getLockedUntil(n.assignedAt);
       return {
         id: n._id,
@@ -144,7 +144,7 @@ router.get("/numbers/search", async (req, res) => {
       : { userId: null, country: countryCode };
   const available = await PhoneNumberModel.find(poolFilter).lean();
 
-  const numbers = available.map((n) => ({
+  const numbers = available.map((n: any) => ({
     phone_number: n.number,
     number_type: n.country ?? "local",
     region: n.region ?? null,

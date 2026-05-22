@@ -18,8 +18,8 @@ function requireAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
-/** GET /api/freeswitch/status — ESL connection + config state */
-router.get("/freeswitch/status", (req: Request, res: Response) => {
+/** GET /api/freeswitch/admin-status — ESL connection + config state (admin only) */
+router.get("/freeswitch/admin-status", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
 
   const esl = eslStatus();

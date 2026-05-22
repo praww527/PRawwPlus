@@ -104,7 +104,7 @@ export async function runStartup(): Promise<void> {
     logger.info("FreeSWITCH ESL listener started");
   }
 
-  // ── 3. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
+  // ── 4. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
   // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl
   // directory lookups reach our live API endpoint at rtc.PRaww.co.za.
   if (process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {
@@ -146,7 +146,7 @@ export async function runStartup(): Promise<void> {
     let nextExt = maxUser?.extension != null ? maxUser.extension + 1 : EXTENSION_START;
 
     // ── 3. Bulk-assign extensions ──────────────────────────────────────────
-    const bulkOps = usersWithoutExt.map((user) => {
+    const bulkOps = usersWithoutExt.map((user: any) => {
       const ext = nextExt++;
       const fsPassword = generateSipPassword();
       return {

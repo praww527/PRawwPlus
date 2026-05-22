@@ -658,10 +658,12 @@ class FreeSwitchESL {
     let callerPhone: string | undefined;
     if (callerExtNum) {
       const callerUser = await UserModel.findOne({ extension: callerExtNum })
-        .select("phone name")
+        .select("phone phoneVerified name")
         .lean();
-      callerPhone   = callerUser?.phone ?? undefined;
-      callerDisplay = callerUser?.name ?? callerUser?.phone ?? callerExt;
+      // Only include phone in push data if verified — unverified numbers are
+      // display-only guesses and must not be sent as authoritative caller ID.
+      callerPhone   = callerUser?.phoneVerified ? (callerUser.phone ?? undefined) : undefined;
+      callerDisplay = callerUser?.name ?? (callerUser?.phoneVerified ? callerUser.phone : undefined) ?? callerExt;
     }
 
     const pushData: Record<string, string> = {
@@ -715,9 +717,10 @@ class FreeSwitchESL {
       let destPhone: string | undefined;
       if (callerExtNum) {
         const callerUser = await UserModel.findOne({ extension: callerExtNum })
-          .select("phone")
+          .select("phone phoneVerified")
           .lean();
-        if (callerUser?.phone) callerPhone = callerUser.phone;
+        // Store verified phone in call record; fall back to extension string for unverified.
+        if (callerUser?.phoneVerified && callerUser.phone) callerPhone = callerUser.phone;
       }
       // Also resolve the callee's phone for recipientNumber
       const destUserFull = await UserModel.findById(destUser._id).select("phone").lean();
@@ -760,10 +763,11 @@ class FreeSwitchESL {
     let callerPhone: string | undefined;
     if (callerExtNum) {
       const callerUser = await UserModel.findOne({ extension: callerExtNum })
-        .select("phone name")
+        .select("phone phoneVerified name")
         .lean();
-      callerPhone   = callerUser?.phone ?? undefined;
-      callerDisplay = callerUser?.name ?? callerUser?.phone ?? callerExt;
+      // Only include phone in push data if verified — same rule as extension-lookup.
+      callerPhone   = callerUser?.phoneVerified ? (callerUser.phone ?? undefined) : undefined;
+      callerDisplay = callerUser?.name ?? (callerUser?.phoneVerified ? callerUser.phone : undefined) ?? callerExt;
     }
 
     logger.info({ fsCallId, destExt, callerExt }, "[Push] Sending missed call notification");

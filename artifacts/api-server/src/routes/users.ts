@@ -166,7 +166,9 @@ router.get("/users/extension-lookup", async (req: Request, res: Response) => {
     res.json({
       found: true,
       name: displayName,
-      phone: user.phone ?? null,
+      // Only return the phone number if it has been verified — unverified numbers
+      // may be incorrect and must not be presented to other users as caller ID.
+      phone: user.phoneVerified ? (user.phone ?? null) : null,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Lookup failed" });

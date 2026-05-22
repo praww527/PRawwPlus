@@ -12,7 +12,7 @@ router.get("/contacts", async (req, res) => {
   await connectDB();
   const userId = (req as any).user.id;
   const contacts = await ContactModel.find({ userId }).sort({ name: 1 }).lean();
-  res.json({ contacts: contacts.map((c) => ({ ...c, id: String(c._id) })) });
+  res.json({ contacts: contacts.map((c: any) => ({ ...c, id: String(c._id) })) });
 });
 
 router.post("/contacts", async (req, res) => {
