@@ -436,14 +436,29 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
       return;
     }
 
+    // Block OTP requests while the account is locked out — prevents brute-force
+    // bypass by simply requesting a new OTP to reset the attempt counter.
+    const userForLock = await UserModel.findById(userId)
+      .select("phoneOtpLockedUntil phoneOtpAttempts")
+      .lean();
+    if (userForLock?.phoneOtpLockedUntil && userForLock.phoneOtpLockedUntil > new Date()) {
+      const retryAfterMs = userForLock.phoneOtpLockedUntil.getTime() - Date.now();
+      res.status(429).json({
+        error: `Too many attempts. Please wait ${Math.ceil(retryAfterMs / 60_000)} minute(s) before requesting a new code.`,
+      });
+      return;
+    }
+
     const otp = generateOtp();
     const otpExpiry = new Date(Date.now() + 3 * 60 * 1000);
 
+    // Do NOT reset phoneOtpAttempts — carry the counter forward so repeated
+    // send-otp requests cannot be used to clear a lockout.
     await UserModel.updateOne(
       { _id: userId },
       {
         $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry },
-        $unset: { phoneOtpAttempts: 1, phoneOtpLockedUntil: 1 },
+        $unset: { phoneOtpLockedUntil: 1 },
       },
     );
 

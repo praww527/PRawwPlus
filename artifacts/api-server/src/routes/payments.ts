@@ -224,15 +224,18 @@ router.post("/payments/webhook", async (req, res) => {
           .select("role approved locked")
           .lean();
         if (reseller && reseller.role === "reseller" && reseller.approved && !reseller.locked) {
-          const existingEarning = await EarningModel.exists({ referenceId: m_payment_id });
-          if (!existingEarning) {
-            const commissionAmount = parseFloat((payment.amount * 0.30).toFixed(2));
-            const earningType =
-              payment.paymentType === "subscription"
-                ? "subscription"
-                : payment.paymentType === "topup"
-                ? "topup"
-                : "number_purchase";
+          const commissionAmount = parseFloat((payment.amount * 0.30).toFixed(2));
+          const earningType =
+            payment.paymentType === "subscription"
+              ? "subscription"
+              : payment.paymentType === "topup"
+              ? "topup"
+              : "number_purchase";
+          // Use create() inside a try/catch for duplicate key (code 11000).
+          // This is atomic — the unique index on referenceId prevents double-payouts
+          // even under concurrent webhook retries, without a separate exists() read.
+          let earningCreated = false;
+          try {
             await EarningModel.create({
               _id: randomUUID(),
               resellerId: String(reseller._id),
@@ -243,7 +246,12 @@ router.post("/payments/webhook", async (req, res) => {
               referenceId: m_payment_id,
               status: "pending",
             });
+            earningCreated = true;
+          } catch (dupErr: any) {
+            if (dupErr?.code !== 11000) throw dupErr;
+          }
 
+          if (earningCreated) {
             // Notify reseller by email (fire-and-forget)
             UserModel.findById(reseller._id).select("email name username").lean().then(async (resellerUser) => {
               const buyer = await UserModel.findById(targetUserId).select("name username").lean();

@@ -51,13 +51,18 @@ async function getInternalWsUrl(): Promise<string> {
   }
 
   const fsDomain = (process.env.FREESWITCH_DOMAIN ?? "").trim();
-  const eslHost  = (process.env.FREESWITCH_ESL_HOST ?? "127.0.0.1").trim();
+  // Use FREESWITCH_ESL_HOST (if explicitly set) to determine whether FreeSWITCH
+  // is local to this server. On the production VPS, ESL_HOST=127.0.0.1 (explicitly
+  // set in .env), indicating FS is on the same machine. On a dev machine only
+  // FREESWITCH_DOMAIN (the public IP) is set, indicating FS is remote.
+  // FREESWITCH_DOMAIN is the public-facing IP used in SDP/config — not locality.
+  const eslHostExplicit = process.env.FREESWITCH_ESL_HOST?.trim();
+  const eslHost = eslHostExplicit ?? "127.0.0.1";
 
-  // Determine the actual remote host for FreeSWITCH.
-  // FREESWITCH_DOMAIN is the public IP/hostname of the VPS.
   const remoteHost = fsDomain || eslHost;
+  const localityHost = eslHostExplicit ?? fsDomain;
   const remoteIsLocal =
-    remoteHost === "127.0.0.1" || remoteHost === "localhost" || !remoteHost;
+    !localityHost || localityHost === "127.0.0.1" || localityHost === "localhost";
 
   if (process.env.FREESWITCH_WS_URL?.trim()) {
     const wsUrl = process.env.FREESWITCH_WS_URL.trim();

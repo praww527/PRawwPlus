@@ -330,9 +330,37 @@ export async function answerCall(
     logger.info({ fsCallId, coins, allowedSecs, schedHangup },
       "[Orchestrator] Scheduling balance-based hangup");
 
-    const timer = setTimeout(() => {
+    const callUserId = String(call.userId);
+    const timer = setTimeout(async () => {
       hangupTimers.delete(fsCallId);
-      logger.warn({ fsCallId }, "[Orchestrator] Balance exhausted — announcing and killing call");
+      // Re-read balance before disconnecting — prevents premature hangup when
+      // another concurrent call already deducted coins from a shared snapshot.
+      let freshCoins = 0;
+      try {
+        await connectDB();
+        const freshUser = await UserModel.findById(callUserId).select("coins").lean();
+        freshCoins = freshUser?.coins ?? 0;
+      } catch { /* use 0 on error — safe to hang up */ }
+
+      if (freshCoins >= MIN_COINS_SAFETY) {
+        // Balance was topped up or another call ended; reschedule.
+        const newAllowed = Math.floor((freshCoins / effectiveRate) * 60);
+        const newSched = Math.max(5, newAllowed - 5);
+        logger.info({ fsCallId, freshCoins, newSched },
+          "[Orchestrator] Balance still sufficient after re-check — rescheduling hangup");
+        const newTimer = setTimeout(() => {
+          hangupTimers.delete(fsCallId);
+          sendEslCmd(
+            `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance has been exhausted. The call will be disconnected now.`,
+          );
+          setTimeout(() => sendEslCmd(`uuid_kill ${fsCallId} ALLOTTED_TIMEOUT`),
+            INSUFFICIENT_BALANCE_VOICE_DELAY);
+        }, newSched * 1_000);
+        hangupTimers.set(fsCallId, newTimer);
+        return;
+      }
+
+      logger.warn({ fsCallId, freshCoins }, "[Orchestrator] Balance exhausted — announcing and killing call");
       sendEslCmd(
         `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance has been exhausted. The call will be disconnected now.`,
       );
