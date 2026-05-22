@@ -537,6 +537,53 @@ router.post("/admin/payouts/:payoutId/mark-paid", requireAdmin, async (req, res)
 
 // ── Calls / FreeSwitch ────────────────────────────────────────────────────────
 
+/**
+ * GET /api/admin/calls/live
+ * Returns all non-terminal calls (initiated | ringing | answered) with joined
+ * user info so the frontend can render per-extension FSM traces in real time.
+ */
+router.get("/admin/calls/live", requireAdmin, async (_req, res) => {
+  await connectDB();
+
+  const activeCalls = await CallModel.find({
+    status: { $in: ["initiated", "ringing", "answered"] },
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const userIds = [...new Set(activeCalls.map((c) => String(c.userId)).filter(Boolean))];
+  const users   = await UserModel.find({ _id: { $in: userIds } })
+    .select("username extension phone")
+    .lean();
+  const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]));
+
+  const calls = activeCalls.map((c) => {
+    const user = userMap[String(c.userId)] ?? null;
+    return {
+      id:              String(c._id),
+      fsCallId:        c.fsCallId ?? null,
+      status:          c.status,
+      callType:        c.callType ?? "external",
+      direction:       (c as any).direction ?? "outbound",
+      callerNumber:    c.callerNumber    ?? null,
+      recipientNumber: c.recipientNumber ?? null,
+      createdAt:       c.createdAt,
+      startedAt:       (c as any).startedAt ?? null,
+      updatedAt:       c.updatedAt,
+      user: user
+        ? {
+            id:        String(user._id),
+            username:  user.username,
+            extension: user.extension ?? null,
+            phone:     (user as any).phone ?? null,
+          }
+        : null,
+    };
+  });
+
+  res.json({ calls, count: calls.length, asOf: new Date().toISOString() });
+});
+
 router.get("/admin/calls", requireAdmin, async (req, res) => {
   await connectDB();
   const page = Math.max(1, parseInt(String(req.query.page ?? "1")));

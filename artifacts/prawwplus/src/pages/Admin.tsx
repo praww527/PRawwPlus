@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -13,12 +13,13 @@ import {
   UserX, BarChart3, Link2, BadgeDollarSign, Receipt, CreditCard, RefreshCw,
   ChevronDown, Trash2, CheckCircle2, Shield, Settings, Megaphone,
   AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
-  BadgeCheck, X, Eye, FileText, Check,
+  BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone,
 } from "lucide-react";
 
 const TABS = [
   { id: "overview",      label: "Overview",      icon: BarChart3   },
   { id: "users",         label: "Users",         icon: Users       },
+  { id: "live",          label: "Live Calls",    icon: Activity    },
   { id: "referrals",     label: "Referrals",     icon: Link2       },
   { id: "earnings",      label: "Earnings",      icon: BadgeDollarSign },
   { id: "expenses",      label: "Expenses",      icon: Receipt     },
@@ -1077,6 +1078,368 @@ function AnnouncementsTab() {
   );
 }
 
+// ─── Live Calls Tab ────────────────────────────────────────────────────────────
+
+interface LiveCall {
+  id:              string;
+  fsCallId:        string | null;
+  status:          string;
+  callType:        string;
+  direction:       string;
+  callerNumber:    string | null;
+  recipientNumber: string | null;
+  createdAt:       string;
+  startedAt:       string | null;
+  updatedAt:       string;
+  user: {
+    id:        string;
+    username:  string;
+    extension: number | null;
+    phone:     string | null;
+  } | null;
+}
+
+const FSM_STEPS = ["initiated", "ringing", "answered"] as const;
+
+const STATUS_COLOR: Record<string, string> = {
+  initiated: "#f59e0b",
+  ringing:   "#1a8cff",
+  answered:  "#30d158",
+};
+
+const DIRECTION_COLOR: Record<string, string> = {
+  inbound:  "#a78bfa",
+  outbound: "#38bdf8",
+};
+
+function useLiveDuration(startedAt: string | null, status: string): string {
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (status !== "answered" || !startedAt) { setElapsed(0); return; }
+    const base = Date.now() - new Date(startedAt).getTime();
+    setElapsed(Math.floor(base / 1000));
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+    }, 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [startedAt, status]);
+
+  if (status !== "answered" || !startedAt) return "";
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function FsmTimeline({ status }: { status: string }) {
+  const currentIdx = FSM_STEPS.indexOf(status as any);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      {FSM_STEPS.map((step, i) => {
+        const past    = currentIdx > i;
+        const active  = currentIdx === i;
+        const future  = currentIdx < i;
+        const color   = active ? STATUS_COLOR[step] ?? "#fff" : past ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.12)";
+        return (
+          <div key={step} style={{ display: "flex", alignItems: "center" }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "3px 10px",
+              borderRadius: 20,
+              background: active ? `${color}22` : "transparent",
+              border: `1px solid ${active ? color : "rgba(255,255,255,0.08)"}`,
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.04em",
+              color,
+              textTransform: "uppercase",
+              transition: "all 0.3s",
+            }}>
+              {active && (
+                <span style={{
+                  width: 5, height: 5, borderRadius: "50%",
+                  background: color,
+                  boxShadow: `0 0 6px ${color}`,
+                  flexShrink: 0,
+                  animation: "pulse 1.5s infinite",
+                }} />
+              )}
+              {past && (
+                <CheckCircle2 style={{ width: 9, height: 9, flexShrink: 0 }} />
+              )}
+              {step}
+            </div>
+            {i < FSM_STEPS.length - 1 && (
+              <div style={{
+                width: 18, height: 1,
+                background: past ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)",
+                flexShrink: 0,
+              }} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CallTraceCard({ call }: { call: LiveCall }) {
+  const duration = useLiveDuration(call.startedAt, call.status);
+  const caller   = call.callerNumber ?? call.user?.extension?.toString() ?? "—";
+  const callee   = call.recipientNumber ?? "—";
+  const statusColor = STATUS_COLOR[call.status] ?? "#fff";
+
+  return (
+    <div style={{
+      background: "rgba(255,255,255,0.04)",
+      border: `1px solid ${call.status === "answered" ? "rgba(48,209,88,0.2)" : call.status === "ringing" ? "rgba(26,140,255,0.2)" : "rgba(255,159,10,0.2)"}`,
+      borderRadius: 14,
+      padding: "14px 16px",
+      display: "flex", flexDirection: "column", gap: 10,
+    }}>
+
+      {/* Top row: type / direction / user / duration */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {/* call type badge */}
+        <span style={{
+          fontSize: 9, fontWeight: 800, letterSpacing: "0.07em",
+          textTransform: "uppercase",
+          padding: "2px 7px", borderRadius: 10,
+          background: call.callType === "internal" ? "rgba(94,92,230,0.2)" : "rgba(255,159,10,0.18)",
+          color:      call.callType === "internal" ? "#a78bfa"              : "#ff9f0a",
+          border:     `1px solid ${call.callType === "internal" ? "rgba(94,92,230,0.3)" : "rgba(255,159,10,0.3)"}`,
+        }}>
+          {call.callType}
+        </span>
+        {/* direction badge */}
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: DIRECTION_COLOR[call.direction] ?? "rgba(255,255,255,0.4)",
+        }}>
+          {call.direction}
+        </span>
+        {/* dot separator */}
+        <span style={{ color: "rgba(255,255,255,0.15)", fontSize: 10 }}>·</span>
+        {/* user */}
+        {call.user && (
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontWeight: 500 }}>
+            {call.user.username}
+            {call.user.extension && (
+              <span style={{ color: "rgba(255,255,255,0.3)", marginLeft: 4 }}>ext {call.user.extension}</span>
+            )}
+          </span>
+        )}
+        {/* spacer + live duration */}
+        <span style={{ flex: 1 }} />
+        {duration && (
+          <span style={{
+            fontSize: 13, fontWeight: 700, fontFamily: "monospace",
+            color: "#30d158",
+            background: "rgba(48,209,88,0.1)",
+            border: "1px solid rgba(48,209,88,0.2)",
+            borderRadius: 8, padding: "2px 8px",
+          }}>
+            {duration}
+          </span>
+        )}
+      </div>
+
+      {/* Route: caller → callee */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 5,
+          background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: "4px 10px",
+        }}>
+          <Phone style={{ width: 10, height: 10, color: "rgba(255,255,255,0.35)" }} />
+          <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "monospace", color: "rgba(255,255,255,0.75)" }}>
+            {caller}
+          </span>
+        </div>
+        <ArrowRight style={{ width: 13, height: 13, color: statusColor, flexShrink: 0 }} />
+        <div style={{
+          display: "flex", alignItems: "center", gap: 5,
+          background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: "4px 10px",
+        }}>
+          <Phone style={{ width: 10, height: 10, color: "rgba(255,255,255,0.35)" }} />
+          <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "monospace", color: "rgba(255,255,255,0.75)" }}>
+            {callee}
+          </span>
+        </div>
+      </div>
+
+      {/* FSM timeline */}
+      <FsmTimeline status={call.status} />
+
+      {/* Footer: fsCallId + age */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {call.fsCallId && (
+          <span style={{
+            fontSize: 9, fontFamily: "monospace", color: "rgba(255,255,255,0.25)",
+            letterSpacing: "0.02em", wordBreak: "break-all",
+          }}>
+            fs: {call.fsCallId}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+          started {formatDistanceToNow(new Date(call.createdAt), { addSuffix: true })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function LiveCallsTab() {
+  const [calls,     setCalls]     = useState<LiveCall[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [asOf,      setAsOf]      = useState<Date | null>(null);
+  const [paused,    setPaused]    = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchLive = useCallback(async () => {
+    try {
+      const data = await adminFetch("/admin/calls/live");
+      setCalls(data.calls ?? []);
+      setAsOf(new Date(data.asOf));
+      setError(null);
+    } catch (e: any) {
+      setError(e.message ?? "Failed to fetch");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLive();
+  }, [fetchLive]);
+
+  useEffect(() => {
+    if (paused) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+    intervalRef.current = setInterval(fetchLive, 3000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [paused, fetchLive]);
+
+  const answered  = calls.filter((c) => c.status === "answered").length;
+  const ringing   = calls.filter((c) => c.status === "ringing").length;
+  const initiated = calls.filter((c) => c.status === "initiated").length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* ── Toolbar ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+
+        {/* Summary chips */}
+        <div style={{ display: "flex", gap: 6 }}>
+          {[
+            { label: "answered",  count: answered,  color: "#30d158" },
+            { label: "ringing",   count: ringing,   color: "#1a8cff" },
+            { label: "initiated", count: initiated, color: "#f59e0b" },
+          ].map(({ label, count, color }) => (
+            <div key={label} style={{
+              display: "flex", alignItems: "center", gap: 5,
+              fontSize: 11, fontWeight: 600,
+              padding: "3px 10px", borderRadius: 20,
+              background: `${color}15`,
+              border: `1px solid ${color}30`,
+              color,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
+              {count} {label}
+            </div>
+          ))}
+        </div>
+
+        <span style={{ flex: 1 }} />
+
+        {/* Refresh-age + pause/resume */}
+        {asOf && (
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontVariantNumeric: "tabular-nums" }}>
+            {paused ? "paused" : `updated ${formatDistanceToNow(asOf, { addSuffix: true })}`}
+          </span>
+        )}
+        <button
+          onClick={() => setPaused((p) => !p)}
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11, fontWeight: 600,
+            padding: "4px 11px", borderRadius: 16,
+            background: paused ? "rgba(255,159,10,0.15)" : "rgba(255,255,255,0.06)",
+            border: `1px solid ${paused ? "rgba(255,159,10,0.3)" : "rgba(255,255,255,0.1)"}`,
+            color: paused ? "#ff9f0a" : "rgba(255,255,255,0.45)",
+            cursor: "pointer",
+          }}
+        >
+          {paused ? <Activity style={{ width: 11, height: 11 }} /> : <Clock style={{ width: 11, height: 11 }} />}
+          {paused ? "Resume" : "Pause"}
+        </button>
+        <button
+          onClick={fetchLive}
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11, fontWeight: 600,
+            padding: "4px 11px", borderRadius: 16,
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "rgba(255,255,255,0.45)",
+            cursor: "pointer",
+          }}
+        >
+          <RefreshCw style={{ width: 11, height: 11 }} />
+          Refresh
+        </button>
+      </div>
+
+      {/* ── Error ── */}
+      {error && (
+        <div style={{
+          background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.25)",
+          borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#f87171",
+          display: "flex", gap: 8, alignItems: "center",
+        }}>
+          <AlertTriangle style={{ width: 14, height: 14, flexShrink: 0 }} />
+          {error}
+        </div>
+      )}
+
+      {/* ── Content ── */}
+      {loading ? (
+        <Skel rows={3} h={130} />
+      ) : calls.length === 0 ? (
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          gap: 10, padding: "56px 0",
+          color: "rgba(255,255,255,0.2)",
+        }}>
+          <PhoneCall style={{ width: 36, height: 36 }} />
+          <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>No active calls</p>
+          <p style={{ fontSize: 12, margin: 0, color: "rgba(255,255,255,0.15)" }}>
+            Refreshing every 3 s — new calls appear automatically
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {calls.map((call) => (
+            <CallTraceCard key={call.id} call={call} />
+          ))}
+        </div>
+      )}
+
+      {/* pulse keyframe (injected once) */}
+      <style>{`
+        @keyframes pulse {
+          0%,100% { opacity:1; box-shadow:0 0 6px currentColor; }
+          50%      { opacity:0.5; box-shadow:0 0 2px currentColor; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -1121,6 +1484,7 @@ export default function Admin() {
       <div>
         {tab === "overview"      && <OverviewTab />}
         {tab === "users"         && <UsersTab />}
+        {tab === "live"          && <LiveCallsTab />}
         {tab === "referrals"     && <ReferralsTab />}
         {tab === "earnings"      && <EarningsTab />}
         {tab === "expenses"      && <ExpensesTab />}
