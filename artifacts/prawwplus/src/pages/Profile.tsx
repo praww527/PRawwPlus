@@ -40,6 +40,15 @@ function PayFastRedirect({ data }: { data: any }) {
 const SHEET_CLEAR = NAV_H + NAV_BOTTOM_GAP + 10;
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const main = document.querySelector("main") as HTMLElement | null;
+    if (main) {
+      const prev = main.style.overflow;
+      main.style.overflow = "hidden";
+      return () => { main.style.overflow = prev; };
+    }
+  }, []);
+
   return (
     <div
       className="overlay-backdrop"
@@ -50,17 +59,17 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
-        paddingBottom: `calc(${SHEET_CLEAR}px + env(safe-area-inset-bottom, 0px))`,
       }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
         className="modal-surface slide-up"
         style={{
           borderRadius: "24px 24px 0 0",
-          paddingBottom: 24,
-          maxHeight: `calc(100dvh - ${SHEET_CLEAR}px - env(safe-area-inset-bottom, 0px))`,
-          overflowY: "auto",
-          overflowX: "hidden",
+          paddingBottom: `calc(24px + env(safe-area-inset-bottom, 0px))`,
+          maxHeight: `calc(100dvh - 60px)`,
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         <div style={{ display: "flex", justifyContent: "center", paddingTop: 14, paddingBottom: 6 }}>
@@ -80,7 +89,9 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
             <X style={{ width: 14, height: 14, color: "var(--text-2)" }} />
           </button>
         </div>
-        <div style={{ padding: "0 20px 8px" }}>{children}</div>
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "0 20px 8px" }}>
+          {children}
+        </div>
       </div>
     </div>
   );

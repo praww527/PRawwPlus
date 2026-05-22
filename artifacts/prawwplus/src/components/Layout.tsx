@@ -1,6 +1,6 @@
 import { useRef, useState, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Phone, Clock, Users, Voicemail } from "lucide-react";
+import { Phone, Clock, Users, Voicemail, Settings } from "lucide-react";
 import { VertoInit } from "@/components/VertoInit";
 
 interface LayoutProps {
@@ -18,6 +18,7 @@ const navItems = [
   { href: "/calls",     label: "Recents",   icon: Clock    },
   { href: "/voicemail", label: "Voicemail", icon: Voicemail },
   { href: "/contacts",  label: "Contacts",  icon: Users    },
+  { href: "/profile",   label: "Settings",  icon: Settings  },
 ];
 
 export function Layout({ children }: LayoutProps) {
@@ -30,10 +31,10 @@ export function Layout({ children }: LayoutProps) {
       ? location === "/dashboard"
       : location.startsWith(item.href)
   );
-  const safeIndex = activeIndex < 0 ? 0 : activeIndex;
+  const safeIndex = activeIndex;
 
   useLayoutEffect(() => {
-    if (!navRef.current) return;
+    if (!navRef.current || safeIndex < 0) return;
     const items = navRef.current.querySelectorAll<HTMLElement>("[data-nav-item]");
     const el    = items[safeIndex];
     if (!el) return;
@@ -72,27 +73,28 @@ export function Layout({ children }: LayoutProps) {
           borderRadius: 999,
           display: "flex",
           alignItems: "center",
-          background: "var(--nav-bg)",
-          backdropFilter: "blur(40px) saturate(1.8)",
-          WebkitBackdropFilter: "blur(40px) saturate(1.8)",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
+          background: "transparent",
+          backdropFilter: "blur(32px) saturate(1.6)",
+          WebkitBackdropFilter: "blur(32px) saturate(1.6)",
         }}
       >
-        {/* Sliding pill indicator */}
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            top: 4,
-            height: NAV_H - 8,
-            left: pillRect.left,
-            width: pillRect.width,
-            borderRadius: 999,
-            background: "var(--nav-pill-bg)",
-            transition: "left 0.38s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.38s cubic-bezier(0.34, 1.56, 0.64, 1)",
-            pointerEvents: "none",
-          }}
-        />
+        {/* Sliding pill indicator — hidden when no tab active */}
+        {safeIndex >= 0 && (
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: 4,
+              height: NAV_H - 8,
+              left: pillRect.left,
+              width: pillRect.width,
+              borderRadius: 999,
+              background: "var(--nav-pill-bg)",
+              transition: "left 0.38s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.38s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              pointerEvents: "none",
+            }}
+          />
+        )}
 
         {navItems.map((item, idx) => {
           const active = idx === safeIndex;
