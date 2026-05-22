@@ -145,7 +145,9 @@ export default function DialPad() {
           toast({
             title:       "Call failed",
             description: stillConnected
-              ? "FreeSWITCH rejected the call — check the server logs."
+              ? vertoError
+                ? `Call rejected: ${vertoError}`
+                : "FreeSWITCH rejected the call — check the server logs."
               : "Call server disconnected. Wait for reconnection (green dot) and try again.",
             variant: "destructive",
           });

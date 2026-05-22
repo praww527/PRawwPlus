@@ -652,17 +652,22 @@ export class VertoClient {
 
   private buildDialogParams(callId: string, to: string): Record<string, unknown> {
     const ext = String(this.config.extension);
-    // Use the verified mobile number as caller-ID so the callee sees a real
-    // phone number immediately. FreeSWITCH's directory effective_caller_id_number
-    // will also override this at the FreeSWITCH level, but sending the phone
-    // number here avoids any brief flash of the raw extension on the callee's UI.
-    const callerId = this.config.phone ?? ext;
+    // caller_id_number MUST be the extension (internal routing key), not the phone.
+    // The FreeSWITCH dialplan uses user_data(${caller_id_number}@domain var ...) to
+    // resolve the caller's real mobile number from the directory.  If we send the
+    // phone number here instead, user_data cannot find the user (directory is keyed
+    // by extension, not phone) and effective_caller_id_number stays as the extension.
+    //
+    // caller_id_name uses the verified phone/extension for the display name field —
+    // FreeSWITCH will override this too via the directory variable lookup, but it
+    // serves as a human-readable hint in SIP traces / CDR.
+    const displayName = this.config.phone ?? ext;
     return {
       callID:           callId,
       to:               to.includes("@") ? to : `${to}@${this.config.domain}`,
       from:             `${ext}@${this.config.domain}`,
-      caller_id_name:   callerId,
-      caller_id_number: callerId,
+      caller_id_name:   displayName,
+      caller_id_number: ext,
       outgoingBandwidth: "default",
       incomingBandwidth: "default",
       audioParams: {

@@ -167,10 +167,17 @@ export function dialplanXml(fsDomain: string): string {
     ? `
     <extension name="external_pstn_numbers" continue="false">
       <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$">
-        <action application="set" data="effective_caller_id_name=${FS_VAR}caller_id_name}"/>
-        <action application="set" data="effective_caller_id_number=${FS_VAR}caller_id_number}"/>
-        <action application="set" data="outbound_caller_id_name=${FS_VAR}caller_id_name}"/>
-        <action application="set" data="outbound_caller_id_number=${FS_VAR}caller_id_number}"/>
+        <!--
+          Resolve caller's phone number from directory — same logic as internal calls.
+          For outbound PSTN legs the gateway uses outbound_caller_id_number as the
+          ANI (Automatic Number Identification) presented to the PSTN network.
+          Using the mobile number instead of the internal extension prevents "unknown
+          number" rejections from carriers that validate the calling party number.
+        -->
+        <action application="set" data="effective_caller_id_name=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_name)},${FS_VAR}caller_id_name})}"/>
+        <action application="set" data="effective_caller_id_number=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_number)},${FS_VAR}caller_id_number})}"/>
+        <action application="set" data="outbound_caller_id_name=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var outbound_caller_id_name)},${FS_VAR}caller_id_name})}"/>
+        <action application="set" data="outbound_caller_id_number=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var outbound_caller_id_number)},${FS_VAR}caller_id_number})}"/>
         <action application="set" data="call_timeout=45"/>
         <action application="set" data="hangup_after_bridge=true"/>
         <action application="set" data="continue_on_fail=false"/>
@@ -253,8 +260,17 @@ export function dialplanXml(fsDomain: string): string {
     -->
     <extension name="internal_extensions" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="on-false">
-        <action application="set" data="effective_caller_id_name=${FS_VAR}caller_id_name}"/>
-        <action application="set" data="effective_caller_id_number=${FS_VAR}caller_id_number}"/>
+        <!--
+          Resolve the caller's real phone number via directory lookup.
+          caller_id_number is always the caller's extension (internal routing key).
+          user_data() calls mod_xml_curl → our /api/freeswitch/directory endpoint to
+          retrieve the stored effective_caller_id_number (mobile phone) for that extension.
+          The FS default() fallback ensures we never blank-out the caller ID:
+          if the directory lookup fails or the user has no phone, we fall back to
+          the extension number so FreeSWITCH never presents an empty caller ID.
+        -->
+        <action application="set" data="effective_caller_id_name=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_name)},${FS_VAR}caller_id_name})}"/>
+        <action application="set" data="effective_caller_id_number=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_number)},${FS_VAR}caller_id_number})}"/>
         <action application="set" data="call_timeout=30"/>
         <action application="set" data="hangup_after_bridge=false"/>
         <action application="set" data="continue_on_fail=true"/>

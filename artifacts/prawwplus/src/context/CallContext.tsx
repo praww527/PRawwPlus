@@ -360,8 +360,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!clientRef.current) return null;
     try {
       return await clientRef.current.makeCall(to, callId);
-    } catch (e) {
-      console.warn("[Verto] makeCall error", e);
+    } catch (e: unknown) {
+      const msg = (e as Error)?.message ?? String(e);
+      console.warn("[Verto] makeCall error:", msg);
+      // Surface the specific rejection reason so DialPad can show a useful toast.
+      setVertoError(msg);
       return null;
     }
   }, []);
