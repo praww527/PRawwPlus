@@ -101,8 +101,17 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
       req.get("x-fs-webhook-secret") ??
       "";
     if (provided !== dirSecret) {
+      // IMPORTANT: return 200 not 403. FreeSWITCH's mod_xml_curl treats any
+      // non-200 as a transport error and falls back to local config (no users).
+      // A 200 "not found" XML is the correct way to deny a lookup so FS knows
+      // the user simply doesn't exist rather than thinking the server is down.
+      const { logger: log } = await import("../lib/logger");
+      log.warn(
+        { provided: provided ? "[set]" : "[empty]", path: req.path },
+        "[DIR] Secret mismatch — push FreeSWITCH config again to sync the secret header",
+      );
       res.setHeader("Content-Type", "text/xml");
-      res.status(403).send(FS_NOT_FOUND_XML);
+      res.status(200).send(FS_NOT_FOUND_XML);
       return;
     }
   }
