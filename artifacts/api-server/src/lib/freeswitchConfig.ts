@@ -462,7 +462,10 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
     <param name="dialplan" value="XML"/>
 
     <!-- Bind SIP to a non-standard port to avoid conflicts with internal/external profiles -->
-    <param name="sip-ip" value="${fsIp}"/>
+    <!-- sip-ip must be 0.0.0.0 on cloud VMs (Oracle/AWS/GCP) where the public IP
+         is NAT'd and not assigned to a local interface — binding to the public IP
+         directly will always fail. ext-sip-ip carries the public IP for SDP/NAT. -->
+    <param name="sip-ip" value="0.0.0.0"/>
     <param name="ext-sip-ip" value="${fsIp}"/>
     <param name="sip-port" value="5068"/>
 

@@ -310,6 +310,11 @@ export class VertoClient {
     this.cleanupMedia();
 
     if (!this.destroyed) {
+      // Rotate the sessId on every reconnect so FreeSWITCH always performs a
+      // fresh directory lookup instead of re-connecting to a stale/broken
+      // session from a previous connection attempt.
+      this.sessId = crypto.randomUUID();
+
       // Exponential backoff: 5s, 10s, 20s, 40s, 60s (capped).
       // After 3+ consecutive -32601 failures use a longer pause (5 min) to
       // avoid hammering FreeSWITCH when the directory config is broken.
