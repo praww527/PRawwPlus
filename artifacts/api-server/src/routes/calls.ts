@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { resolvePhoneToExtension } from "../lib/phoneResolver";
+import { normalizePhoneNumber } from "../lib/phoneNormalize";
 import { endCallById, webhookUpdate, registerInitiatedCall } from "../lib/callOrchestrator";
 import { sendFcmDataMessage, sendWebPushToSubscription, sendExpoPush } from "../lib/push";
 import {
@@ -49,12 +50,21 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   }
   await connectDB();
   const userId = (req as any).user.id;
-  const { recipientNumber, notes, fsCallId, direction, callerNumber: bodyCallerNumber } = req.body;
+  const { recipientNumber: rawRecipient, notes, fsCallId, direction, callerNumber: bodyCallerNumber } = req.body;
 
-  if (!recipientNumber) {
+  if (!rawRecipient) {
     res.status(400).json({ error: "recipientNumber is required" });
     return;
   }
+
+  // ── Normalise recipient phone number ──────────────────────────────────────
+  // Try SA E.164 normalisation first.  If it succeeds (i.e. the destination is
+  // a SA mobile/landline), use the +27xxxxxxxxx form for call records, billing
+  // and the SIP bridge string.  If it fails (internal extension, foreign number,
+  // or the user typed something invalid), keep the raw value — the extension
+  // resolver or carrier will handle/reject it normally.
+  const normResult      = normalizePhoneNumber(String(rawRecipient).trim());
+  const recipientNumber = normResult.ok ? normResult.e164 : String(rawRecipient).trim();
 
   const user = await UserModel.findById(userId);
   if (!user) {
@@ -67,7 +77,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   // Internal calls between registered users never need a verified phone number.
   const resolvedExtension = direction === "inbound"
     ? null
-    : await resolvePhoneToExtension(String(recipientNumber));
+    : await resolvePhoneToExtension(recipientNumber);
   const route = resolvedExtension
     ? { type: "internal" as const, extension: resolvedExtension }
     : { type: direction === "inbound" ? "internal" as const : "external" as const };
@@ -151,6 +161,26 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     ? String(bodyCallerNumber)
     : (user.phone ?? undefined);
   const callId = randomUUID();
+
+  // Log raw vs normalised destination so outbound SIP failures can be traced
+  // back to the exact number form that reached FreeSWITCH.
+  {
+    const { logger } = await import("../lib/logger");
+    logger.info(
+      {
+        userId,
+        callId,
+        rawRecipient:         String(rawRecipient).trim(),
+        normalizedRecipient:  recipientNumber,
+        normalizationOk:      normResult.ok,
+        ...(normResult.ok ? {} : { normalizationReason: (normResult as { reason: string }).reason }),
+        callType,
+        direction: direction === "inbound" ? "inbound" : "outbound",
+        resolvedExtension: resolvedExtension ?? null,
+      },
+      "[calls] Outbound call destination",
+    );
+  }
 
   const callRecord = await CallModel.create({
     _id:             callId,

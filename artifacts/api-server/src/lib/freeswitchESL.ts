@@ -610,15 +610,20 @@ class FreeSwitchESL {
         lastConnectedAt = Date.now();
         // Wire the orchestrator's ESL command function now that we are authenticated
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));
-        // Task 4: subscribe to BACKGROUND_JOB so bgapi originate results are captured.
-        // Without BACKGROUND_JOB we never learn if the originate was rejected by FS
-        // before any channel was created (the call stays INITIATED forever).
+        // Subscribe to all channel events including CHANNEL_HANGUP for deep SIP debugging.
+        // BACKGROUND_JOB captures bgapi originate results (including -ERR before channel creation).
         this.sendLine(
           "event plain " +
           "CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA " +
-          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE " +
+          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_HANGUP CHANNEL_HANGUP_COMPLETE " +
           "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB",
         );
+        // Enable deep Sofia SIP tracing so full SIP INVITE/response transactions appear
+        // in FreeSWITCH logs.  This is safe to run on a live system — it only increases
+        // log verbosity and does NOT affect call processing.
+        this.sendApiCommand("sofia global siptrace on");
+        this.sendApiCommand("sofia loglevel all 9");
+        logger.info("[ESL] Deep Sofia tracing enabled (siptrace on, loglevel 9)");
       } else if (reply.startsWith("+OK")) {
         // This is the bgapi Job-UUID ACK.  Pop the oldest queued command and
         // register it in the job map so we can correlate the BACKGROUND_JOB result.
@@ -786,6 +791,41 @@ class FreeSwitchESL {
           );
         }
 
+      } else if (evtName === "CHANNEL_HANGUP") {
+        // CHANNEL_HANGUP fires as soon as a channel starts hanging up,
+        // before billing / CDR finalisation.  Logging it gives us the very
+        // first indication of why a call ended — useful when HANGUP_COMPLETE
+        // is delayed or never arrives.
+        const hUuid        = body["Unique-ID"]             ?? "";
+        const hOtherLeg    = body["Other-Leg-Unique-ID"]   ?? "";
+        const hCause       = body["Hangup-Cause"]          ?? body["variable_hangup_cause"] ?? "";
+        const hSipStatus   = body["variable_sip_term_status"]              ?? "";
+        const hSipCause    = body["variable_sip_term_cause"]               ?? "";
+        const hDisposition = body["variable_sip_hangup_disposition"]       ?? "";
+        const hEndpointDisp= body["variable_endpoint_disposition"]         ?? "";
+        const hOriginateDisp=body["variable_originate_disposition"]        ?? "";
+        const hLastBridgeCause = body["variable_last_bridge_hangup_cause"] ?? "";
+        const hInviteFailure   = body["variable_sip_invite_failure_status"]?? "";
+        const hAnswerState = body["variable_answer_state"] ?? body["Answer-State"] ?? "";
+
+        if (hUuid) recordEslTrace(hUuid, evtName, hCause || undefined);
+
+        logger.info({
+          uuid:              hUuid,
+          otherLegUuid:      hOtherLeg,
+          hangupCause:       hCause        || "(none)",
+          sipTermStatus:     hSipStatus    || "(none)",
+          sipTermCause_q850: hSipCause     || "(none)",
+          sipHangupDisposition: hDisposition || "(none)",
+          endpointDisposition:  hEndpointDisp || "(none)",
+          originateDisposition: hOriginateDisp || "(none)",
+          lastBridgeHangupCause: hLastBridgeCause || "(none)",
+          sipInviteFailureStatus: hInviteFailure || "(none)",
+          answerState:       hAnswerState  || "(none)",
+          channelName:       body["Channel-Name"]   ?? "",
+          callDirection:     body["Call-Direction"] ?? "",
+        }, "[ESL] CHANNEL_HANGUP — early hangup signal; Q.850/SIP codes logged");
+
       } else if (evtName === "CHANNEL_HANGUP_COMPLETE") {
         const uuid         = body["Unique-ID"] ?? "";
         const otherLegUuid = body["Other-Leg-Unique-ID"] ?? "";
@@ -809,20 +849,51 @@ class FreeSwitchESL {
         // answer_state:            "ringing" | "early" | "answered" | "hangup"
         // sip_term_status:         SIP response code (e.g. "404", "480", "486")
         // sip_term_cause:          Q.850 cause code as integer string
-        const sipHangupDisposition = body["variable_sip_hangup_disposition"] ?? body["sip_hangup_disposition"] ?? "";
-        const endpointDisposition  = body["variable_endpoint_disposition"]   ?? "";
-        const originateDisposition = body["variable_originate_disposition"]  ?? "";
-        const answerState          = body["variable_answer_state"]           ?? body["Answer-State"] ?? "";
-        const sipTermStatus        = body["variable_sip_term_status"]        ?? "";
-        const sipTermCause         = body["variable_sip_term_cause"]         ?? "";
-        const callDirection        = body["Call-Direction"]                  ?? "";
-        const channelName          = body["Channel-Name"]                    ?? "";
+        // last_bridge_hangup_cause: hangup cause from the last bridge attempt
+        // sip_invite_failure_status: SIP status of failed INVITE (carrier rejection)
+        const sipHangupDisposition  = body["variable_sip_hangup_disposition"]        ?? body["sip_hangup_disposition"] ?? "";
+        const endpointDisposition   = body["variable_endpoint_disposition"]           ?? "";
+        const originateDisposition  = body["variable_originate_disposition"]          ?? "";
+        const answerState           = body["variable_answer_state"]                   ?? body["Answer-State"] ?? "";
+        const sipTermStatus         = body["variable_sip_term_status"]                ?? "";
+        const sipTermCause          = body["variable_sip_term_cause"]                 ?? "";
+        const lastBridgeHangupCause = body["variable_last_bridge_hangup_cause"]       ?? "";
+        const sipInviteFailStatus   = body["variable_sip_invite_failure_status"]      ?? "";
+        const callDirection         = body["Call-Direction"]                           ?? "";
+        const channelName           = body["Channel-Name"]                             ?? "";
+
+        const isFailedCall = hangupCause !== "NORMAL_CLEARING" &&
+          hangupCause !== "ORIGINATOR_CANCEL" &&
+          hangupCause !== "NO_ANSWER" &&
+          hangupCause !== "ATTENDED_TRANSFER";
 
         logger.info({
           uuid, otherLegUuid, hangupCause, billsec,
-          sipHangupDisposition, endpointDisposition, originateDisposition,
-          answerState, sipTermStatus, sipTermCause, callDirection, channelName,
+          sipTermStatus,
+          sipTermCause_q850:      sipTermCause,
+          sipHangupDisposition,
+          endpointDisposition,
+          originateDisposition,
+          lastBridgeHangupCause,
+          sipInviteFailureStatus: sipInviteFailStatus,
+          answerState, callDirection, channelName,
         }, "[ESL] CHANNEL_HANGUP_COMPLETE — full SIP diagnostic");
+
+        // Dump ALL channel variables for failed calls so we have the complete
+        // FreeSWITCH diagnostic picture in the logs (equivalent to uuid_dump in fs_cli).
+        if (isFailedCall && uuid) {
+          this.sendApiCommand(`uuid_dump ${uuid}`, (dumpResult) => {
+            logger.info(
+              { uuid, hangupCause, dumpLength: dumpResult.length },
+              "[ESL] uuid_dump for failed call",
+            );
+            // Log first 4000 chars of dump — pino truncates objects so log as string
+            logger.info(
+              { uuid, dump: dumpResult.slice(0, 4000) },
+              "[ESL] uuid_dump output (first 4000 chars)",
+            );
+          });
+        }
 
         // Augment the trace so the admin panel can show WHY the call ended
         if (hangupCause) augmentLastEslTrace(uuid, hangupCause);

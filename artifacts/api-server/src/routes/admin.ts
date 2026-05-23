@@ -1568,6 +1568,7 @@ router.delete("/admin/app-errors", requireAdmin, (_req, res) => {
 // Tasks 7-10: Expanded whitelist — includes the actual profile name (prawwplus_mobile)
 // and registration queries so admins can verify ext 1003 is really registered.
 const ESL_DIAG_WHITELIST: Record<string, string> = {
+  // ── Read-only status commands ────────────────────────────────────────────
   "sofia status":                              "SIP profile status overview (all profiles)",
   "sofia status profile internal":             "Internal SIP profile status",
   "sofia status profile internal reg":         "Registered endpoints on internal profile",
@@ -1580,6 +1581,15 @@ const ESL_DIAG_WHITELIST: Record<string, string> = {
   "show calls":                                "All active calls with UUID and state",
   "status":                                    "FreeSWITCH server health summary",
   "version":                                   "FreeSWITCH version",
+  // ── SIP tracing — enables full INVITE/response logging in FS logs ────────
+  // These are safe on a live system; they increase log verbosity only and do
+  // not affect call routing or processing.  The API server enables them
+  // automatically on ESL connect, but admins can re-enable them after a Sofia
+  // profile reload (which resets the trace flag).
+  "sofia global siptrace on":   "Enable global SIP packet tracing (writes to FS logs)",
+  "sofia global siptrace off":  "Disable global SIP packet tracing",
+  "sofia loglevel all 9":       "Set all Sofia log levels to maximum verbosity (9)",
+  "sofia loglevel all 0":       "Reset all Sofia log levels to quiet (0)",
 };
 
 /**

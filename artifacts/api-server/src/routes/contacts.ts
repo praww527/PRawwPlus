@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import { connectDB, ContactModel } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { normalizePhoneNumber } from "../lib/phoneNormalize";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -30,7 +32,24 @@ router.post("/contacts", async (req, res) => {
   }
 
   const trimmedName = String(name).trim().slice(0, 100);
-  const trimmedNumber = String(number).trim().replace(/\s+/g, "");
+  const rawNumber   = String(number).trim();
+
+  const normalizeResult = normalizePhoneNumber(rawNumber);
+  const trimmedNumber   = normalizeResult.ok
+    ? normalizeResult.e164
+    : rawNumber.replace(/\s+/g, "");
+
+  if (normalizeResult.ok) {
+    logger.info(
+      { rawNumber, normalizedNumber: normalizeResult.e164, userId },
+      "[contacts] Phone number normalized on save",
+    );
+  } else {
+    logger.debug(
+      { rawNumber, reason: normalizeResult.reason, userId },
+      "[contacts] Phone number could not be normalized (not a SA number or extension) — saving as-is",
+    );
+  }
 
   if (trimmedNumber.length < 3 || trimmedNumber.length > 30) {
     res.status(400).json({ error: "Invalid phone number" });
@@ -69,8 +88,10 @@ router.post("/contacts/bulk", async (req, res) => {
   let skipped = 0;
 
   for (const c of contacts) {
-    const name = String(c.name ?? "").trim().slice(0, 100);
-    const number = String(c.number ?? "").trim().replace(/\s+/g, "");
+    const name      = String(c.name ?? "").trim().slice(0, 100);
+    const rawNum    = String(c.number ?? "").trim();
+    const normResult = normalizePhoneNumber(rawNum);
+    const number    = normResult.ok ? normResult.e164 : rawNum.replace(/\s+/g, "");
     const fromPhone = !!c.fromPhone;
 
     if (!name || number.length < 3 || number.length > 30) {

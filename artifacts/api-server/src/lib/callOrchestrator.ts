@@ -542,7 +542,7 @@ export async function finalizeCall(
     return EventResult.DONE;
   }
 
-  const finalStatus = causeToStatus(hangupCause);
+  let finalStatus = causeToStatus(hangupCause);
   let allowed: boolean;
   try {
     allowed = isTransitionAllowed(call.status, finalStatus);
@@ -562,6 +562,29 @@ export async function finalizeCall(
   }
 
   const safeBillsec = clampBillsec(billsec);
+
+  // ── Fast carrier hangup detection ──────────────────────────────────────────
+  // Some carriers send SIP 200 OK (CHANNEL_ANSWER) then immediately BYE the
+  // call before any audio is exchanged (billsec = 0).  This maps to
+  // causeToStatus → "completed" but is actually a carrier-side rejection.
+  //
+  // Pattern observed:  CREATE → PROGRESS_MEDIA → ANSWER → HANGUP_COMPLETE
+  // with billsec = 0 and hangupCause = NORMAL_CLEARING.
+  //
+  // Rule: if the call would be "completed" but no audio was exchanged
+  // (billsec = 0), override the status to "failed" so the UI shows the real
+  // outcome instead of a phantom 0-second completed call.
+  if (finalStatus === "completed" && safeBillsec === 0) {
+    finalStatus = "failed";
+    logger.warn(
+      { fsCallId, hangupCause, billsec: safeBillsec, prevStatus: call.status },
+      "[Orchestrator] Fast carrier hangup detected — ANSWER + immediate DISCONNECT " +
+      "with billsec=0; marking FAILED. " +
+      "Carrier sent 200 OK then BYE without delivering audio. " +
+      "Check SIP response codes and Q.850 cause in CHANNEL_HANGUP_COMPLETE log above.",
+    );
+  }
+
   const coinsPerMinute = call.callType === "external"
     ? await resolveCoinsPerMinuteForUser(String(call.userId), String(call.recipientNumber ?? ""))
     : 0;
@@ -575,7 +598,9 @@ export async function finalizeCall(
     hangupCause: hangupCause,
   };
   if (finalStatus !== "completed") {
-    update.failReason = causeToLabel(hangupCause);
+    update.failReason = finalStatus === "failed" && safeBillsec === 0 && hangupCause === "NORMAL_CLEARING"
+      ? "Carrier rejected — answered then immediately disconnected (billsec=0)"
+      : causeToLabel(hangupCause);
   }
 
   const terminalSet = TERMINAL_CALL_STATUSES as unknown as string[];
