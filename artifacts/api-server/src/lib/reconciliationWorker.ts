@@ -7,7 +7,8 @@ import { logger } from "./logger";
 import { finalizeCall, answerCall, ringingCall } from "./callOrchestrator";
 import { EventResult } from "./eslEventBuffer";
 
-const STALE_NON_TERMINAL_MS = 15 * 60 * 1000;
+const STALE_INITIATED_MS    = 30_000;            // 30 s — watchdog is 20 s; give a 10 s buffer
+const STALE_NON_TERMINAL_MS = 15 * 60 * 1000;   // 15 min for ringing/other non-terminal
 /** Longer than MAX_BILLSEC_PER_CALL (24h cap) so legitimate calls are not clipped */
 const STALE_ANSWERED_MS     = 26 * 60 * 60 * 1000;
 const MAX_PENDING_ATTEMPTS  = 100;
@@ -110,24 +111,37 @@ async function processPendingEslBatch(): Promise<void> {
 
 async function closeStaleCalls(): Promise<void> {
   await connectDB();
-  const cutoff = new Date(Date.now() - STALE_NON_TERMINAL_MS);
-  const answeredCutoff = new Date(Date.now() - STALE_ANSWERED_MS);
+  const now            = Date.now();
+  const initiatedCutoff = new Date(now - STALE_INITIATED_MS);   // 30 s
+  const ringingCutoff   = new Date(now - STALE_NON_TERMINAL_MS); // 15 min
+  const answeredCutoff  = new Date(now - STALE_ANSWERED_MS);
 
-  // The 15-minute threshold already guarantees a generous grace period for
-  // newly-created calls.  The INITIATED watchdog (20 s) handles sub-minute
-  // failures.  For defence-in-depth: ensure we also never close calls younger
-  // than 2 minutes even if STALE_NON_TERMINAL_MS is ever reduced.
-  const GRACE_MS = 120_000;
-  const graceCutoff = new Date(Date.now() - GRACE_MS);
-  // Use the more conservative (earlier) cutoff — whichever is further in the past
-  const effectiveCutoff = cutoff < graceCutoff ? cutoff : graceCutoff;
-
-  const [rRing, rAnswered] = await Promise.all([
+  // "initiated" calls are swept fast (30 s) — the in-memory watchdog fires at
+  // 20 s so anything still here is an orphan (e.g. from a server restart that
+  // cleared the timers).
+  const [rInitiated, rRing, rAnswered] = await Promise.all([
     CallModel.updateMany(
       {
         endedAt:   null,
-        status:    { $in: ["initiated", "ringing"] },
-        createdAt: { $lt: effectiveCutoff },
+        status:    "initiated",
+        createdAt: { $lt: initiatedCutoff },
+      },
+      {
+        $set: {
+          status:      "failed",
+          endedAt:     new Date(),
+          failReason:  "Call not connected — no FreeSWITCH activity within 30 s (reconciliation safety net)",
+          hangupCause: "USER_NOT_REGISTERED",
+          duration:    0,
+          cost:        0,
+        },
+      },
+    ),
+    CallModel.updateMany(
+      {
+        endedAt:   null,
+        status:    "ringing",
+        createdAt: { $lt: ringingCutoff },
       },
       {
         $set: {
@@ -159,8 +173,11 @@ async function closeStaleCalls(): Promise<void> {
     ),
   ]);
 
+  if (rInitiated.modifiedCount > 0) {
+    logger.warn({ count: rInitiated.modifiedCount }, "[Reconcile] Closed stale initiated calls (orphaned watchdog — likely a server restart)");
+  }
   if (rRing.modifiedCount > 0) {
-    logger.info({ count: rRing.modifiedCount }, "[Reconcile] Closed stale initiated/ringing calls");
+    logger.info({ count: rRing.modifiedCount }, "[Reconcile] Closed stale ringing calls");
   }
   if (rAnswered.modifiedCount > 0) {
     logger.warn(

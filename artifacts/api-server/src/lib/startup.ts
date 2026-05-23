@@ -118,13 +118,15 @@ export async function runStartup(): Promise<void> {
   //                  (same rationale as in-progress: no createdAt threshold).
   try {
     const now = new Date();
-    const STALE_INITIATED_MS = 15 * 60 * 1000; // 15 minutes
-    const initiatedCutoff = new Date(Date.now() - STALE_INITIATED_MS);
 
     const [initiatedResult, inProgressResult, answeredResult] = await Promise.all([
-      // "initiated" calls older than 15 min → failed (never connected)
+      // ALL "initiated" calls → failed immediately on restart.
+      // Their in-memory 20 s watchdog timer died with the process, so they
+      // will never be cleaned up otherwise. Any call still in "initiated"
+      // when the server restarts is definitively dead — the caller's Verto
+      // WebSocket disconnected along with the server.
       CallModel.updateMany(
-        { status: "initiated", createdAt: { $lt: initiatedCutoff } },
+        { status: "initiated" },
         { status: "failed", failReason: "Call not connected (server restart)", endedAt: now },
       ),
       // ALL "in-progress" calls → failed immediately (server lost state for them)
