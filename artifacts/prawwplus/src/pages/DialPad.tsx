@@ -134,6 +134,14 @@ export default function DialPad() {
       const dialTarget = routeType === "internal" ? String(record.extension) : number;
       if (routeType) updateCallType(routeType);
 
+      // For internal calls: wait up to 2.5 s so the callee's Verto WebSocket
+      // has time to reconnect after receiving the FCM wakeup push we sent in
+      // POST /calls.  Without this pause FreeSWITCH tries to bridge the call
+      // before verto_contact() has an active session for the callee.
+      if (routeType === "internal" && (record as any).calleeNotified) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2500));
+      }
+
       if (vertoActive) {
         const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
         if (!vertoCallId) {

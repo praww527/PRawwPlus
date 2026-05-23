@@ -47,6 +47,10 @@ export default function Favorites() {
       if (record?.id) updateCallId(record.id);
       if (record?.type) updateCallType(record.type);
       const dialTarget = record?.type === "internal" ? String(record.extension) : number;
+      // Internal call: give the callee's Verto connection time to wake up.
+      if (record?.type === "internal" && (record as any).calleeNotified) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2500));
+      }
       const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
       if (vertoCallId === null) throw new Error("VoIP connection error. Please try again.");
     } catch (err: any) {

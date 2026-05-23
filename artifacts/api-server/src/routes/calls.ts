@@ -3,6 +3,7 @@ import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { resolvePhoneToExtension } from "../lib/phoneResolver";
 import { endCallById, webhookUpdate, registerInitiatedCall } from "../lib/callOrchestrator";
+import { sendFcmDataMessage } from "../lib/push";
 import {
   isValidFsCallId,
   countActiveCallsForUser,
@@ -173,12 +174,61 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     registerInitiatedCall(fsCallId.trim(), callId);
   }
 
+  // ── Early wakeup push for internal calls ─────────────────────────────────
+  //
+  // Problem: FreeSWITCH tries to bridge to the callee the moment it receives
+  // `verto.invite`.  If the callee's Verto WebSocket is not active (app
+  // backgrounded / screen off), `verto_contact()` returns empty and the
+  // bridge fails instantly with USER_NOT_REGISTERED — before the push
+  // notification from CHANNEL_ORIGINATE can even arrive.
+  //
+  // Fix (backend side): Send a silent high-priority FCM data message to the
+  // callee right now, at call-creation time.  FCM delivers this within ~50 ms
+  // and wakes the Android app / Verto WebSocket before the caller's browser
+  // waits its 2.5-second grace period and then sends verto.invite.
+  //
+  // The visible "📞 Incoming Call" notification with the answer button still
+  // comes from handleOriginate (CHANNEL_ORIGINATE) — that's the definitive
+  // signal containing the B-leg UUID the callee needs to answer.
+  // We deliberately do NOT send Expo or web-push here to avoid double notifications.
+  let calleeNotified = false;
+  if (callType === "internal" && resolvedExtension) {
+    try {
+      const calleeUser = await UserModel.findOne({ extension: resolvedExtension })
+        .select("fcmToken dnd notificationPrefs")
+        .lean();
+
+      if (
+        calleeUser?.fcmToken &&
+        !calleeUser.dnd &&
+        calleeUser.notificationPrefs?.incomingCalls !== false
+      ) {
+        const wakeupData: Record<string, string> = {
+          type:          "call_wakeup",
+          fromExtension: String((user as any).extension ?? ""),
+        };
+        // Fire-and-forget — a push failure must never block call creation.
+        sendFcmDataMessage(calleeUser.fcmToken, wakeupData).catch((err) => {
+          logger.warn({ err, resolvedExtension }, "[calls] callee FCM wakeup failed");
+        });
+        calleeNotified = true;
+        logger.info({ resolvedExtension }, "[calls] Sent early FCM wakeup to callee");
+      }
+    } catch (err) {
+      logger.warn({ err, resolvedExtension }, "[calls] callee wakeup lookup failed — continuing");
+    }
+  }
+
   res.json({
     ...callRecord.toJSON(),
     id: callRecord._id,
     type: route.type,
     ...(route.type === "internal" && "extension" in route ? { extension: route.extension } : {}),
     dialTarget: route.type === "internal" && "extension" in route ? String(route.extension) : undefined,
+    // True when a wakeup push was sent to the callee.  The frontend uses this
+    // to decide whether to pause before sending verto.invite so FreeSWITCH
+    // finds an active Verto session for the callee instead of failing instantly.
+    calleeNotified,
   });
 });
 

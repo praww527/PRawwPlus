@@ -97,6 +97,10 @@ export default function CallHistory() {
       if (record?.id) updateCallId(record.id);
       if (record?.type) updateCallType(record.type);
       const dialTarget = record?.type === "internal" ? String(record.extension) : number;
+      // Internal call: give the callee's Verto connection time to wake up.
+      if (record?.type === "internal" && (record as any).calleeNotified) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2500));
+      }
       const vertoCallId = await makeVertoCall(dialTarget, fsCallId);
       if (!vertoCallId) throw new Error("Could not connect to the call server.");
     } catch (err: any) {
