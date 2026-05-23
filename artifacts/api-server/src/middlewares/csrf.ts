@@ -29,6 +29,8 @@ const EXEMPT_PREFIXES = [
   "/api/payments/notify",
   "/api/verto/",
   "/api/sip/",
+  // FreeSWITCH server-to-server callbacks — already protected by FREESWITCH_WEBHOOK_SECRET
+  "/api/freeswitch/",
   "/api/healthz",
   "/api/metrics",
   // Push token / subscription registration — called from native app background
