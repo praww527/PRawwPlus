@@ -99,3 +99,6 @@ export * from "./models/AnnouncementView";
 export * from "./models/AbuseFlag";
 export * from "./models/AuditLog";
 export * from "./models/SystemConfig";
+export * from "./models/CallEvent";
+export * from "./models/AlertRule";
+export * from "./models/AlertEvent";

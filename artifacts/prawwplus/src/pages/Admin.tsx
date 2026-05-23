@@ -15,7 +15,7 @@ import {
   AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
   BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone, PhoneOff,
   Loader2, Bell, BellRing, Send, Users2, Wrench, Info, Server, Database,
-  Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff,
+  Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff, Building2,
 } from "lucide-react";
 
 const TABS = [
@@ -33,6 +33,9 @@ const TABS = [
   { id: "abuse",         label: "Calls & Abuse", icon: ShieldAlert },
   { id: "announcements", label: "Announcements", icon: Megaphone   },
   { id: "audit",         label: "Audit Log",     icon: FileText    },
+  { id: "alert-rules",  label: "Alerts",        icon: BellRing    },
+  { id: "ip-blocks",    label: "IP Blocks",     icon: ShieldOff   },
+  { id: "tenants",      label: "Tenants",       icon: Building2   },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -3347,6 +3350,9 @@ export default function Admin() {
         {tab === "abuse"         && <CallsAbuseTab />}
         {tab === "announcements" && <AnnouncementsTab />}
         {tab === "audit"         && <AuditTab />}
+        {tab === "alert-rules"   && <AlertRulesTab />}
+        {tab === "ip-blocks"     && <IpBlocksTab />}
+        {tab === "tenants"       && <TenantsTab />}
       </div>
     </div>
   );
@@ -3464,6 +3470,541 @@ function AuditTab() {
           <button onClick={() => load(page - 1)} disabled={page <= 1 || loading} style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 600, border: "none", cursor: page <= 1 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: page <= 1 ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)" }}>← Prev</button>
           <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>Page {page} of {totalPages}</span>
           <button onClick={() => load(page + 1)} disabled={page >= totalPages || loading} style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 600, border: "none", cursor: page >= totalPages ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: page >= totalPages ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)" }}>Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Alert Rules Tab ────────────────────────────────────────────────────────────
+
+interface AlertRuleEntry {
+  _id: string;
+  name: string;
+  enabled: boolean;
+  metric: string;
+  condition: string;
+  threshold: number;
+  windowMinutes: number;
+  cooldownMinutes: number;
+  channels: { slackWebhook?: string; webhookUrl?: string; emailTo?: string };
+  lastFiredAt?: string;
+  createdAt: string;
+}
+
+interface AlertEventEntry {
+  _id: string;
+  ruleName: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  message: string;
+  channels: string[];
+  firedAt: string;
+}
+
+const METRIC_LABELS: Record<string, string> = {
+  answer_rate:              "Answer Rate (%)",
+  ice_failure_rate:         "ICE Failure Rate (%)",
+  ws_disconnect_rate:       "WS Disconnects / min",
+  active_calls_drop:        "Active Calls Drop to 0",
+  call_setup_latency_p95:   "Call Setup Latency p95 (ms)",
+  registration_failure_rate: "SIP Reg. Failures / min",
+  reconnect_failure_rate:   "Reconnect Failures / min",
+};
+
+function AlertRulesTab() {
+  const { toast } = useToast();
+  const [rules, setRules]   = useState<AlertRuleEntry[]>([]);
+  const [events, setEvents] = useState<AlertEventEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    name: "", metric: "answer_rate", condition: "below", threshold: "80",
+    windowMinutes: "5", cooldownMinutes: "30",
+    slackWebhook: "", webhookUrl: "", emailTo: "",
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [r, e] = await Promise.all([
+        adminFetch("/admin/alert-rules"),
+        adminFetch("/admin/alert-events?limit=20"),
+      ]);
+      setRules(r.rules ?? []);
+      setEvents(e.events ?? []);
+    } catch (err: any) {
+      toast({ title: "Failed to load alerts", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = async (rule: AlertRuleEntry) => {
+    try {
+      await adminFetch(`/admin/alert-rules/${rule._id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: !rule.enabled }),
+      });
+      setRules((prev) => prev.map((r) => r._id === rule._id ? { ...r, enabled: !r.enabled } : r));
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const deleteRule = async (id: string) => {
+    try {
+      await adminFetch(`/admin/alert-rules/${id}`, { method: "DELETE" });
+      setRules((prev) => prev.filter((r) => r._id !== id));
+      toast({ title: "Rule deleted" });
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const testRule = async (id: string) => {
+    try {
+      const res = await adminFetch(`/admin/alert-rules/${id}/test`, { method: "POST" });
+      toast({ title: "Test delivered", description: `Channels: ${(res.fired ?? []).join(", ") || "none"}` });
+    } catch (err: any) {
+      toast({ title: "Test failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const createRule = async () => {
+    try {
+      const channels: Record<string, string> = {};
+      if (form.slackWebhook) channels.slackWebhook = form.slackWebhook;
+      if (form.webhookUrl)   channels.webhookUrl   = form.webhookUrl;
+      if (form.emailTo)      channels.emailTo      = form.emailTo;
+
+      await adminFetch("/admin/alert-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name, metric: form.metric, condition: form.condition,
+          threshold: Number(form.threshold),
+          windowMinutes: Number(form.windowMinutes),
+          cooldownMinutes: Number(form.cooldownMinutes),
+          channels,
+        }),
+      });
+      setShowForm(false);
+      setForm({ name: "", metric: "answer_rate", condition: "below", threshold: "80", windowMinutes: "5", cooldownMinutes: "30", slackWebhook: "", webhookUrl: "", emailTo: "" });
+      toast({ title: "Rule created" });
+      load();
+    } catch (err: any) {
+      toast({ title: "Create failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const cardStyle: React.CSSProperties = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 14px" };
+  const labelStyle: React.CSSProperties = { fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" };
+  const inputStyle: React.CSSProperties = { width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "7px 10px", fontSize: 12, color: "#fff", outline: "none" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Alert Rules</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Threshold-based alerts delivered to Slack, webhook, or email</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => load()} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)" }}>
+            <RefreshCw style={{ width: 11, height: 11, display: "inline", marginRight: 5 }} />Refresh
+          </button>
+          <button onClick={() => setShowForm(true)} style={{ padding: "7px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: "#1a8cff", color: "#fff" }}>
+            + New Rule
+          </button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div style={{ ...cardStyle, borderColor: "rgba(26,140,255,0.3)" }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: "0 0 14px" }}>Create Alert Rule</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><p style={labelStyle}>Name</p><input style={inputStyle} value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Low answer rate" /></div>
+            <div><p style={labelStyle}>Metric</p>
+              <select style={{ ...inputStyle }} value={form.metric} onChange={(e) => setForm((p) => ({ ...p, metric: e.target.value }))}>
+                {Object.entries(METRIC_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div><p style={labelStyle}>Condition</p>
+              <select style={{ ...inputStyle }} value={form.condition} onChange={(e) => setForm((p) => ({ ...p, condition: e.target.value }))}>
+                <option value="below">Below threshold</option>
+                <option value="above">Above threshold</option>
+              </select>
+            </div>
+            <div><p style={labelStyle}>Threshold</p><input style={inputStyle} type="number" value={form.threshold} onChange={(e) => setForm((p) => ({ ...p, threshold: e.target.value }))} /></div>
+            <div><p style={labelStyle}>Window (min)</p><input style={inputStyle} type="number" value={form.windowMinutes} onChange={(e) => setForm((p) => ({ ...p, windowMinutes: e.target.value }))} /></div>
+            <div><p style={labelStyle}>Cooldown (min)</p><input style={inputStyle} type="number" value={form.cooldownMinutes} onChange={(e) => setForm((p) => ({ ...p, cooldownMinutes: e.target.value }))} /></div>
+          </div>
+          <p style={{ ...labelStyle, margin: "14px 0 8px" }}>Delivery Channels</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <input style={inputStyle} value={form.slackWebhook} onChange={(e) => setForm((p) => ({ ...p, slackWebhook: e.target.value }))} placeholder="Slack Webhook URL (optional)" />
+            <input style={inputStyle} value={form.webhookUrl} onChange={(e) => setForm((p) => ({ ...p, webhookUrl: e.target.value }))} placeholder="Generic Webhook URL (optional)" />
+            <input style={inputStyle} value={form.emailTo} onChange={(e) => setForm((p) => ({ ...p, emailTo: e.target.value }))} placeholder="Email address (optional)" />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button onClick={createRule} style={{ padding: "8px 20px", borderRadius: 20, fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: "#1a8cff", color: "#fff" }}>Create</button>
+            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading && rules.length === 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {[1,2,3].map((i) => <div key={i} style={{ height: 72, borderRadius: 12, background: "rgba(255,255,255,0.04)", animation: "pulse 2s infinite" }} />)}
+        </div>
+      )}
+
+      {rules.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rules.map((rule) => (
+            <div key={rule._id} style={{ ...cardStyle, opacity: rule.enabled ? 1 : 0.55 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => toggle(rule)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: rule.enabled ? "#30d158" : "rgba(255,255,255,0.25)", flexShrink: 0 }}>
+                  {rule.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+                </button>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{rule.name}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.35)", fontFamily: "monospace" }}>{METRIC_LABELS[rule.metric] ?? rule.metric}</span>
+                    <span style={{ fontSize: 11, color: rule.condition === "below" ? "#ff9f0a" : "#ff453a", fontWeight: 600 }}>
+                      {rule.condition} {rule.threshold}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>window: {rule.windowMinutes}m</span>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>cooldown: {rule.cooldownMinutes}m</span>
+                    {rule.channels.slackWebhook && <span style={{ fontSize: 10, color: "#a78bfa" }}>slack</span>}
+                    {rule.channels.webhookUrl && <span style={{ fontSize: 10, color: "#60a5fa" }}>webhook</span>}
+                    {rule.channels.emailTo && <span style={{ fontSize: 10, color: "#34d399" }}>email</span>}
+                    {rule.lastFiredAt && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>last fired {formatDistanceToNow(new Date(rule.lastFiredAt), { addSuffix: true })}</span>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => testRule(rule._id)} style={{ padding: "5px 10px", borderRadius: 14, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}>Test</button>
+                  <button onClick={() => deleteRule(rule._id)} style={{ padding: "5px 10px", borderRadius: 14, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(248,113,113,0.1)", color: "#f87171" }}>Delete</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {rules.length === 0 && !loading && (
+        <div style={{ textAlign: "center", padding: "30px 0", color: "rgba(255,255,255,0.25)", fontSize: 13 }}>No alert rules configured. Create one to get notified when metrics breach thresholds.</div>
+      )}
+
+      {events.length > 0 && (
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.7)", margin: "0 0 10px" }}>Recent Fired Alerts</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {events.map((ev) => (
+              <div key={ev._id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(255,69,58,0.06)", border: "1px solid rgba(255,69,58,0.15)" }}>
+                <AlertTriangle size={13} style={{ color: "#ff453a", flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", margin: 0 }}>{ev.ruleName}</p>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", margin: "2px 0 0" }}>{ev.message}</p>
+                  <div style={{ display: "flex", gap: 8, marginTop: 3 }}>
+                    {ev.channels.map((ch) => <span key={ch} style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{ch}</span>)}
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>{formatDistanceToNow(new Date(ev.firedAt), { addSuffix: true })}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── IP Blocks Tab ─────────────────────────────────────────────────────────────
+
+interface BlockEntry {
+  ip: string;
+  reason: string;
+  blockedAt: number;
+  expiresAt: number | null;
+  auto: boolean;
+}
+
+function IpBlocksTab() {
+  const { toast } = useToast();
+  const [blocks, setBlocks] = useState<BlockEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ ip: "", reason: "", durationMinutes: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await adminFetch("/admin/ip-blocks");
+      setBlocks(data.blocks ?? []);
+    } catch (err: any) {
+      toast({ title: "Failed to load blocks", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const unblock = async (ip: string) => {
+    try {
+      await adminFetch(`/admin/ip-blocks/${encodeURIComponent(ip)}`, { method: "DELETE" });
+      setBlocks((prev) => prev.filter((b) => b.ip !== ip));
+      toast({ title: `${ip} unblocked` });
+    } catch (err: any) {
+      toast({ title: "Unblock failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const addBlock = async () => {
+    try {
+      await adminFetch("/admin/ip-blocks", {
+        method: "POST",
+        body: JSON.stringify({
+          ip: form.ip,
+          reason: form.reason,
+          durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
+        }),
+      });
+      setShowForm(false);
+      setForm({ ip: "", reason: "", durationMinutes: "" });
+      toast({ title: `${form.ip} blocked` });
+      load();
+    } catch (err: any) {
+      toast({ title: "Block failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const cardStyle: React.CSSProperties = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 14px" };
+  const inputStyle: React.CSSProperties = { width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "7px 10px", fontSize: 12, color: "#fff", outline: "none" };
+  const labelStyle: React.CSSProperties = { fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>IP Block List</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Auto-blocked IPs (SIP/login flood) and manual blocks</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={load} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)" }}>
+            <RefreshCw style={{ width: 11, height: 11, display: "inline", marginRight: 5 }} />Refresh
+          </button>
+          <button onClick={() => setShowForm(true)} style={{ padding: "7px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: "#ff453a", color: "#fff" }}>
+            + Block IP
+          </button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div style={{ ...cardStyle, borderColor: "rgba(255,69,58,0.3)" }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: "0 0 12px" }}>Block an IP</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <div><p style={labelStyle}>IP Address</p><input style={inputStyle} value={form.ip} onChange={(e) => setForm((p) => ({ ...p, ip: e.target.value }))} placeholder="1.2.3.4" /></div>
+            <div><p style={labelStyle}>Reason</p><input style={inputStyle} value={form.reason} onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))} placeholder="Reason" /></div>
+            <div><p style={labelStyle}>Duration (min, blank = permanent)</p><input style={inputStyle} type="number" value={form.durationMinutes} onChange={(e) => setForm((p) => ({ ...p, durationMinutes: e.target.value }))} placeholder="blank = permanent" /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={addBlock} style={{ padding: "8px 20px", borderRadius: 20, fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: "#ff453a", color: "#fff" }}>Block</button>
+            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading && blocks.length === 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {[1,2,3].map((i) => <div key={i} style={{ height: 60, borderRadius: 12, background: "rgba(255,255,255,0.04)", animation: "pulse 2s infinite" }} />)}
+        </div>
+      )}
+
+      {blocks.length === 0 && !loading && (
+        <div style={{ textAlign: "center", padding: "30px 0", color: "rgba(255,255,255,0.25)", fontSize: 13 }}>
+          <ShieldCheck style={{ width: 28, height: 28, margin: "0 auto 8px", display: "block", opacity: 0.3 }} />
+          No blocked IPs. Automatic blocks appear here when flood thresholds are exceeded.
+        </div>
+      )}
+
+      {blocks.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {blocks.map((b) => {
+            const isExpiring = b.expiresAt !== null;
+            const expiresIn  = isExpiring ? Math.max(0, Math.round((b.expiresAt! - Date.now()) / 60_000)) : null;
+            return (
+              <div key={b.ip} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: b.auto ? "#ff9f0a" : "#ff453a", flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <code style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>{b.ip}</code>
+                    {b.auto && <span style={{ fontSize: 10, fontWeight: 700, color: "#ff9f0a", background: "rgba(255,159,10,0.1)", padding: "1px 6px", borderRadius: 8 }}>auto</span>}
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{b.reason}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>blocked {formatDistanceToNow(new Date(b.blockedAt), { addSuffix: true })}</span>
+                    {isExpiring && expiresIn !== null && (
+                      <span style={{ fontSize: 10, color: expiresIn < 5 ? "#ff9f0a" : "rgba(255,255,255,0.25)" }}>
+                        expires in {expiresIn}m
+                      </span>
+                    )}
+                    {!isExpiring && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>permanent</span>}
+                  </div>
+                </div>
+                <button onClick={() => unblock(b.ip)} style={{ padding: "5px 12px", borderRadius: 14, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: "rgba(52,211,153,0.1)", color: "#34d399", flexShrink: 0 }}>
+                  Unblock
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T009: Tenants Tab — per-tenant overview and isolation controls
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface TenantSummary {
+  tenantId: string;
+  memberCount: number;
+  createdAt: string;
+  members: { id: string; email?: string; name?: string; isAdmin: boolean; role: string; locked: boolean }[];
+}
+
+function TenantsTab() {
+  const [tenants, setTenants]   = React.useState<TenantSummary[]>([]);
+  const [loading, setLoading]   = React.useState(true);
+  const [error,   setError]     = React.useState<string | null>(null);
+  const [selected, setSelected] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await adminFetch("/api/admin/tenants");
+      setTenants(data.tenants ?? []);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Tenant Isolation</h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Users grouped by tenantId. Personal accounts have no tenant.
+          </p>
+        </div>
+        <button
+          onClick={load}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" /> Refresh
+        </button>
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-gray-500 py-8 justify-center">
+          <Loader2 className="w-5 h-5 animate-spin" /> Loading tenants…
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>
+      )}
+
+      {!loading && !error && (
+        <div className="grid grid-cols-1 gap-4">
+          {tenants.map((t) => (
+            <div
+              key={t.tenantId}
+              className={`border rounded-xl p-4 cursor-pointer transition-colors ${
+                selected === t.tenantId ? "border-blue-500 bg-blue-50" : "hover:bg-gray-50"
+              }`}
+              onClick={() => setSelected(selected === t.tenantId ? null : t.tenantId)}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-100">
+                    <Building2 className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-sm">
+                      {t.tenantId === "__personal__"
+                        ? "Personal accounts (no tenant)"
+                        : t.tenantId}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {t.memberCount} member{t.memberCount !== 1 ? "s" : ""} · since{" "}
+                      {new Date(t.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-gray-400 transition-transform ${
+                    selected === t.tenantId ? "rotate-180" : ""
+                  }`}
+                />
+              </div>
+
+              {selected === t.tenantId && (
+                <div className="mt-4 border-t pt-4 space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Members
+                  </p>
+                  {t.members.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-center justify-between text-sm px-2 py-1.5 rounded-lg bg-white border"
+                    >
+                      <div>
+                        <span className="font-medium">{m.name ?? m.email ?? m.id}</span>
+                        {m.email && m.name && (
+                          <span className="text-gray-400 ml-1.5 text-xs">({m.email})</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {m.isAdmin && (
+                          <span className="px-1.5 py-0.5 text-xs rounded bg-purple-100 text-purple-700">
+                            admin
+                          </span>
+                        )}
+                        {m.locked && (
+                          <span className="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-700">
+                            locked
+                          </span>
+                        )}
+                        <span className="px-1.5 py-0.5 text-xs rounded bg-gray-100 text-gray-600">
+                          {m.role}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {tenants.length === 0 && (
+            <div className="text-center py-12 text-gray-400">
+              <Building2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">No tenant data found</p>
+            </div>
+          )}
         </div>
       )}
     </div>

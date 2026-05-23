@@ -78,6 +78,7 @@ export interface IUser extends Document<string> {
   verificationDocUrl?: string;
   verificationDocType?: "id" | "company";
   verificationDocSubmittedAt?: Date;
+  tenantId?: string;
   policyAgreedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -153,6 +154,7 @@ const UserSchema = new Schema<IUser>(
     verificationDocUrl: { type: String },
     verificationDocType: { type: String, enum: ["id", "company"] },
     verificationDocSubmittedAt: { type: Date },
+    tenantId: { type: String, index: true },
     policyAgreedAt: { type: Date },
     notificationPrefs: {
       type: new Schema({

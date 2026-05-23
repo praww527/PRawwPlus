@@ -19,6 +19,12 @@ import voicemailRouter from "./voicemail";
 import recordingsRouter from "./recordings";
 import resellerRouter from "./reseller";
 import announcementsRouter from "./announcements";
+import callEventsRouter from "./callEvents";
+import alertRulesRouter from "./alertRules";
+import ipBlocksRouter from "./ipBlocks";
+import auditSearchRouter from "./auditSearch";
+import logLevelRouter from "./logLevel";
+import tenantsRouter from "./tenants";
 
 const router: IRouter = Router();
 
@@ -42,5 +48,11 @@ router.use(adminBillingRouter);
 router.use(voicemailRouter);
 router.use(recordingsRouter);
 router.use(announcementsRouter);
+router.use(callEventsRouter);
+router.use(alertRulesRouter);
+router.use(ipBlocksRouter);
+router.use(auditSearchRouter);
+router.use(logLevelRouter);
+router.use(tenantsRouter);
 
 export default router;

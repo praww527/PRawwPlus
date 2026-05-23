@@ -28,6 +28,7 @@ import {
 import { EventResult } from "./eslEventBuffer";
 import { resolveCoinsPerMinuteForUser, calcCoinsFromBillsec } from "./rating";
 import { sendExpoPush, sendFcmDataMessage } from "./push";
+import { appendCallEvent } from "./callEventLog";
 
 const COINS_PER_MINUTE = 1;
 const MIN_COINS_SAFETY = 0.1;
@@ -258,6 +259,13 @@ export async function ringingCall(
   if (!result) return EventResult.RETRY;
 
   logger.info({ aLegUuid, bLegUuid, applied: result.applied }, "[Orchestrator] ringingCall done");
+  if (result.applied) {
+    appendCallEvent({
+      callId: result.callId, fsCallId: aLegUuid,
+      userId: result.userId, event: "ringing",
+      metadata: { bLegUuid },
+    }).catch(() => {});
+  }
   return EventResult.DONE;
 }
 
@@ -303,6 +311,12 @@ export async function answerCall(
   const result = await transitionCallStatus(fsCallId, "answered", { startedAt: new Date() });
   if (!result) return EventResult.RETRY;
   if (!result.applied) return EventResult.DONE;
+
+  appendCallEvent({
+    callId: result.callId, fsCallId,
+    userId: result.userId, event: "answered",
+    metadata: { callType: call.callType },
+  }).catch(() => {});
 
   // Mid-call balance enforcement for external calls
   if (call.callType === "external") {
@@ -518,6 +532,13 @@ export async function finalizeCall(
         { fsCallId, finalStatus, billsec: safeBillsec, coinsUsed, hangupCause },
         "[Orchestrator] Call finalised via ESL (transaction)",
       );
+      if (resDocTxn) {
+        appendCallEvent({
+          callId: String(resDocTxn._id), fsCallId,
+          userId: String(resDocTxn.userId), event: "hangup",
+          metadata: { hangupCause, billsec: safeBillsec, coinsUsed, finalStatus, path: "txn" },
+        }).catch(() => {});
+      }
       return EventResult.DONE;
     } catch (err) {
       await session.abortTransaction().catch((abortErr) => {
@@ -590,6 +611,11 @@ export async function finalizeCall(
     { fsCallId, finalStatus, billsec: safeBillsec, coinsUsed, hangupCause },
     "[Orchestrator] Call finalised via ESL",
   );
+  appendCallEvent({
+    callId: String(resDoc._id), fsCallId,
+    userId: String(resDoc.userId), event: "hangup",
+    metadata: { hangupCause, billsec: safeBillsec, coinsUsed, finalStatus },
+  }).catch(() => {});
   return EventResult.DONE;
 }
 

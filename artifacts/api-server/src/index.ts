@@ -4,12 +4,20 @@ import { logger } from "./lib/logger";
 import { runStartup } from "./lib/startup";
 import { createVertoProxy, attachVertoProxy } from "./lib/vertoProxy";
 import { createSipProxy, attachSipProxy } from "./lib/sipProxy";
+import { startAlertWorker } from "./lib/alertWorker";
+import { ipReputation } from "./lib/ipReputation";
 
 process.on("unhandledRejection", (reason, promise) => {
   logger.error(
     { err: reason, promise: String(promise) },
     "Unhandled promise rejection",
   );
+});
+
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception — process will exit");
+  // Flush log transport then exit with non-zero code so the process manager restarts.
+  setTimeout(() => process.exit(1), 500);
 });
 
 const rawPort = process.env["PORT"];
@@ -69,4 +77,10 @@ server.listen(port, host, async () => {
   // Connect to MongoDB and provision any users missing FreeSWITCH extensions.
   // Runs every time the server starts — safe to run repeatedly (idempotent).
   await runStartup();
+
+  // Start alert worker (evaluates alert rules every 60 s).
+  startAlertWorker();
+
+  // Load persisted IP block list from MongoDB into memory.
+  ipReputation.loadFromDb().catch(() => {});
 });

@@ -10,6 +10,10 @@ import {
 import { VertoClient, type VertoConfig, type HangupCause } from "@/lib/verto";
 import { useMakeCall } from "@workspace/api-client-react";
 import { connectionStore } from "@/hooks/useConnectionStatus";
+import { useWakeLock } from "@/hooks/useWakeLock";
+import { useKeepalive } from "@/hooks/useKeepalive";
+import { useTurnHealth, toRtcIceServers } from "@/hooks/useTurnHealth";
+import { apiFetch } from "@/lib/apiFetch";
 
 export type CallState = "idle" | "outgoing" | "incoming" | "active";
 export type CallPhase = "calling" | "ringing" | "connected" | "ended";
@@ -151,6 +155,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => { callInfoRef.current    = callInfo;    }, [callInfo]);
   useEffect(() => { vertoConfigRef.current = vertoConfig; }, [vertoConfig]);
 
+  // T007: keep screen awake during active calls (Screen Wake Lock API)
+  useWakeLock(callState === "active");
+  // T007: background keepalive ping — keeps TCP warm during active calls
+  useKeepalive(callState === "active");
+  // T008: geo-aware ICE — probe TURN servers and rank by latency
+  const { servers: rankedServers } = useTurnHealth();
+
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
     setVertoConfigState((prev) => {
       if (prev?.wsUrl === cfg.wsUrl && prev?.extension === cfg.extension) return prev;
@@ -161,12 +172,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!vertoConfig?.configured || !vertoConfig.wsUrl) return;
 
-    const client = new VertoClient(vertoConfig, {
+    // T008: use health-ranked ICE servers if available, fall back to API-provided list
+    const ranked = toRtcIceServers(rankedServers);
+    const configWithRankedIce: VertoConfig = {
+      ...vertoConfig,
+      iceServers: ranked.length > 0 ? ranked : vertoConfig.iceServers,
+    };
+
+    const client = new VertoClient(configWithRankedIce, {
       onConnected:    () => {
         setIsVertoConnected(true);
         setVertoError(null);
         connectionStore.setVertoReady(true);
-        fetch("/api/metrics/reconnect", {
+        apiFetch("/api/metrics/reconnect", {
           method: "POST", credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ event: "reconnect_success" }),
@@ -210,7 +228,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (looksInternal) {
           // Resolve extension → name + mobile number so the UI looks like a
           // normal phone call (no 4-digit codes ever exposed to the user).
-          fetch(`/api/users/extension-lookup?extension=${encodeURIComponent(callerNumber)}`)
+          apiFetch(`/api/users/extension-lookup?extension=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string; phone?: string | null } | null) => {
               if (callEpochRef.current !== epoch) return; // stale — new call started
@@ -230,7 +248,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         } else if (digits.length >= 7) {
           // Full phone number — look up whether this is a registered PRaww+ user
           // so we can show their name and mark the call as internal.
-          fetch(`/api/users/phone-lookup?phone=${encodeURIComponent(callerNumber)}`)
+          apiFetch(`/api/users/phone-lookup?phone=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string } | null) => {
               if (callEpochRef.current !== epoch) return; // stale — new call started
@@ -318,7 +336,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       clientRef.current = null;
       setIsVertoConnected(false);
     };
-  }, [vertoConfig]);
+  }, [vertoConfig, rankedServers]);
 
   // Poll the call record (every 2 s) until FreeSWITCH confirms the callee
   // answered (CHANNEL_ANSWER → status "answered" in DB), then go to
@@ -364,7 +382,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const res = await fetch(`/api/calls/${dbCallId}`);
+        const res = await apiFetch(`/api/calls/${dbCallId}`);
         if (!res.ok) return;
         const data = await res.json() as { status?: string };
         if (data.status === "answered") {
