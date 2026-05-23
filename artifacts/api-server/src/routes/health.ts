@@ -119,8 +119,12 @@ async function tcpProbe(host: string, port: number, timeoutMs = 3000): Promise<{
 }
 
 router.get("/healthz/turn", async (_req, res) => {
-  const managedTurnHost   = process.env.TURN_HOST   ?? null;
-  const managedTurnSecret = process.env.TURN_SECRET ?? null;
+  const managedTurnHost   = process.env.TURN_HOST       ?? null;
+  const managedTurnSecret = process.env.TURN_SECRET     ?? null;
+  // TURN_PROBE_HOST overrides the TCP probe target — set to 127.0.0.1 when
+  // the TURN server runs on the same VM as the API (Oracle/AWS hairpin NAT
+  // drops traffic from the VM to its own public IP).
+  const probeHost         = process.env.TURN_PROBE_HOST ?? managedTurnHost;
   const managed = Boolean(managedTurnHost && managedTurnSecret);
 
   // ICE server priority:
@@ -174,12 +178,19 @@ router.get("/healthz/turn", async (_req, res) => {
         urlList.map(async (url) => {
           const parsed = parseIceUrl(url);
           const isTurn = parsed.scheme === "turn" || parsed.scheme === "turns";
-          const probe  = await tcpProbe(parsed.host, parsed.port);
+          // Use probeHost (TURN_PROBE_HOST or managedTurnHost) so that when
+          // Coturn is co-located on the same VM we probe via 127.0.0.1 and
+          // bypass Oracle/AWS hairpin-NAT dropping.
+          const targetHost = (managed && probeHost && parsed.host === managedTurnHost)
+            ? probeHost
+            : parsed.host;
+          const probe  = await tcpProbe(targetHost, parsed.port);
           return {
             url,
             scheme:     parsed.scheme,
             host:       parsed.host,
             port:       parsed.port,
+            probeHost:  targetHost !== parsed.host ? targetHost : undefined,
             isTurn,
             hasAuth:    Boolean(server.username && server.credential),
             reachable:  probe.reachable,
