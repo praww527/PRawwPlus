@@ -2619,7 +2619,10 @@ function SystemTab() {
           {!iceEditing && (
             <>
               {/* Hard TURN-missing warning — shown when not in managed mode and no TURN in list */}
-              {turnConfig?.mode !== "auto" && iceData && !iceData.effective.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:")) && (
+              {turnConfig?.mode !== "auto" && iceData && !iceData.effective.some((s: any) => {
+                const urlList = Array.isArray(s.urls) ? s.urls : [s.urls ?? ""];
+                return urlList.some((u: string) => u.startsWith("turn:") || u.startsWith("turns:"));
+              }) && (
                 <div style={{ padding: "12px 16px", background: "rgba(255,69,58,0.10)", borderBottom: "2px solid rgba(255,69,58,0.35)" }}>
                   <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 700, color: "#ff453a" }}>
                     ✕ No TURN server — calls will fail on 4G/mobile and behind NAT

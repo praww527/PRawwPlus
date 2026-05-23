@@ -122,6 +122,10 @@ realm=$TURN_DOMAIN
 # REST API / HMAC time-limited credentials (compatible with PRaww+ verto.ts)
 # Username format: "<unix_timestamp>:<user_id>"
 # Credential:      HMAC-SHA1(TURN_SECRET, username) → base64
+#
+# NOTE: use-auth-secret (REST API mode) and lt-cred-mech (long-term credentials)
+# are mutually exclusive in Coturn. Do NOT add lt-cred-mech here — it disables
+# the REST API auth mode and will cause all HMAC credentials to be rejected.
 use-auth-secret
 static-auth-secret=$TURN_SECRET
 
@@ -140,10 +144,6 @@ max-port=$RELAY_MAX_PORT
 # ── Performance & security ────────────────────────────────────────────────────
 # Enable fingerprints in TURN messages (required by WebRTC)
 fingerprint
-
-# Enforce authentication (reject unauthenticated TURN allocations)
-# Long-term credentials only — no anonymous access
-lt-cred-mech
 
 # Deny relay to loopback/private ranges (security hardening)
 denied-peer-ip=10.0.0.0-10.255.255.255

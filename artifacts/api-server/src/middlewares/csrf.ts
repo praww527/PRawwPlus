@@ -31,6 +31,14 @@ const EXEMPT_PREFIXES = [
   "/api/sip/",
   "/api/healthz",
   "/api/metrics",
+  // Push token / subscription registration — called from native app background
+  // tasks and service workers that cannot carry a CSRF cookie. The endpoints
+  // are already protected by session authentication; CSRF adds no extra safety
+  // since the attacker would also need the victim's push token (opaque, unknown).
+  "/api/users/push-token",
+  "/api/users/web-push-subscription",
+  "/api/users/fcm-token",
+  "/api/users/notification-prefs",
 ];
 
 function isExempt(path: string): boolean {
