@@ -1,6 +1,46 @@
 import { logger } from "./logger";
 
 /**
+ * sendWebPushToSubscription — sends a web push notification to a browser subscription.
+ * Used by both the ESL handler and the admin panel.
+ * Returns { sent: true } on success, { sent: false, error } on failure.
+ * When error === "expired", the caller should remove the stored subscription.
+ */
+export async function sendWebPushToSubscription(
+  subscription: { endpoint: string; keys: { auth: string; p256dh: string } },
+  data: Record<string, string>,
+  userId?: string,
+): Promise<{ sent: boolean; error?: string }> {
+  const vapidPublicKey  = process.env.VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+  if (!vapidPublicKey || !vapidPrivateKey) {
+    return { sent: false, error: "VAPID keys not configured" };
+  }
+  try {
+    const webpush = await import("web-push");
+    const appUrl  = process.env.APP_URL ?? "";
+    const subject = appUrl
+      ? `mailto:admin@${new URL(appUrl).hostname}`
+      : "mailto:admin@praww.co.za";
+    webpush.setVapidDetails(subject, vapidPublicKey, vapidPrivateKey);
+    await webpush.sendNotification(
+      subscription as Parameters<typeof webpush.sendNotification>[0],
+      JSON.stringify(data),
+      { TTL: 60 },
+    );
+    logger.info({ endpointPrefix: subscription.endpoint.slice(0, 40), userId }, "[Push] Web push sent OK");
+    return { sent: true };
+  } catch (err: any) {
+    if (err?.statusCode === 410 || err?.statusCode === 404) {
+      logger.info({ endpointPrefix: subscription.endpoint.slice(0, 40), userId }, "[Push] Web push subscription expired/gone");
+      return { sent: false, error: "expired" };
+    }
+    logger.error({ err, userId }, "[Push] Web push send failed");
+    return { sent: false, error: err?.message ?? "Unknown web push error" };
+  }
+}
+
+/**
  * sendAdminPush — sends a visible push notification from the admin panel.
  *
  * Unlike `sendFcmDataMessage` (data-only / silent), this also includes a

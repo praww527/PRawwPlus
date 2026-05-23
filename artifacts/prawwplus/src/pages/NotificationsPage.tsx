@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Bell, Phone, Voicemail, AlertCircle, MessageSquare, Star, TrendingUp, ChevronLeft, Loader2, BellRing, CheckCircle2 } from "lucide-react";
+import { Bell, Phone, Voicemail, AlertCircle, MessageSquare, Star, TrendingUp, ChevronLeft, Loader2, BellRing, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
 import { useLocation } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
@@ -85,6 +85,73 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+type SubStatus = "idle" | "subscribed" | "failed" | "vapid_missing" | "not_supported";
+
+async function registerWebPushSubscription(): Promise<{ ok: boolean; status: SubStatus; error?: string }> {
+  if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return { ok: false, status: "not_supported", error: "Push notifications are not supported in this browser." };
+  }
+
+  try {
+    const keyResp = await fetch("/api/users/vapid-public-key");
+    if (keyResp.status === 503) {
+      return { ok: false, status: "vapid_missing", error: "Push notifications are not configured on the server. Contact your administrator." };
+    }
+    if (!keyResp.ok) {
+      return { ok: false, status: "failed", error: "Could not load push configuration from server." };
+    }
+    const { key } = (await keyResp.json()) as { key?: string };
+    if (!key) {
+      return { ok: false, status: "vapid_missing", error: "Server returned an invalid push configuration." };
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    let sub = await registration.pushManager.getSubscription();
+
+    const appServerKey = Uint8Array.from(
+      atob(key.replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0),
+    );
+
+    if (sub) {
+      const existingKey = sub.options.applicationServerKey;
+      const keysMatch = existingKey && (() => {
+        const a = new Uint8Array(existingKey as ArrayBuffer);
+        const b = appServerKey;
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+        return true;
+      })();
+      if (!keysMatch) {
+        await sub.unsubscribe();
+        sub = null;
+      }
+    }
+
+    if (!sub) {
+      sub = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appServerKey,
+      });
+    }
+
+    const saveResp = await fetch("/api/users/web-push-subscription", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: sub.toJSON() }),
+      credentials: "include",
+    });
+
+    if (!saveResp.ok) {
+      return { ok: false, status: "failed", error: "Subscription was created but could not be saved. Please try again." };
+    }
+
+    return { ok: true, status: "subscribed" };
+  } catch (err: any) {
+    return { ok: false, status: "failed", error: err?.message ?? "Failed to set up push subscription." };
+  }
+}
+
 export default function NotificationsPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -92,10 +159,11 @@ export default function NotificationsPage() {
   const [settings, setSettings] = useState<NotifPrefs>(DEFAULT_PREFS);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
+  const [subStatus, setSubStatus] = useState<SubStatus>("idle");
+  const [subError, setSubError] = useState<string | null>(null);
   const [requestingPush, setRequestingPush] = useState(false);
   const loadedRef = useRef(false);
 
-  // Load settings from user data
   useEffect(() => {
     if (user && !loadedRef.current) {
       loadedRef.current = true;
@@ -106,10 +174,20 @@ export default function NotificationsPage() {
     }
   }, [user]);
 
-  // Check current push permission
   useEffect(() => {
     if ("Notification" in window) {
       setPushPermission(Notification.permission);
+    }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setSubStatus("not_supported");
+      return;
+    }
+    if ("Notification" in window && Notification.permission === "granted") {
+      navigator.serviceWorker.ready.then((reg) =>
+        reg.pushManager.getSubscription()
+      ).then((sub) => {
+        if (sub) setSubStatus("subscribed");
+      }).catch(() => {});
     }
   }, []);
 
@@ -125,7 +203,6 @@ export default function NotificationsPage() {
       if (!res.ok) throw new Error("Failed to save");
     } catch {
       toast({ title: "Could not save setting", variant: "destructive" });
-      // Revert on error
       setSettings((s) => ({ ...s, [key]: !value }));
     } finally {
       setSavingKey(null);
@@ -140,43 +217,57 @@ export default function NotificationsPage() {
     });
   }, [saveToAPI]);
 
-  const requestPushPermission = async () => {
-    if (!("Notification" in window)) {
-      toast({ title: "Push notifications not supported", description: "Your browser doesn't support notifications.", variant: "destructive" });
+  const enablePush = async () => {
+    if (subStatus === "not_supported") {
+      toast({ title: "Not supported", description: "Your browser does not support push notifications.", variant: "destructive" });
       return;
     }
 
     setRequestingPush(true);
+    setSubError(null);
     try {
-      const permission = await Notification.requestPermission();
+      let permission = Notification.permission;
+      if (permission === "default") {
+        permission = await Notification.requestPermission().catch(() => "denied" as NotificationPermission);
+      }
       setPushPermission(permission);
 
-      if (permission === "granted") {
-        // Update pushEnabled in DB
+      if (permission === "denied") {
+        setSubStatus("failed");
+        setSubError("Notification permission was blocked. See the instructions below to unblock.");
+        return;
+      }
+
+      if (permission !== "granted") {
+        setSubStatus("failed");
+        setSubError("Permission was not granted. Please try again.");
+        return;
+      }
+
+      const result = await registerWebPushSubscription();
+      setSubStatus(result.status);
+      if (result.ok) {
         setSettings((s) => ({ ...s, pushEnabled: true }));
         await saveToAPI("pushEnabled", true);
-        toast({ title: "Push notifications enabled" });
-
-        // Show a test notification
-        new Notification("PRaww+ Notifications", {
-          body: "You will now receive call and account alerts.",
-          icon: "/favicon.svg",
-        });
-      } else if (permission === "denied") {
-        toast({
-          title: "Notifications blocked",
-          description: "Please enable notifications in your browser settings.",
-          variant: "destructive",
-        });
+        toast({ title: "Push notifications enabled", description: "You will now receive call and account alerts." });
+      } else {
+        setSubError(result.error ?? "Failed to enable notifications.");
+        if (result.status !== "vapid_missing") {
+          toast({ title: "Notifications failed", description: result.error, variant: "destructive" });
+        }
       }
-    } catch {
-      toast({ title: "Failed to request permission", variant: "destructive" });
+    } catch (err: any) {
+      setSubStatus("failed");
+      setSubError(err?.message ?? "Unexpected error enabling notifications.");
+      toast({ title: "Failed to enable notifications", variant: "destructive" });
     } finally {
       setRequestingPush(false);
     }
   };
 
-  const pushGranted = pushPermission === "granted" && settings.pushEnabled;
+  const isSubscribed = subStatus === "subscribed" && pushPermission === "granted";
+  const isBlocked    = pushPermission === "denied";
+  const isNotSupported = subStatus === "not_supported";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 4, paddingBottom: 8 }}>
@@ -201,33 +292,51 @@ export default function NotificationsPage() {
         </h1>
       </div>
 
-      {/* Push Notification Permission Banner */}
+      {/* Push Notification Status Banner */}
       <div style={{
         padding: "14px 16px",
         borderRadius: 16,
-        background: pushGranted
+        background: isSubscribed
           ? "rgba(48,209,88,0.10)"
+          : isBlocked || subStatus === "vapid_missing"
+          ? "rgba(255,69,58,0.08)"
           : "rgba(10,132,255,0.10)",
-        border: `1px solid ${pushGranted ? "rgba(48,209,88,0.22)" : "rgba(10,132,255,0.22)"}`,
+        border: `1px solid ${isSubscribed ? "rgba(48,209,88,0.22)" : isBlocked || subStatus === "vapid_missing" ? "rgba(255,69,58,0.22)" : "rgba(10,132,255,0.22)"}`,
         display: "flex", alignItems: "center", gap: 12,
       }}>
-        {pushGranted
+        {isSubscribed
           ? <CheckCircle2 style={{ width: 22, height: 22, color: "#30d158", flexShrink: 0 }} />
+          : isBlocked || subStatus === "vapid_missing"
+          ? <XCircle style={{ width: 22, height: 22, color: "#ff453a", flexShrink: 0 }} />
           : <BellRing style={{ width: 22, height: 22, color: "#1a8cff", flexShrink: 0 }} />
         }
         <div style={{ flex: 1 }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-1)", margin: 0 }}>
-            {pushGranted ? "Push notifications active" : "Enable push notifications"}
+            {isSubscribed
+              ? "Push notifications active"
+              : isBlocked
+              ? "Notifications blocked by browser"
+              : subStatus === "vapid_missing"
+              ? "Push notifications not configured"
+              : isNotSupported
+              ? "Not supported in this browser"
+              : "Enable push notifications"}
           </p>
           <p style={{ fontSize: 12, color: "var(--text-3)", margin: "2px 0 0" }}>
-            {pushGranted
+            {isSubscribed
               ? "You'll receive alerts for incoming calls and low balance."
+              : isBlocked
+              ? "You have blocked notifications. See the instructions below to unblock."
+              : subStatus === "vapid_missing"
+              ? "Contact your administrator to configure push notifications on the server."
+              : isNotSupported
+              ? "Use Chrome, Edge, Firefox, or Safari 16.4+ (iOS) for push notifications."
               : "Get alerted for calls and account events even when the app is in the background."}
           </p>
         </div>
-        {!pushGranted && pushPermission !== "denied" && (
+        {!isSubscribed && !isBlocked && !isNotSupported && subStatus !== "vapid_missing" && (
           <button
-            onClick={requestPushPermission}
+            onClick={enablePush}
             disabled={requestingPush}
             style={{
               flexShrink: 0, padding: "8px 14px", borderRadius: 20,
@@ -242,20 +351,37 @@ export default function NotificationsPage() {
             {requestingPush ? "Enabling…" : "Enable"}
           </button>
         )}
-        {pushPermission === "denied" && (
-          <div style={{ flexShrink: 0, textAlign: "right" }}>
-            <span style={{ fontSize: 11, color: "#ff453a", fontWeight: 600, display: "block" }}>
-              Blocked
-            </span>
-            <span style={{ fontSize: 10, color: "rgba(255,69,58,0.6)", display: "block", marginTop: 2 }}>
-              See instructions below
-            </span>
-          </div>
+        {isSubscribed && (
+          <button
+            onClick={enablePush}
+            disabled={requestingPush}
+            title="Re-register subscription"
+            style={{
+              flexShrink: 0, padding: "7px", borderRadius: 20,
+              background: "rgba(48,209,88,0.12)", border: "1px solid rgba(48,209,88,0.25)",
+              color: "#30d158", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <RefreshCw style={{ width: 13, height: 13 }} />
+          </button>
         )}
       </div>
 
-      {/* Browser-blocked instructions — shown only when the user has denied permission */}
-      {pushPermission === "denied" && (
+      {/* Sub error (vapid missing or other failure) */}
+      {subError && !isBlocked && (
+        <div style={{
+          padding: "12px 14px", borderRadius: 12,
+          background: "rgba(255,149,0,0.07)", border: "1px solid rgba(255,149,0,0.2)",
+          display: "flex", alignItems: "flex-start", gap: 10,
+        }}>
+          <AlertCircle style={{ width: 14, height: 14, color: "#ff9500", flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 12, color: "#ff9500", margin: 0, lineHeight: 1.5 }}>{subError}</p>
+        </div>
+      )}
+
+      {/* Browser-blocked instructions */}
+      {isBlocked && (
         <div style={{
           padding: "14px 16px",
           borderRadius: 14,

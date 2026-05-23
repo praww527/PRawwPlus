@@ -1208,7 +1208,8 @@ const PUSH_TARGETS = [
   { value: "resellers",  label: "Resellers only", icon: DollarSign },
 ] as const;
 
-interface PushResult { recipients: number; sent: number; fcmOk: number; expoOk: number; skipped: number; errors: number; }
+interface PushResult { recipients: number; sent: number; fcmOk: number; expoOk: number; webPushOk: number; skipped: number; errors: number; }
+interface NotifStatus { hasWebPush: boolean; hasFcm: boolean; hasExpo: boolean; dnd: boolean; notificationPrefs: Record<string, boolean>; vapidConfigured: boolean; }
 
 function PushTab() {
   const { toast } = useToast();
@@ -1220,7 +1221,14 @@ function PushTab() {
   const [result,   setResult]   = useState<PushResult | null>(null);
   const [error,    setError]    = useState<string | null>(null);
 
-  // Auto-fill presets when type changes
+  const [diagUserId,  setDiagUserId]  = useState("");
+  const [diagStatus,  setDiagStatus]  = useState<NotifStatus | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError,   setDiagError]   = useState<string | null>(null);
+  const [testSending, setTestSending] = useState(false);
+  const [testResult,  setTestResult]  = useState<Record<string, any> | null>(null);
+  const [clearing,    setClearing]    = useState(false);
+
   const applyPreset = (type: string) => {
     const preset = PUSH_TYPES.find((t) => t.value === type)?.preset;
     if (preset) {
@@ -1233,20 +1241,15 @@ function PushTab() {
   };
 
   const handleSend = async () => {
-    if (!title.trim() || !body.trim()) {
-      setError("Title and message are required.");
-      return;
-    }
-    setSending(true);
-    setResult(null);
-    setError(null);
+    if (!title.trim() || !body.trim()) { setError("Title and message are required."); return; }
+    setSending(true); setResult(null); setError(null);
     try {
       const data = await adminFetch("/admin/push", {
         method: "POST",
         body: JSON.stringify({ target, type: msgType, title: title.trim(), body: body.trim() }),
       });
       setResult(data);
-      toast({ title: "Push sent", description: `Delivered to ${data.sent} / ${data.recipients} device(s).` });
+      toast({ title: "Push sent", description: `Delivered to ${data.sent} / ${data.recipients} recipient(s).` });
     } catch (e: any) {
       setError(e.message ?? "Failed to send push");
     } finally {
@@ -1254,17 +1257,174 @@ function PushTab() {
     }
   };
 
+  const loadDiag = async () => {
+    if (!diagUserId.trim()) return;
+    setDiagLoading(true); setDiagStatus(null); setDiagError(null); setTestResult(null);
+    try {
+      const data = await adminFetch(`/admin/users/${diagUserId.trim()}/notification-status`);
+      setDiagStatus(data);
+    } catch (e: any) {
+      setDiagError(e.message ?? "User not found");
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  const sendTestPush = async () => {
+    setTestSending(true); setTestResult(null);
+    try {
+      const data = await adminFetch(`/admin/users/${diagUserId.trim()}/test-push`, { method: "POST" });
+      setTestResult(data.results ?? {});
+      if (data.ok) toast({ title: "Test push sent" });
+      else toast({ title: "No push channels", description: data.message, variant: "destructive" });
+      await loadDiag();
+    } catch (e: any) {
+      toast({ title: "Test push failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTestSending(false);
+    }
+  };
+
+  const clearWebPush = async () => {
+    setClearing(true);
+    try {
+      await adminFetch(`/admin/users/${diagUserId.trim()}/web-push-subscription`, { method: "DELETE" });
+      toast({ title: "Web push subscription cleared" });
+      await loadDiag();
+    } catch (e: any) {
+      toast({ title: "Failed to clear", description: e.message, variant: "destructive" });
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const activeType = PUSH_TYPES.find((t) => t.value === msgType)!;
   const TypeIcon   = activeType.icon;
 
+  const pill = (ok: boolean, label: string) => (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+      background: ok ? "rgba(48,209,88,0.12)" : "rgba(255,69,58,0.10)",
+      color: ok ? "#30d158" : "#ff453a",
+      border: `1px solid ${ok ? "rgba(48,209,88,0.25)" : "rgba(255,69,58,0.2)"}`,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: ok ? "#30d158" : "#ff453a" }} />
+      {label}
+    </span>
+  );
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 560 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 560 }}>
+
+      {/* ── Section: User Notification Diagnostics ── */}
+      <div>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>User notification diagnostics</p>
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Input
+              placeholder="User ID (MongoDB _id)"
+              value={diagUserId}
+              onChange={(e) => { setDiagUserId(e.target.value); setDiagStatus(null); setDiagError(null); setTestResult(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") loadDiag(); }}
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)", color: "#fff", borderRadius: 10, fontSize: 13, flex: 1 }}
+            />
+            <button
+              onClick={loadDiag}
+              disabled={diagLoading || !diagUserId.trim()}
+              style={{
+                flexShrink: 0, padding: "0 14px", borderRadius: 10, fontSize: 12, fontWeight: 700,
+                background: "rgba(26,140,255,0.15)", border: "1px solid rgba(26,140,255,0.3)",
+                color: "#1a8cff", cursor: diagLoading || !diagUserId.trim() ? "not-allowed" : "pointer",
+                opacity: diagLoading || !diagUserId.trim() ? 0.5 : 1,
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+            >
+              {diagLoading ? <Loader2 style={{ width: 12, height: 12 }} className="animate-spin" /> : null}
+              {diagLoading ? "Loading…" : "Check"}
+            </button>
+          </div>
+
+          {diagError && (
+            <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{diagError}</p>
+          )}
+
+          {diagStatus && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {pill(diagStatus.hasWebPush, "Web Push")}
+                {pill(diagStatus.hasFcm, "FCM")}
+                {pill(diagStatus.hasExpo, "Expo")}
+                {pill(diagStatus.vapidConfigured, "VAPID")}
+                {diagStatus.dnd && <span style={{ padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "rgba(255,149,0,0.12)", color: "#ff9500", border: "1px solid rgba(255,149,0,0.25)" }}>DND on</span>}
+              </div>
+
+              {!diagStatus.vapidConfigured && (
+                <p style={{ fontSize: 11, color: "#ff9500", margin: 0, background: "rgba(255,149,0,0.07)", borderRadius: 8, padding: "7px 10px" }}>
+                  ⚠ VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are not set on the server — web push won't work until these are configured.
+                </p>
+              )}
+
+              {diagStatus.hasWebPush && !diagStatus.vapidConfigured && (
+                <p style={{ fontSize: 11, color: "#ff453a", margin: 0 }}>
+                  User has a saved subscription but VAPID keys are missing — their web push will fail.
+                </p>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={sendTestPush}
+                  disabled={testSending || (!diagStatus.hasWebPush && !diagStatus.hasFcm && !diagStatus.hasExpo)}
+                  style={{
+                    flex: 1, padding: "8px 0", borderRadius: 10, fontSize: 12, fontWeight: 700,
+                    background: "rgba(94,92,230,0.15)", border: "1px solid rgba(94,92,230,0.3)", color: "#a78bfa",
+                    cursor: testSending ? "wait" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    opacity: (!diagStatus.hasWebPush && !diagStatus.hasFcm && !diagStatus.hasExpo) ? 0.4 : 1,
+                  }}
+                >
+                  {testSending ? <Loader2 style={{ width: 11, height: 11 }} className="animate-spin" /> : <Send style={{ width: 11, height: 11 }} />}
+                  {testSending ? "Sending…" : "Send test push"}
+                </button>
+                {diagStatus.hasWebPush && (
+                  <button
+                    onClick={clearWebPush}
+                    disabled={clearing}
+                    style={{
+                      padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 700,
+                      background: "rgba(255,69,58,0.10)", border: "1px solid rgba(255,69,58,0.25)", color: "#ff453a",
+                      cursor: clearing ? "not-allowed" : "pointer",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    {clearing ? <Loader2 style={{ width: 11, height: 11 }} className="animate-spin" /> : <Trash2 style={{ width: 11, height: 11 }} />}
+                    Clear web sub
+                  </button>
+                )}
+              </div>
+
+              {testResult && (
+                <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "8px 12px" }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 6px" }}>Test result</p>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {"webPush" in testResult && pill(testResult.webPush === true, `Web Push ${testResult.webPush ? "✓" : "✗"}`)}
+                    {"fcm"     in testResult && pill(testResult.fcm === true,     `FCM ${testResult.fcm ? "✓" : "✗"}`)}
+                    {"expo"    in testResult && pill(testResult.expo === true,    `Expo ${testResult.expo ? "✓" : "✗"}`)}
+                  </div>
+                  {testResult.webPushNote  && <p style={{ fontSize: 11, color: "#ff9500", margin: "6px 0 0" }}>{testResult.webPushNote}</p>}
+                  {testResult.webPushError && <p style={{ fontSize: 11, color: "#f87171", margin: "6px 0 0" }}>Web Push error: {testResult.webPushError}</p>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── Section: Message type ── */}
       <div>
-        <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Message type</p>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Broadcast — message type</p>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {PUSH_TYPES.map(({ value, label, icon: Icon, color, preset }) => {
+          {PUSH_TYPES.map(({ value, label, icon: Icon, color }) => {
             const active = msgType === value;
             return (
               <button
@@ -1383,7 +1543,7 @@ function PushTab() {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <CheckCircle2 style={{ width: 15, height: 15, color: "#30d158" }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#30d158" }}>Push sent successfully</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#30d158" }}>Broadcast sent</span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
             {[
@@ -1391,8 +1551,8 @@ function PushTab() {
               { label: "Delivered",  value: result.sent },
               { label: "FCM",        value: result.fcmOk  },
               { label: "Expo",       value: result.expoOk },
+              { label: "Web Push",   value: result.webPushOk ?? 0 },
               { label: "Skipped",    value: result.skipped },
-              { label: "Errors",     value: result.errors  },
             ].map(({ label, value }) => (
               <div key={label} style={{
                 background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 10px", textAlign: "center",
@@ -1404,7 +1564,7 @@ function PushTab() {
           </div>
           {result.skipped > 0 && (
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: 0 }}>
-              {result.skipped} user(s) skipped — no push token registered on their account.
+              {result.skipped} user(s) skipped — no registered push channel (FCM, Expo, or Web Push).
             </p>
           )}
         </div>
@@ -1433,8 +1593,8 @@ function PushTab() {
       </button>
 
       <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", margin: 0 }}>
-        Push notifications are delivered to the PRaww+ mobile app only.
-        Users without a registered device token are automatically skipped.
+        Broadcast delivers to FCM (Android), Expo (iOS), and Web Push (browser) channels.
+        Users without any registered channel are automatically skipped.
       </p>
     </div>
   );

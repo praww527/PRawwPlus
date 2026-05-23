@@ -18,7 +18,7 @@ import {
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
 import { eslStatus, sendEslApiCommand } from "../lib/freeswitchESL";
-import { sendAdminPush } from "../lib/push";
+import { sendAdminPush, sendWebPushToSubscription } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
 import { logger } from "../lib/logger";
@@ -763,27 +763,41 @@ router.post("/admin/push", requireAdmin, async (req, res) => {
   // else "all" → empty query matches everyone
 
   const recipients = await UserModel.find(userQuery)
-    .select("fcmToken expoPushToken")
+    .select("fcmToken expoPushToken webPushSubscription")
     .limit(500)
     .lean();
 
-  let sent = 0, fcmOk = 0, expoOk = 0, skipped = 0, errors = 0;
+  let sent = 0, fcmOk = 0, expoOk = 0, webPushOk = 0, skipped = 0, errors = 0;
 
   await Promise.all(
     recipients.map(async (u: any) => {
-      const fcmToken      = u.fcmToken      ?? null;
-      const expoPushToken = u.expoPushToken ?? null;
+      const fcmToken         = u.fcmToken         ?? null;
+      const expoPushToken    = u.expoPushToken    ?? null;
+      const webPushSub       = u.webPushSubscription ?? null;
+      const hasAnyChannel    = fcmToken || expoPushToken || webPushSub?.endpoint;
 
-      if (!fcmToken && !expoPushToken) { skipped++; return; }
+      if (!hasAnyChannel) { skipped++; return; }
 
+      let anySent = false;
       try {
-        const result = await sendAdminPush(fcmToken, expoPushToken, safeTitle, safeBody, {
-          type: safeType,
-        });
-        sent++;
-        if (result.fcmSent)  fcmOk++;
-        if (result.expoSent) expoOk++;
-        if (!result.fcmSent && !result.expoSent) errors++;
+        if (fcmToken || expoPushToken) {
+          const result = await sendAdminPush(fcmToken, expoPushToken, safeTitle, safeBody, { type: safeType });
+          if (result.fcmSent)  { fcmOk++;  anySent = true; }
+          if (result.expoSent) { expoOk++; anySent = true; }
+        }
+        if (webPushSub?.endpoint) {
+          const r = await sendWebPushToSubscription(
+            webPushSub as { endpoint: string; keys: { auth: string; p256dh: string } },
+            { type: safeType, title: safeTitle, body: safeBody },
+            String(u._id),
+          );
+          if (r.sent) { webPushOk++; anySent = true; }
+          if (!r.sent && r.error === "expired") {
+            await UserModel.updateOne({ _id: u._id }, { $unset: { webPushSubscription: 1 } });
+          }
+        }
+        if (anySent) sent++;
+        else errors++;
       } catch {
         errors++;
       }
@@ -796,9 +810,81 @@ router.post("/admin/push", requireAdmin, async (req, res) => {
     sent,
     fcmOk,
     expoOk,
+    webPushOk,
     skipped,
     errors,
   });
+});
+
+// ── Admin User Notification Diagnostics ───────────────────────────────────────
+
+router.get("/admin/users/:userId/notification-status", requireAdmin, async (req, res) => {
+  await connectDB();
+  const user = await UserModel.findById(req.params.userId)
+    .select("fcmToken expoPushToken webPushSubscription notificationPrefs dnd")
+    .lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  res.json({
+    hasWebPush:  !!((user as any).webPushSubscription?.endpoint),
+    hasFcm:      !!((user as any).fcmToken),
+    hasExpo:     !!((user as any).expoPushToken),
+    dnd:         !!((user as any).dnd),
+    notificationPrefs: (user as any).notificationPrefs ?? {},
+    vapidConfigured: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
+  });
+});
+
+router.post("/admin/users/:userId/test-push", requireAdmin, async (req, res) => {
+  await connectDB();
+  const user = await UserModel.findById(req.params.userId)
+    .select("fcmToken expoPushToken webPushSubscription")
+    .lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const title = "Test Notification";
+  const body  = "This is a test push notification from the admin panel.";
+  const data  = { type: "admin_test", title, body };
+  const uid   = String((user as any)._id);
+  const results: Record<string, any> = {};
+
+  const fcmToken      = (user as any).fcmToken      ?? null;
+  const expoPushToken = (user as any).expoPushToken ?? null;
+  const webSub        = (user as any).webPushSubscription ?? null;
+
+  if (fcmToken || expoPushToken) {
+    const r = await sendAdminPush(fcmToken, expoPushToken, title, body, data);
+    results.fcm  = r.fcmSent;
+    results.expo = r.expoSent;
+  }
+
+  if (webSub?.endpoint) {
+    const r = await sendWebPushToSubscription(
+      webSub as { endpoint: string; keys: { auth: string; p256dh: string } },
+      data,
+      uid,
+    );
+    results.webPush = r.sent;
+    if (!r.sent && r.error === "expired") {
+      await UserModel.updateOne({ _id: uid }, { $unset: { webPushSubscription: 1 } });
+      results.webPushNote = "Stale subscription removed automatically";
+    } else if (!r.sent) {
+      results.webPushError = r.error;
+    }
+  }
+
+  if (!fcmToken && !expoPushToken && !webSub?.endpoint) {
+    res.json({ ok: false, message: "User has no registered push channels", results });
+    return;
+  }
+
+  res.json({ ok: true, results });
+});
+
+router.delete("/admin/users/:userId/web-push-subscription", requireAdmin, async (req, res) => {
+  await connectDB();
+  await UserModel.updateOne({ _id: req.params.userId }, { $unset: { webPushSubscription: 1 } });
+  res.json({ ok: true, message: "Web push subscription cleared" });
 });
 
 router.get("/admin/calls", requireAdmin, async (req, res) => {
