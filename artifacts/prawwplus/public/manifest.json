@@ -1,27 +1,51 @@
 {
+  "id": "/",
   "name": "PRaww+",
   "short_name": "PRaww+",
   "description": "Business VoIP & unified communications for South Africa",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
   "orientation": "portrait-primary",
-  "scope": "/",
+  "lang": "en",
+  "categories": ["business", "communication"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/favicon.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
-  "categories": ["business", "communication"],
-  "lang": "en"
+  "shortcuts": [
+    {
+      "name": "Make a Call",
+      "short_name": "Call",
+      "description": "Open the dial pad",
+      "url": "/?tab=calls",
+      "icons": [{ "src": "/favicon.png", "sizes": "96x96" }]
+    }
+  ]
 }

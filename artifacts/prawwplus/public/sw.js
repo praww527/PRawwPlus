@@ -8,6 +8,14 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(clients.claim());
 });
 
+// Allow the main thread to request immediate activation of a waiting SW
+// (used by the "New version available — Reload" banner in main.tsx).
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {

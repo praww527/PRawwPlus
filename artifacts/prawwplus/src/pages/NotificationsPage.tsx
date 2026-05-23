@@ -164,6 +164,21 @@ export default function NotificationsPage() {
   const [requestingPush, setRequestingPush] = useState(false);
   const loadedRef = useRef(false);
 
+  // ── Platform detection ────────────────────────────────────────────────────
+  const [isIOS] = useState(
+    () => /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream,
+  );
+  const [isStandalone] = useState(
+    () =>
+      window.matchMedia("(display-mode: standalone)").matches ||
+      !!(navigator as any).standalone,
+  );
+  const [isAndroid] = useState(() => /Android/.test(navigator.userAgent));
+  const [deferredInstall, setDeferredInstall] = useState<any>(
+    () => (window as any).__pwaInstallPrompt ?? null,
+  );
+  const [installingPwa, setInstallingPwa] = useState(false);
+
   useEffect(() => {
     if (user && !loadedRef.current) {
       loadedRef.current = true;
@@ -190,6 +205,34 @@ export default function NotificationsPage() {
       }).catch(() => {});
     }
   }, []);
+
+  // Listen for PWA install prompt availability / completion (fired by main.tsx)
+  useEffect(() => {
+    const onAvailable = () => setDeferredInstall((window as any).__pwaInstallPrompt ?? null);
+    const onInstalled = () => setDeferredInstall(null);
+    window.addEventListener("pwa-install-available", onAvailable);
+    window.addEventListener("pwa-installed", onInstalled);
+    return () => {
+      window.removeEventListener("pwa-install-available", onAvailable);
+      window.removeEventListener("pwa-installed", onInstalled);
+    };
+  }, []);
+
+  const triggerInstall = async () => {
+    if (!deferredInstall) return;
+    setInstallingPwa(true);
+    try {
+      await deferredInstall.prompt();
+      const { outcome } = await deferredInstall.userChoice;
+      if (outcome === "accepted") {
+        setDeferredInstall(null);
+        toast({ title: "PRaww+ installed!", description: "Open it from your home screen to enable push notifications." });
+      }
+    } catch {
+    } finally {
+      setInstallingPwa(false);
+    }
+  };
 
   const saveToAPI = useCallback(async (key: string, value: boolean) => {
     setSavingKey(key);
@@ -269,6 +312,12 @@ export default function NotificationsPage() {
   const isBlocked    = pushPermission === "denied";
   const isNotSupported = subStatus === "not_supported";
 
+  // iOS Safari can only receive push notifications when running as a standalone
+  // PWA (added to the home screen). In-browser, the PushManager API is absent.
+  const iosNeedsPwa = isIOS && !isStandalone;
+  // Show Android native install prompt when available and app isn't installed yet.
+  const showAndroidInstall = isAndroid && !!deferredInstall;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 4, paddingBottom: 8 }}>
       {/* Header */}
@@ -334,7 +383,7 @@ export default function NotificationsPage() {
               : "Get alerted for calls and account events even when the app is in the background."}
           </p>
         </div>
-        {!isSubscribed && !isBlocked && !isNotSupported && subStatus !== "vapid_missing" && (
+        {!isSubscribed && !isBlocked && !isNotSupported && !iosNeedsPwa && subStatus !== "vapid_missing" && (
           <button
             onClick={enablePush}
             disabled={requestingPush}
@@ -350,6 +399,15 @@ export default function NotificationsPage() {
             {requestingPush && <Loader2 style={{ width: 12, height: 12 }} className="animate-spin" />}
             {requestingPush ? "Enabling…" : "Enable"}
           </button>
+        )}
+        {iosNeedsPwa && !isSubscribed && (
+          <span style={{
+            flexShrink: 0, padding: "6px 10px", borderRadius: 12,
+            background: "rgba(255,159,10,0.15)", border: "1px solid rgba(255,159,10,0.3)",
+            color: "#ff9f0a", fontSize: 11, fontWeight: 600, textAlign: "center",
+          }}>
+            Install first
+          </span>
         )}
         {isSubscribed && (
           <button
@@ -377,6 +435,76 @@ export default function NotificationsPage() {
         }}>
           <AlertCircle style={{ width: 14, height: 14, color: "#ff9500", flexShrink: 0, marginTop: 1 }} />
           <p style={{ fontSize: 12, color: "#ff9500", margin: 0, lineHeight: 1.5 }}>{subError}</p>
+        </div>
+      )}
+
+      {/* iOS: must install as PWA before push notifications work */}
+      {iosNeedsPwa && !isSubscribed && (
+        <div style={{
+          padding: "14px 16px", borderRadius: 14,
+          background: "rgba(255,159,10,0.07)",
+          border: "1px solid rgba(255,159,10,0.22)",
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#ff9f0a", margin: "0 0 4px" }}>
+            iPhone / iPad — Install PRaww+ first
+          </p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: "0 0 10px", lineHeight: 1.4 }}>
+            iOS requires the app to be installed on your Home Screen before push notifications can be enabled.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {[
+              "Open PRaww+ in Safari (not Chrome or Firefox)",
+              "Tap the Share button  at the bottom of the screen",
+              "Scroll down and tap \"Add to Home Screen\"",
+              "Tap \"Add\" in the top-right corner",
+              "Open PRaww+ from your Home Screen and come back here",
+            ].map((step, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <span style={{
+                  flexShrink: 0, width: 20, height: 20, borderRadius: "50%",
+                  background: "rgba(255,159,10,0.18)", color: "#ff9f0a",
+                  fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {i + 1}
+                </span>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.4 }}>{step}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Android / Chrome / Edge: native "Add to Home Screen" install prompt */}
+      {showAndroidInstall && !isSubscribed && (
+        <div style={{
+          padding: "14px 16px", borderRadius: 14,
+          background: "rgba(10,132,255,0.07)",
+          border: "1px solid rgba(10,132,255,0.22)",
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", margin: "0 0 2px" }}>
+              Install PRaww+ for better notifications
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-3)", margin: 0, lineHeight: 1.4 }}>
+              Add it to your Home Screen for faster access and reliable background alerts.
+            </p>
+          </div>
+          <button
+            onClick={triggerInstall}
+            disabled={installingPwa}
+            style={{
+              flexShrink: 0, padding: "8px 14px", borderRadius: 20,
+              background: "#1a8cff", border: "none",
+              color: "#fff", fontSize: 13, fontWeight: 600,
+              cursor: installingPwa ? "default" : "pointer",
+              opacity: installingPwa ? 0.7 : 1,
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            {installingPwa && <Loader2 style={{ width: 12, height: 12 }} className="animate-spin" />}
+            {installingPwa ? "Installing…" : "Install App"}
+          </button>
         </div>
       )}
 

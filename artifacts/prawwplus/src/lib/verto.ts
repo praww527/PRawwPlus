@@ -536,21 +536,60 @@ export class VertoClient {
       audio.play().catch(() => {});
     }
 
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl:  { ideal: true },
-          sampleRate:       { ideal: 48000 },
-          channelCount:     { ideal: 1 },
-        },
-        video: false,
-      });
-    } catch (err: unknown) {
-      const msg = (err as Error)?.message ?? "Microphone permission denied or device unavailable";
+    // Guard: navigator.mediaDevices is undefined on non-secure origins (HTTP)
+    // and on very old browsers. Give a clear error rather than a cryptic crash.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const msg = window.isSecureContext === false
+        ? "Calls require a secure connection (HTTPS). Please open PRaww+ over HTTPS."
+        : "Your browser does not support audio calls. Please use Chrome, Edge, Firefox, or Safari 15+.";
       this.callbacks.onError(msg);
-      throw err;
+      throw new Error(msg);
+    }
+
+    // Attempt getUserMedia with voice-optimised constraints.  If the browser
+    // rejects the constraints (OverconstrainedError — common on some Android
+    // devices) we retry with a bare { audio: true } fallback so the call can
+    // still proceed, just without the extra quality hints.
+    const richConstraints: MediaStreamConstraints = {
+      audio: {
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl:  { ideal: true },
+        sampleRate:       { ideal: 48000 },
+        channelCount:     { ideal: 1 },
+      },
+      video: false,
+    };
+
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia(richConstraints);
+    } catch (err: unknown) {
+      const e = err as DOMException;
+      // On OverconstrainedError, silently retry with minimal constraints.
+      if (e?.name === "OverconstrainedError" || e?.name === "ConstraintNotSatisfiedError") {
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          console.warn("[Verto] Fell back to minimal audio constraints (OverconstrainedError)");
+        } catch (fallbackErr: unknown) {
+          const fe = fallbackErr as DOMException;
+          const msg = fe?.message ?? "Could not access microphone.";
+          this.callbacks.onError(msg);
+          throw new Error(msg);
+        }
+      } else {
+        let msg: string;
+        if (e?.name === "NotAllowedError" || e?.name === "PermissionDeniedError") {
+          msg = "Microphone permission was denied. Please allow microphone access in your browser settings and try again.";
+        } else if (e?.name === "NotFoundError" || e?.name === "DevicesNotFoundError") {
+          msg = "No microphone found. Please connect a microphone and try again.";
+        } else if (e?.name === "NotReadableError" || e?.name === "TrackStartError") {
+          msg = "Your microphone is in use by another application. Please close it and try again.";
+        } else {
+          msg = e?.message ?? "Microphone permission denied or device unavailable";
+        }
+        this.callbacks.onError(msg);
+        throw new Error(msg);
+      }
     }
 
     const defaultIceServers: RTCIceServer[] = [
@@ -633,10 +672,21 @@ export class VertoClient {
     };
 
     // Log ICE and connection state changes to help diagnose RTP issues
+    let iceRestartAttempts = 0;
     pc.oniceconnectionstatechange = () => {
       console.log("[Verto] ICE connection state:", pc.iceConnectionState);
       if (pc.iceConnectionState === "failed") {
-        console.error("[Verto] ICE failed — RTP will not flow. Check firewall UDP 16384-32768 on FreeSWITCH server.");
+        if (iceRestartAttempts < 2 && typeof pc.restartIce === "function") {
+          iceRestartAttempts++;
+          console.warn(`[Verto] ICE failed — attempting ICE restart (attempt ${iceRestartAttempts})`);
+          pc.restartIce();
+        } else {
+          console.error("[Verto] ICE failed permanently — RTP will not flow. Check firewall / TURN server config.");
+          this.callbacks.onError("Call audio lost. Check your network connection.");
+        }
+      }
+      if (pc.iceConnectionState === "disconnected") {
+        console.warn("[Verto] ICE disconnected — may recover automatically");
       }
     };
 
