@@ -71,9 +71,14 @@ function preferOpusCodec(sdp: string): string {
   if (!opusMatch) return sdp;
   const pt = opusMatch[1];
 
-  // Move Opus payload type to the front of the m=audio line
+  // Move Opus payload type to the front of the m=audio line.
+  // IMPORTANT: use [ \t\d]+ (spaces/tabs only, NOT \s) so we never consume the
+  // \r\n line ending.  If \s were used the trailing newline would be swallowed
+  // and the next SDP line (e.g. "c=IN IP4 …") would be concatenated directly
+  // onto the last payload type → "126c=IN" → FreeSWITCH rejects the invite
+  // with "Invalid value: 126c=IN."
   sdp = sdp.replace(
-    /^(m=audio\s+\d+\s+\S+)([\s\d]+)/m,
+    /^(m=audio\s+\d+\s+\S+)([ \t\d]+)/m,
     (_m, prefix, payloads) => {
       const pts = payloads.trim().split(/\s+/);
       const reordered = [pt, ...pts.filter((p: string) => p !== pt)];

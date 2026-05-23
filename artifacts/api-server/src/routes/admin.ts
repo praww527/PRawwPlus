@@ -680,6 +680,39 @@ router.post("/admin/calls/:id/hangup", requireAdmin, async (req, res) => {
   });
 });
 
+/**
+ * POST /api/admin/calls/clear-stale
+ *
+ * Immediately closes all calls that have been stuck in initiated/ringing/answered
+ * state for longer than the configured threshold (default: 15 min for
+ * initiated/ringing, 26 h for answered — same as the reconciliation worker).
+ * Returns the number of records closed.
+ */
+router.post("/admin/calls/clear-stale", requireAdmin, async (_req, res) => {
+  const { runReconciliationCycle } = await import("../lib/reconciliationWorker");
+  await runReconciliationCycle();
+
+  await connectDB();
+  const cutoffShort = new Date(Date.now() - 15 * 60 * 1000);
+  const result = await CallModel.updateMany(
+    {
+      endedAt: null,
+      status:  { $in: ["initiated", "ringing"] },
+      createdAt: { $lt: cutoffShort },
+    },
+    {
+      $set: {
+        status:     "failed",
+        endedAt:    new Date(),
+        failReason: "Admin: force-cleared stale call",
+        duration:   0,
+        cost:       0,
+      },
+    },
+  );
+  res.json({ ok: true, cleared: result.modifiedCount });
+});
+
 // ── Admin Push Broadcast ───────────────────────────────────────────────────────
 
 /**

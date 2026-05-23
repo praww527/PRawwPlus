@@ -1602,6 +1602,20 @@ function LiveCallsTab() {
     setCalls((prev) => prev.filter((c) => c.id !== id));
   }, [toast]);
 
+  const [clearing, setClearing] = useState(false);
+  const clearStale = useCallback(async () => {
+    setClearing(true);
+    try {
+      const data = await adminFetch("/admin/calls/clear-stale", { method: "POST" });
+      toast({ title: "Stale calls cleared", description: `${data.cleared} record(s) force-closed.` });
+      await fetchLive();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setClearing(false);
+    }
+  }, [toast, fetchLive]);
+
   useEffect(() => {
     fetchLive();
   }, [fetchLive]);
@@ -1683,6 +1697,25 @@ function LiveCallsTab() {
         >
           <RefreshCw style={{ width: 11, height: 11 }} />
           Refresh
+        </button>
+        <button
+          onClick={clearStale}
+          disabled={clearing}
+          title="Force-close all stuck initiated/ringing calls older than 15 minutes"
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11, fontWeight: 600,
+            padding: "4px 11px", borderRadius: 16,
+            background: clearing ? "rgba(251,191,36,0.06)" : "rgba(251,191,36,0.12)",
+            border: "1px solid rgba(251,191,36,0.3)",
+            color: clearing ? "rgba(251,191,36,0.4)" : "#fbbf24",
+            cursor: clearing ? "not-allowed" : "pointer",
+          }}
+        >
+          {clearing
+            ? <Loader2 style={{ width: 11, height: 11, animation: "spin 1s linear infinite" }} />
+            : <PhoneOff style={{ width: 11, height: 11 }} />}
+          Clear Stale
         </button>
       </div>
 

@@ -6,6 +6,7 @@ import { endCallById, webhookUpdate } from "../lib/callOrchestrator";
 import {
   isValidFsCallId,
   countActiveCallsForUser,
+  clearStaleCallsForUser,
   sumExternalCoinsSpentTodayUtc,
   maxConcurrentCallsPerUser,
   maxCoinsSpendPerDay,
@@ -99,6 +100,12 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     }
     const maxConc = maxConcurrentCallsPerUser();
     if (maxConc > 0) {
+      // Auto-clear any calls stuck in initiated/ringing for > 3 minutes before
+      // checking the limit — this prevents stale records from a failed previous
+      // attempt permanently blocking new calls until the reconciliation worker
+      // runs (default every 60 s, worst-case 15 min for the stale threshold).
+      await clearStaleCallsForUser(userId, 3 * 60 * 1000);
+
       const active = await countActiveCallsForUser(userId);
       if (active >= maxConc) {
         res.status(429).json({
