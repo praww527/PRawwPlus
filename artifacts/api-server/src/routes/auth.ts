@@ -88,11 +88,13 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 12);
     const userId = crypto.randomUUID();
 
-    // When SMTP is not configured, auto-verify the account immediately so
-    // users can log in without needing an email verification step.
+    // Auto-verify when:
+    //  1. SMTP is not configured (no email delivery possible), OR
+    //  2. The user signed up via a valid reseller referral code (reseller vouches for them).
     const smtpReady = isSmtpConfigured();
-    const verificationToken = smtpReady ? generateToken() : undefined;
-    const verificationTokenExpiry = smtpReady
+    const autoVerify = !smtpReady || !!referredByUserId;
+    const verificationToken = !autoVerify ? generateToken() : undefined;
+    const verificationTokenExpiry = verificationToken
       ? new Date(Date.now() + 3 * 60 * 1000)
       : undefined;
 
@@ -102,7 +104,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
       username: email.toLowerCase().split("@")[0],
       name: name || email.split("@")[0],
       passwordHash,
-      emailVerified: !smtpReady,
+      emailVerified: autoVerify,
       verificationToken,
       verificationTokenExpiry,
       coins: 0,
@@ -132,14 +134,14 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
       logger.warn({ err }, "Failed to query admins for new-user notification");
     });
 
-    if (smtpReady && verificationToken) {
+    if (!autoVerify && smtpReady && verificationToken) {
       const baseUrl = getBaseUrl(req);
       await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
       res.status(201).json({
         message: "Account created. Please check your email to verify your account.",
       });
     } else {
-      // SMTP not configured — auto-verified, log in immediately
+      // Auto-verified (no SMTP, or reseller referral) — log in immediately
       await assignExtensionIfNeeded(user._id as string);
       const sessionData: SessionData = {
         user: {

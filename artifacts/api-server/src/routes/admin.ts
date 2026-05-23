@@ -188,8 +188,7 @@ router.delete("/admin/users/:userId/sessions", requireAdmin, async (req, res) =>
 
   try {
     const admin = req.user as any;
-    const { AuditLog } = await import("../models/AuditLog");
-    await AuditLog.create({
+    await AuditLogModel.create({
       action: "FORCE_LOGOUT",
       adminId: admin?._id ?? admin?.id,
       adminEmail: admin?.email,
@@ -1441,7 +1440,7 @@ router.put("/admin/ice-servers", requireAdmin, async (req: any, res) => {
     { $set: { iceServers, updatedAt: new Date(), updatedBy: req.user?.email ?? req.user?.id } },
     { upsert: true, new: true },
   );
-  await logAdminAction(req, "system.ice-servers.update", "system", "ICE servers", { count: iceServers.length });
+  await logAdminAction(req, { action: "system.ice-servers.update", targetType: "system", targetLabel: "ICE servers", details: { count: iceServers.length } });
   res.json({ ok: true, count: iceServers.length });
 });
 

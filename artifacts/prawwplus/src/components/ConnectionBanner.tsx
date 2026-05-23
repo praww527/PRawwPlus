@@ -22,13 +22,13 @@ export function ConnectionBanner() {
     if (shouldShow) {
       setVisible(true);
       setAnimate(true);
-    } else {
-      const t = setTimeout(() => {
-        setVisible(false);
-        setAnimate(false);
-      }, 1200);
-      return () => clearTimeout(t);
+      return;
     }
+    const t = setTimeout(() => {
+      setVisible(false);
+      setAnimate(false);
+    }, 1200);
+    return () => clearTimeout(t);
   }, [isOnline, isVertoReady, isReconnecting, reconnectCount]);
 
   if (!visible) return null;

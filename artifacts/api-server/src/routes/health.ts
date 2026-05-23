@@ -124,7 +124,7 @@ router.get("/healthz/turn", async (_req, res) => {
   try {
     const { connectDB } = await import("@workspace/db");
     await connectDB();
-    const { SystemConfigModel } = await import("../models/SystemConfig");
+    const { SystemConfigModel } = await import("@workspace/db");
     const sysConfig = await SystemConfigModel.findById("singleton").lean();
     if (sysConfig?.iceServers?.length) {
       iceServers = sysConfig.iceServers as IceServerEntry[];
