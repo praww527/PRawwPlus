@@ -81,6 +81,7 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
     lockedUsers,
     totalCommissionsAgg,
     totalExpensesAgg,
+    recentCalls,
   ] = await Promise.all([
     UserModel.countDocuments(),
     UserModel.countDocuments({ subscriptionStatus: "active" }),
@@ -98,6 +99,7 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
     UserModel.countDocuments({ locked: true }),
     EarningModel.aggregate([{ $group: { _id: null, total: { $sum: "$amount" } } }]),
     ExpenseModel.aggregate([{ $group: { _id: null, total: { $sum: "$amount" } } }]),
+    CallModel.find().sort({ createdAt: -1 }).limit(5).lean(),
   ]);
 
   const totalRevenue = totalRevenueAgg[0]?.total ?? 0;
@@ -114,6 +116,7 @@ router.get("/admin/stats", requireAdmin, async (req, res) => {
     callsToday,
     newUsersThisMonth,
     recentPayments: recentPayments.map((p: any) => ({ ...p, id: p._id })),
+    recentCalls: recentCalls.map((c: any) => ({ ...c, id: c._id })),
     totalResellers,
     pendingApprovals,
     lockedUsers,
