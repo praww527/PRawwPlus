@@ -80,6 +80,13 @@ export function setEslCommandFn(fn: (cmd: string) => void) {
   eslCommandFn = fn;
 }
 
+// ESL trace function wired by freeswitchESL at startup (avoids circular import)
+let eslTraceFn: ((uuid: string) => { event: string; ts: number; cause?: string }[]) | null = null;
+
+export function setEslTraceFn(fn: (uuid: string) => { event: string; ts: number; cause?: string }[]): void {
+  eslTraceFn = fn;
+}
+
 function sendEslCmd(cmd: string) {
   if (eslCommandFn) {
     eslCommandFn(cmd);
@@ -141,8 +148,27 @@ export function registerInitiatedCall(
         .lean();
       if (!call) return; // Already transitioned — nothing to do
 
+      const eslTrace = eslTraceFn ? eslTraceFn(fsCallId) : [];
+
       logger.warn(
-        { fsCallId, callId },
+        {
+          fsCallId,
+          callId,
+          eslEventCount: eslTrace.length,
+          // Condensed trace: just event names + timestamps for log readability
+          eslTrace: eslTrace.map((e) => ({
+            event: e.event,
+            ts:    new Date(e.ts).toISOString(),
+            ...(e.cause ? { cause: e.cause } : {}),
+          })),
+          diagnosis: eslTrace.length === 0
+            ? "NO_ESL_EVENTS — ESL subscription failed, originate command never sent, or FreeSWITCH is not connected"
+            : eslTrace.some((e) => e.event === "CHANNEL_CREATE") && !eslTrace.some((e) => e.event === "CHANNEL_PROGRESS" || e.event === "CHANNEL_PROGRESS_MEDIA")
+            ? "CREATE_NO_PROGRESS — Channel created but no SIP 180/183 received; likely routing/dialplan issue or invalid SIP profile"
+            : eslTrace.some((e) => e.event === "CHANNEL_PROGRESS" || e.event === "CHANNEL_PROGRESS_MEDIA")
+            ? "PROGRESS_NO_ANSWER — Callee UA is reachable but not answering; may be app-backgrounded or Verto disconnected"
+            : "UNKNOWN — check eslTrace for details",
+        },
         "[Orchestrator] INITIATED timeout — no FreeSWITCH activity in 20 s; marking failed. " +
         "Likely cause: SIP/Verto registration missing, dialplan misconfiguration, or ESL disconnected.",
       );

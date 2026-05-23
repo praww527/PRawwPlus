@@ -1525,6 +1525,64 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) =>
   });
 });
 
+// ── ESL Diagnostics ─────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/admin/diagnostics/esl
+ *
+ * Sends a read-only diagnostic command to FreeSWITCH via ESL bgapi.
+ * Only a whitelist of safe, read-only FS CLI commands is allowed.
+ *
+ * Results are returned asynchronously by FreeSWITCH and appear in the
+ * server logs as a text/api/response event (we don't parse them here — the
+ * admin reads them from the observability/log viewer).
+ *
+ * Useful commands to diagnose stuck calls:
+ *   sofia status profile internal          — profile status and reg count
+ *   sofia status profile internal reg      — all registered SIP/Verto endpoints
+ *   show registrations                     — alias for above
+ *   show channels                          — all active FS channels
+ *   show calls count                       — total active call count
+ *   status                                 — FS server health summary
+ */
+const ESL_DIAG_WHITELIST: Record<string, string> = {
+  "sofia status":                     "SIP profile status overview",
+  "sofia status profile internal":    "Internal SIP profile status",
+  "sofia status profile internal reg": "Registered endpoints on internal profile",
+  "sofia status profile external":    "External SIP profile status",
+  "show registrations":               "All registered SIP/Verto endpoints",
+  "show channels":                    "All active FreeSWITCH channels",
+  "show calls count":                 "Number of active calls on FreeSWITCH",
+  "status":                           "FreeSWITCH server health summary",
+};
+
+router.post("/admin/diagnostics/esl", requireAdmin, async (req, res) => {
+  const { command } = req.body;
+  if (typeof command !== "string" || !Object.prototype.hasOwnProperty.call(ESL_DIAG_WHITELIST, command.trim())) {
+    res.status(400).json({
+      error:   "Command not in whitelist",
+      allowed: Object.entries(ESL_DIAG_WHITELIST).map(([cmd, desc]) => ({ command: cmd, description: desc })),
+    });
+    return;
+  }
+
+  const sent = sendEslApiCommand(command.trim());
+  if (!sent) {
+    res.status(503).json({
+      error: "ESL not connected — cannot send command. Check FREESWITCH_ESL_HOST and ESL password in System Health tab.",
+    });
+    return;
+  }
+
+  logger.info({ command: command.trim(), adminId: (req as any).user?.id }, "[Admin] ESL diagnostic command sent");
+
+  res.json({
+    ok:      true,
+    command: command.trim(),
+    note:    "Command sent via FreeSWITCH bgapi. Results appear asynchronously in server logs tagged [ESL].",
+  });
+});
+
 // ── Audit Logs ─────────────────────────────────────────────────────────────────
 
 router.get("/admin/audit-logs", requireAdmin, async (req, res) => {

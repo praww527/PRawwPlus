@@ -113,20 +113,30 @@ async function closeStaleCalls(): Promise<void> {
   const cutoff = new Date(Date.now() - STALE_NON_TERMINAL_MS);
   const answeredCutoff = new Date(Date.now() - STALE_ANSWERED_MS);
 
+  // The 15-minute threshold already guarantees a generous grace period for
+  // newly-created calls.  The INITIATED watchdog (20 s) handles sub-minute
+  // failures.  For defence-in-depth: ensure we also never close calls younger
+  // than 2 minutes even if STALE_NON_TERMINAL_MS is ever reduced.
+  const GRACE_MS = 120_000;
+  const graceCutoff = new Date(Date.now() - GRACE_MS);
+  // Use the more conservative (earlier) cutoff — whichever is further in the past
+  const effectiveCutoff = cutoff < graceCutoff ? cutoff : graceCutoff;
+
   const [rRing, rAnswered] = await Promise.all([
     CallModel.updateMany(
       {
         endedAt:   null,
         status:    { $in: ["initiated", "ringing"] },
-        createdAt: { $lt: cutoff },
+        createdAt: { $lt: effectiveCutoff },
       },
       {
         $set: {
-          status:     "failed",
-          endedAt:    new Date(),
-          failReason: "Stale call — no hangup (reconciliation)",
-          duration:   0,
-          cost:       0,
+          status:      "failed",
+          endedAt:     new Date(),
+          failReason:  "Stale call — no FreeSWITCH hangup received within 15 min (reconciliation safety net)",
+          hangupCause: "RECOVERY_ON_TIMER_EXPIRE",
+          duration:    0,
+          cost:        0,
         },
       },
     ),
@@ -138,11 +148,12 @@ async function closeStaleCalls(): Promise<void> {
       },
       {
         $set: {
-          status:     "failed",
-          endedAt:    new Date(),
-          failReason: "Stale answered — no hangup event (reconciliation)",
-          duration:   0,
-          cost:       0,
+          status:      "failed",
+          endedAt:     new Date(),
+          failReason:  "Stale answered call — no FreeSWITCH hangup event received within 26 h (reconciliation safety net)",
+          hangupCause: "RECOVERY_ON_TIMER_EXPIRE",
+          duration:    0,
+          cost:        0,
         },
       },
     ),

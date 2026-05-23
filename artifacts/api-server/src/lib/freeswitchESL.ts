@@ -21,7 +21,7 @@ import { logger } from "./logger";
 import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
-import { ringingCall, answerCall, finalizeCall, setEslCommandFn, clearAllHangupTimers } from "./callOrchestrator";
+import { ringingCall, answerCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
@@ -60,18 +60,29 @@ let lastDisconnectReason: string | null = null;
 const MAX_TRACE_ENTRIES = 30;
 
 export interface EslTraceEntry {
-  event: string;
-  ts:    number; // Unix ms
+  event:  string;
+  ts:     number; // Unix ms
+  cause?: string; // FS hangup/destroy cause when available (CHANNEL_HANGUP_COMPLETE, CHANNEL_DESTROY)
 }
 
 const eslTraceMap = new Map<string, EslTraceEntry[]>();
 
-function recordEslTrace(uuid: string, event: string): void {
+function recordEslTrace(uuid: string, event: string, cause?: string): void {
   if (!uuid) return;
   const entries = eslTraceMap.get(uuid) ?? [];
-  entries.push({ event, ts: Date.now() });
+  const entry: EslTraceEntry = { event, ts: Date.now() };
+  if (cause) entry.cause = cause;
+  entries.push(entry);
   if (entries.length > MAX_TRACE_ENTRIES) entries.shift();
   eslTraceMap.set(uuid, entries);
+}
+
+/** Augment the last trace entry for a UUID with a hangup/destroy cause. */
+function augmentLastEslTrace(uuid: string, cause: string): void {
+  if (!uuid || !cause) return;
+  const entries = eslTraceMap.get(uuid);
+  if (!entries || entries.length === 0) return;
+  entries[entries.length - 1].cause = cause;
 }
 
 /** Returns the full ESL event trace for a channel UUID (A-leg or B-leg). */
@@ -453,7 +464,17 @@ class FreeSwitchESL {
       logger.warn({ apiCmd }, "[ESL] sendApiCommand called while not authenticated — ignored");
       return;
     }
-    logger.debug({ apiCmd }, "[ESL] sending API command");
+    // Log call-control commands at INFO so they appear in standard logs
+    const isCallCmd = apiCmd.startsWith("uuid_kill")    ||
+                      apiCmd.startsWith("uuid_bridge")   ||
+                      apiCmd.startsWith("uuid_transfer") ||
+                      apiCmd.startsWith("originate")     ||
+                      apiCmd.startsWith("sofia");
+    if (isCallCmd) {
+      logger.info({ apiCmd }, "[ESL] ▶ sending ESL command");
+    } else {
+      logger.debug({ apiCmd }, "[ESL] sending API command");
+    }
     this.sendLine(`bgapi ${apiCmd}`);
   }
 
@@ -552,15 +573,48 @@ class FreeSwitchESL {
       if (uuid) recordEslTrace(uuid, evtName);
 
       if (evtName === "CHANNEL_CREATE") {
-        logger.debug({ uuid, callerDest: body["Caller-Destination-Number"] ?? "" }, "[ESL] CHANNEL_CREATE");
+        // Root-cause indicator: if no CHANNEL_CREATE fires, the ESL subscription
+        // or originate command itself failed.  If CREATE fires but no PROGRESS
+        // follows, the issue is routing/SIP delivery.
+        logger.info({
+          uuid,
+          channelName:    body["Channel-Name"]              ?? "",
+          callerDest:     body["Caller-Destination-Number"] ?? "",
+          callerContext:  body["Caller-Context"]            ?? "",
+          callDirection:  body["Call-Direction"]            ?? "",
+          callerNetAddr:  body["Caller-Network-Addr"]       ?? "",
+        }, "[ESL] CHANNEL_CREATE — channel created; ESL subscription confirmed working");
 
       } else if (evtName === "CHANNEL_PROGRESS" || evtName === "CHANNEL_PROGRESS_MEDIA") {
-        // FreeSWITCH fires CHANNEL_PROGRESS when the B-leg starts ringing (early media / 183).
-        // Receiving this means the dial-string resolved and a SIP response was received.
-        logger.debug({ uuid, evtName }, "[ESL] Channel progress — call is being attempted");
+        // FreeSWITCH fires CHANNEL_PROGRESS (SIP 180) or CHANNEL_PROGRESS_MEDIA
+        // (SIP 183) when the B-leg receives an early media response from the SIP UA.
+        // Seeing either means: dial-string resolved + callee UA is reachable.
+        // If PROGRESS fires but no ANSWER: callee UA is ringing but not picking up.
+        logger.info({
+          uuid,
+          evtName,
+          channelName:   body["Channel-Name"]              ?? "",
+          callerDest:    body["Caller-Destination-Number"] ?? "",
+          answerState:   body["variable_answer_state"]     ?? body["Answer-State"]      ?? "",
+          sipStatus:     body["variable_sip_term_status"]  ?? "",
+          callDirection: body["Call-Direction"]            ?? "",
+        }, "[ESL] Channel progress — SIP 180/183 received; callee UA is reachable");
 
       } else if (evtName === "CHANNEL_DESTROY") {
-        logger.debug({ uuid }, "[ESL] CHANNEL_DESTROY — scheduling trace cleanup in 60 s");
+        // CHANNEL_DESTROY fires immediately after CHANNEL_HANGUP_COMPLETE.
+        // If it fires right after CREATE with no PROGRESS: dialplan rejected or
+        // auth failure.  Hangup cause is the definitive FS reason.
+        const destroyHangupCause = body["Hangup-Cause"]          ?? body["variable_hangup_cause"] ?? "";
+        const destroyAnswerState = body["variable_answer_state"] ?? body["Answer-State"]           ?? "";
+        logger.info({
+          uuid,
+          hangupCause:   destroyHangupCause || "(none)",
+          answerState:   destroyAnswerState  || "(none)",
+          callDirection: body["Call-Direction"] ?? "",
+          channelName:   body["Channel-Name"]   ?? "",
+          billsec:       body["variable_billsec"] ?? "0",
+        }, "[ESL] CHANNEL_DESTROY");
+        if (destroyHangupCause) augmentLastEslTrace(uuid, destroyHangupCause);
         // Keep trace available briefly for the admin panel after the channel is gone.
         if (uuid) setTimeout(() => eslTraceMap.delete(uuid), 60_000);
 
@@ -608,6 +662,34 @@ class FreeSwitchESL {
         );
         const billsec = Number.isFinite(billsecRaw) ? billsecRaw : 0;
         const hangupCause = body["Hangup-Cause"] ?? body["variable_hangup_cause"] ?? "";
+
+        // ── Full SIP diagnostic log ───────────────────────────────────────────
+        // These channel variables reveal the exact FS/SIP failure reason and are
+        // critical for root-cause isolation when calls fail in INITIATED state.
+        //
+        // sip_hangup_disposition:  "send_bye" | "recv_bye" | "recv_cancel" | ...
+        // endpoint_disposition:    "ANSWER" | "USER_NOT_REGISTERED" | "INVALID_PROFILE" | ...
+        // originate_disposition:   "ORIGINATOR_CANCEL" | "ALLOTTED_TIMEOUT" | ...
+        // answer_state:            "ringing" | "early" | "answered" | "hangup"
+        // sip_term_status:         SIP response code (e.g. "404", "480", "486")
+        // sip_term_cause:          Q.850 cause code as integer string
+        const sipHangupDisposition = body["variable_sip_hangup_disposition"] ?? body["sip_hangup_disposition"] ?? "";
+        const endpointDisposition  = body["variable_endpoint_disposition"]   ?? "";
+        const originateDisposition = body["variable_originate_disposition"]  ?? "";
+        const answerState          = body["variable_answer_state"]           ?? body["Answer-State"] ?? "";
+        const sipTermStatus        = body["variable_sip_term_status"]        ?? "";
+        const sipTermCause         = body["variable_sip_term_cause"]         ?? "";
+        const callDirection        = body["Call-Direction"]                  ?? "";
+        const channelName          = body["Channel-Name"]                    ?? "";
+
+        logger.info({
+          uuid, otherLegUuid, hangupCause, billsec,
+          sipHangupDisposition, endpointDisposition, originateDisposition,
+          answerState, sipTermStatus, sipTermCause, callDirection, channelName,
+        }, "[ESL] CHANNEL_HANGUP_COMPLETE — full SIP diagnostic");
+
+        // Augment the trace so the admin panel can show WHY the call ended
+        if (hangupCause) augmentLastEslTrace(uuid, hangupCause);
 
         if (uuid) {
           // Send missed-call push + create callee DB record before handing off to orchestrator
@@ -753,7 +835,31 @@ class FreeSwitchESL {
     if (!/^[1-9]\d{3}$/.test(destExt)) return;
 
     this.originateDestMap.set(bLegUuid, { destExt, callerExt });
-    logger.info({ bLegUuid, aLegUuid, destExt, callerExt }, "[ESL] CHANNEL_ORIGINATE — checking push token");
+
+    // ── Full originate diagnostic log ─────────────────────────────────────────
+    // Log everything FS tells us when it tries to ring the B-leg.
+    // This is the "originate logging" equivalent for Verto/SIP platforms:
+    // FS issues the originate internally via the dialplan, and we see the result here.
+    //
+    // Key fields for root-cause isolation:
+    //   channelName   — sofia profile used (e.g. sofia/internal/1003@domain)
+    //   callerContext — dialplan context (e.g. default, public)
+    //   callerDialplan — dialplan type (XML / LUA)
+    //   callerNetworkAddr — SIP UA IP (empty = Verto/WebRTC)
+    //   callDirection — "inbound" (A-leg) / "outbound" (B-leg originate)
+    logger.info({
+      aLegUuid,
+      bLegUuid,
+      destExt,
+      callerExt,
+      channelName:       h["Channel-Name"]              ?? "",
+      callerContext:     h["Caller-Context"]            ?? "",
+      callerDialplan:    h["Caller-Dialplan"]           ?? "",
+      callDirection:     h["Call-Direction"]            ?? "",
+      callerNetworkAddr: h["Caller-Network-Addr"]       ?? "",
+      callerDestFull:    h["Caller-Destination-Number"] ?? "",
+      profileIndex:      h["Caller-Profile-Index"]      ?? "",
+    }, "[ESL] CHANNEL_ORIGINATE — B-leg is being rung; call transitioning to RINGING");
 
     await connectDB();
     const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
@@ -1002,6 +1108,10 @@ export function startESL() {
     );
     return;
   }
+  // Wire the in-memory trace getter into the orchestrator so the watchdog
+  // timeout can include the full ESL event history in its warning log.
+  setEslTraceFn(getEslTrace);
+
   eslEnabled = true;
   eslClient  = new FreeSwitchESL();
   eslClient.connect();

@@ -1607,8 +1607,9 @@ function PushTab() {
 // ─── Live Calls Tab ────────────────────────────────────────────────────────────
 
 interface EslTraceEntry {
-  event: string;
-  ts:    string; // ISO
+  event:  string;
+  ts:     string; // ISO
+  cause?: string; // FS hangup/destroy cause when available
 }
 
 interface LiveCall {
@@ -1864,22 +1865,36 @@ function CallTraceCard({ call, onForceHangup }: { call: LiveCall; onForceHangup:
               {/* ESL trace chips */}
               {call.eslTrace.length > 0 && (
                 <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginLeft: 4 }}>
-                  {call.eslTrace.map((entry, i) => (
-                    <span
-                      key={i}
-                      title={new Date(entry.ts).toLocaleTimeString()}
-                      style={{
-                        fontSize: 8, fontWeight: 700, letterSpacing: "0.04em",
-                        padding: "1px 6px", borderRadius: 6,
-                        background: "rgba(96,165,250,0.1)",
-                        border: "1px solid rgba(96,165,250,0.2)",
-                        color: "rgba(96,165,250,0.7)",
-                        fontFamily: "monospace",
-                      }}
-                    >
-                      {entry.event.replace("CHANNEL_", "")}
-                    </span>
-                  ))}
+                  {call.eslTrace.map((entry, i) => {
+                    const isTerminal = entry.event === "CHANNEL_HANGUP_COMPLETE" || entry.event === "CHANNEL_DESTROY";
+                    const hasCause   = !!entry.cause;
+                    const isLast     = i === call.eslTrace.length - 1;
+                    const bg    = isTerminal ? "rgba(248,113,113,0.12)" : isLast ? "rgba(96,165,250,0.15)" : "rgba(96,165,250,0.07)";
+                    const bdr   = isTerminal ? "rgba(248,113,113,0.3)"  : isLast ? "rgba(96,165,250,0.3)"  : "rgba(96,165,250,0.15)";
+                    const clr   = isTerminal ? "#f87171"                 : isLast ? "rgba(96,165,250,0.9)"  : "rgba(96,165,250,0.6)";
+                    const label = entry.event.replace("CHANNEL_", "");
+                    const tip   = `${new Date(entry.ts).toLocaleTimeString()}${hasCause ? `\n${entry.cause}` : ""}`;
+                    return (
+                      <span
+                        key={i}
+                        title={tip}
+                        style={{
+                          fontSize: 8, fontWeight: 700, letterSpacing: "0.04em",
+                          padding: "1px 6px", borderRadius: 6,
+                          background: bg, border: `1px solid ${bdr}`, color: clr,
+                          fontFamily: "monospace",
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                        }}
+                      >
+                        {label}
+                        {hasCause && (
+                          <span style={{ color: "#f87171", fontWeight: 800 }}>
+                            :{entry.cause!.replace(/_/g, " ")}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
