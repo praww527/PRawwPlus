@@ -119,27 +119,51 @@ async function tcpProbe(host: string, port: number, timeoutMs = 3000): Promise<{
 }
 
 router.get("/healthz/turn", async (_req, res) => {
-  // Read ICE servers: DB → ICE_SERVERS env var → hardcoded STUN defaults.
+  const managedTurnHost   = process.env.TURN_HOST   ?? null;
+  const managedTurnSecret = process.env.TURN_SECRET ?? null;
+  const managed = Boolean(managedTurnHost && managedTurnSecret);
+
+  // ICE server priority:
+  //   1. Managed TURN mode (TURN_HOST + TURN_SECRET env vars) — probe the actual TURN server
+  //   2. DB stored servers
+  //   3. ICE_SERVERS env var
+  //   4. Hardcoded STUN defaults (signals misconfiguration)
   let iceServers: IceServerEntry[] = [];
-  try {
-    const { connectDB } = await import("@workspace/db");
-    await connectDB();
-    const { SystemConfigModel } = await import("@workspace/db");
-    const sysConfig = await SystemConfigModel.findById("singleton").lean();
-    if (sysConfig?.iceServers?.length) {
-      iceServers = sysConfig.iceServers as IceServerEntry[];
-    }
-  } catch { /* DB not available */ }
 
-  if (!iceServers.length && process.env.ICE_SERVERS) {
-    try { iceServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* ignore */ }
-  }
-
-  if (!iceServers.length) {
+  if (managed && managedTurnHost) {
     iceServers = [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: `stun:${managedTurnHost}:3478` },
+      {
+        urls: [
+          `turn:${managedTurnHost}:3478?transport=udp`,
+          `turn:${managedTurnHost}:3478?transport=tcp`,
+          `turns:${managedTurnHost}:5349?transport=tcp`,
+        ],
+        username:   "healthcheck",
+        credential: "healthcheck",
+      },
     ];
+  } else {
+    try {
+      const { connectDB } = await import("@workspace/db");
+      await connectDB();
+      const { SystemConfigModel } = await import("@workspace/db");
+      const sysConfig = await SystemConfigModel.findById("singleton").lean();
+      if (sysConfig?.iceServers?.length) {
+        iceServers = sysConfig.iceServers as IceServerEntry[];
+      }
+    } catch { /* DB not available */ }
+
+    if (!iceServers.length && process.env.ICE_SERVERS) {
+      try { iceServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* ignore */ }
+    }
+
+    if (!iceServers.length) {
+      iceServers = [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ];
+    }
   }
 
   // Probe each server
