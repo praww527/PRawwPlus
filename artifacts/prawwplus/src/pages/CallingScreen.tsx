@@ -67,10 +67,19 @@ export default function CallingScreen() {
       phoneAudio.stopAll();
       const icon = hangupInfo?.icon;
       if (icon === "busy") {
+        // Dual-tone busy signal — remote side is engaged
         phoneAudio.playBusy();
-      } else if (icon === "unavailable" || icon === "error") {
+      } else if (icon === "unavailable") {
+        // SIT (Special Information Tone) — number not in service / not reachable
+        phoneAudio.playSIT();
+      } else if (icon === "error") {
+        // Reorder / fast-busy — network or routing failure
         phoneAudio.playCongestion();
+      } else if (icon === "no-answer") {
+        // Soft descending ding — call was not answered, no fault
+        phoneAudio.playNoAnswer();
       } else {
+        // Normal end or voicemail — gentle two-note drop
         phoneAudio.playEnded();
       }
     }

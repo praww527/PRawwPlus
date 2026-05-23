@@ -162,22 +162,85 @@ class PhoneAudio {
   }
 
   /**
-   * Busy tone: 400 Hz — 0.5 s on / 0.5 s off (plays for 4 seconds then stops)
+   * Busy tone: 400 Hz + 450 Hz — 0.5 s on / 0.5 s off (South African dual-tone busy)
+   * Plays for 5 seconds then stops automatically.
    */
-  playBusy(durationMs = 4500): void {
+  playBusy(durationMs = 5000): void {
     this.stopCadenced();
-    this.startCadencedTone([400], [500, 500], 0.22);
+    this.startCadencedTone([400, 450], [500, 500], 0.20);
     this.autoStopTimer = setTimeout(() => this.stopCadenced(), durationMs);
   }
 
   /**
-   * Congestion / fast-busy (number doesn't exist, unavailable):
-   * 400 Hz — 0.25 s on / 0.25 s off (plays for 3 seconds then stops)
+   * Reorder / congestion tone (network failure, call cannot be routed):
+   * 400 Hz + 450 Hz — 0.25 s on / 0.25 s off  (double-speed busy = congestion)
+   * Plays for 3 seconds then stops.
    */
   playCongestion(durationMs = 3000): void {
     this.stopCadenced();
-    this.startCadencedTone([400], [250, 250], 0.22);
+    this.startCadencedTone([400, 450], [250, 250], 0.20);
     this.autoStopTimer = setTimeout(() => this.stopCadenced(), durationMs);
+  }
+
+  /**
+   * SIT — Special Information Tone (heard before "number not in service" announcements).
+   * Three ascending pure tones based on ITU-T / Bell system SIT frequencies:
+   *   985.2 Hz  ·  1370.6 Hz  ·  1776.7 Hz
+   * Each tone is ~380 ms with a 40 ms silent gap between them.
+   * After the three tones, silence (no repeat).
+   */
+  playSIT(): void {
+    this.stopCadenced();
+    try {
+      const ctx = this.getCtx();
+      const tones = [985.2, 1370.6, 1776.7];
+      const toneDur  = 0.38;  // seconds each tone lasts
+      const gapDur   = 0.04;  // gap between tones
+      const ramp     = 0.012; // attack / release ramp
+
+      tones.forEach((freq, i) => {
+        const start = ctx.currentTime + i * (toneDur + gapDur);
+        const g = ctx.createGain();
+        g.connect(ctx.destination);
+
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(0.22, start + ramp);
+        g.gain.setValueAtTime(0.22, start + toneDur - ramp);
+        g.gain.linearRampToValueAtTime(0, start + toneDur);
+
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = freq;
+        o.connect(g);
+        o.start(start);
+        o.stop(start + toneDur + 0.01);
+      });
+    } catch {}
+  }
+
+  /**
+   * No-answer tone — played when the remote side never picked up.
+   * A soft descending two-note "ding-dong" drop, quieter than the ended tone,
+   * to signal the call simply wasn't answered (no fault, no error).
+   */
+  playNoAnswer(): void {
+    try {
+      const ctx = this.getCtx();
+      [[659, 0], [494, 0.18]].forEach(([freq, delay]) => {
+        const g = ctx.createGain();
+        g.connect(ctx.destination);
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = freq;
+        o.connect(g);
+        const t = ctx.currentTime + delay;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.13, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
+        o.start(t);
+        o.stop(t + 0.32);
+      });
+    } catch {}
   }
 
   /**
