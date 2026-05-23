@@ -32,10 +32,10 @@ function resolveHangupInfo(hc: HangupCause): HangupInfo {
 
   switch (cause) {
     case "USER_BUSY":
-      return { cause, causeCode, message: "Line busy", icon: "busy" };
+      return { cause, causeCode, message: "The number you dialled is busy. Please try again later.", icon: "busy" };
 
     case "NO_ANSWER":
-      return { cause, causeCode, message: "No answer", icon: "no-answer" };
+      return { cause, causeCode, message: "The person you are calling is not answering.", icon: "no-answer" };
 
     case "NORMAL_CLEARING":
       return { cause, causeCode, message: "Call ended", icon: "ended" };
@@ -46,32 +46,48 @@ function resolveHangupInfo(hc: HangupCause): HangupInfo {
     case "UNREGISTERED":
     case "USER_NOT_REGISTERED":
     case "SUBSCRIBER_ABSENT":
+      return { cause, causeCode, message: "The number you dialled is not available right now. Please try again later.", icon: "unavailable" };
+
     case "DESTINATION_OUT_OF_ORDER":
-      return { cause, causeCode, message: "Not available", icon: "unavailable" };
+      return { cause, causeCode, message: "We could not connect your call. The destination is temporarily out of service.", icon: "unavailable" };
 
     case "NO_ROUTE_DESTINATION":
     case "UNALLOCATED_NUMBER":
-      return { cause, causeCode, message: "Number does not exist", icon: "unavailable" };
+      return { cause, causeCode, message: "The number you dialled does not exist or is no longer in service.", icon: "unavailable" };
 
     case "ALLOTTED_TIMEOUT":
-      return { cause, causeCode, message: "Insufficient balance", icon: "ended" };
+      return { cause, causeCode, message: "Your balance is too low to continue. Please top up and try again.", icon: "ended" };
 
     case "CALL_REJECTED":
-      return { cause, causeCode, message: "Call rejected", icon: "unavailable" };
+      return { cause, causeCode, message: "The number you dialled is not available right now.", icon: "unavailable" };
 
     case "ATTENDED_TRANSFER":
-      return { cause, causeCode, message: "Went to voicemail", icon: "voicemail" };
+      return { cause, causeCode, message: "The call was transferred to voicemail.", icon: "voicemail" };
 
     case "RECOVERY_ON_TIMER_EXPIRE":
     case "RECOVERY_ON_TIMER_EXPIRY":
-      return { cause, causeCode, message: "No answer", icon: "no-answer" };
+      return { cause, causeCode, message: "The person you are calling is not answering.", icon: "no-answer" };
+
+    case "INCOMPATIBLE_DESTINATION":
+    case "MANDATORY_IE_MISSING":
+      return { cause, causeCode, message: "We could not connect your call due to a network issue. Please try again.", icon: "error" };
+
+    case "SERVICE_UNAVAILABLE":
+    case "NETWORK_OUT_OF_ORDER":
+      return { cause, causeCode, message: "The network is temporarily unavailable. Please try again in a moment.", icon: "unavailable" };
+
+    case "CHAN_NOT_IMPLEMENTED":
+    case "FACILITY_NOT_IMPLEMENTED":
+      return { cause, causeCode, message: "This type of call is not supported. Please contact support.", icon: "error" };
 
     default:
-      if (causeCode === 17) return { cause, causeCode, message: "Line busy",             icon: "busy" };
-      if (causeCode === 19) return { cause, causeCode, message: "No answer",             icon: "no-answer" };
-      if (causeCode === 20) return { cause, causeCode, message: "Not available",         icon: "unavailable" };
-      if (causeCode === 21) return { cause, causeCode, message: "Call rejected",         icon: "unavailable" };
-      if (causeCode === 3)  return { cause, causeCode, message: "Number does not exist", icon: "unavailable" };
+      if (causeCode === 17) return { cause, causeCode, message: "The number you dialled is busy. Please try again later.",            icon: "busy" };
+      if (causeCode === 19) return { cause, causeCode, message: "The person you are calling is not answering.",                       icon: "no-answer" };
+      if (causeCode === 20) return { cause, causeCode, message: "The number you dialled is not available right now.",                 icon: "unavailable" };
+      if (causeCode === 21) return { cause, causeCode, message: "The number you dialled is not available right now.",                 icon: "unavailable" };
+      if (causeCode === 3)  return { cause, causeCode, message: "The number you dialled does not exist or is no longer in service.", icon: "unavailable" };
+      if (causeCode === 38) return { cause, causeCode, message: "The network is temporarily unavailable. Please try again.",         icon: "unavailable" };
+      if (causeCode === 41) return { cause, causeCode, message: "We could not connect your call. Please try again.",                 icon: "error" };
       return { cause, causeCode, message: "Call ended", icon: "ended" };
   }
 }

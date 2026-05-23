@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle, Clock } from "lucide-react";
+import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
@@ -53,7 +53,6 @@ export default function DialPad() {
     makeVertoCall, callInfo: activeCallInfo,
   } = useCall();
   const [number, setNumber] = useState("");
-  const [recentCalls, setRecentCalls] = useState<any[]>([]);
 
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
@@ -64,22 +63,6 @@ export default function DialPad() {
     const dial = params.get("dial");
     if (dial) setNumber(decodeURIComponent(dial));
   }, [search]);
-
-  useEffect(() => {
-    fetch("/api/calls?limit=10&page=1", { credentials: "include" })
-      .then((r) => r.json())
-      .then((d) => {
-        const seen = new Set<string>();
-        const uniq: any[] = [];
-        for (const c of (d.calls ?? [])) {
-          const num = c.recipientNumber ?? c.callerNumber;
-          if (num && !seen.has(num)) { seen.add(num); uniq.push(c); }
-          if (uniq.length >= 4) break;
-        }
-        setRecentCalls(uniq);
-      })
-      .catch(() => {});
-  }, []);
 
   const press = (key: string) => setNumber((n) => n.length < 20 ? n + key : n);
 
@@ -453,41 +436,6 @@ export default function DialPad() {
         </div>
         <div style={{ width: BTN }} />
       </div>
-
-      {/* Recent calls quick-dial */}
-      {recentCalls.length > 0 && (
-        <div style={{ width: GRID_W, maxWidth: "100%", marginTop: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginBottom: 8 }}>
-            <Clock style={{ width: 10, height: 10, color: "var(--text-3)" }} />
-            <span style={{ fontSize: 10, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Recent</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            {recentCalls.map((c) => {
-              const num = c.recipientNumber ?? c.callerNumber ?? "";
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setNumber(num)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    padding: "8px 14px", borderRadius: 12,
-                    background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-                    cursor: "pointer", textAlign: "left", width: "100%",
-                    backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-                  }}
-                  onPointerDown={(e) => { e.currentTarget.style.opacity = "0.6"; }}
-                  onPointerUp={(e) => { e.currentTarget.style.opacity = "1"; }}
-                  onPointerLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
-                >
-                  <Phone style={{ width: 12, height: 12, color: "var(--text-3)", flexShrink: 0 }} />
-                  <span style={{ flex: 1, fontSize: 14, fontFamily: "monospace", color: "var(--text-1)", fontWeight: 500 }}>{num}</span>
-                  <ChevronRight style={{ width: 12, height: 12, color: "var(--text-3)", flexShrink: 0 }} />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       <div style={{ flex: "0 0 12px" }} />
     </div>

@@ -22,6 +22,7 @@ const TABS = [
   { id: "overview",      label: "Overview",      icon: BarChart3   },
   { id: "users",         label: "Users",         icon: Users       },
   { id: "live",          label: "Live Calls",    icon: Activity    },
+  { id: "errors",        label: "Errors",        icon: AlertTriangle },
   { id: "system",        label: "System",        icon: Server      },
   { id: "push",          label: "Push",          icon: PhoneCall   },
   { id: "referrals",     label: "Referrals",     icon: Link2       },
@@ -2192,6 +2193,230 @@ function SystemTab() {
   );
 }
 
+// ─── Errors Tab ────────────────────────────────────────────────────────────────
+
+const ERROR_STATUS_META: Record<string, { label: string; color: string }> = {
+  failed:    { label: "Failed",    color: "#ff453a" },
+  "no-answer": { label: "No Answer", color: "#ff9f0a" },
+  busy:      { label: "Busy",      color: "#ff9f0a" },
+  cancelled: { label: "Cancelled", color: "rgba(255,255,255,0.35)" },
+};
+
+const HANGUP_LABELS: Record<string, string> = {
+  USER_BUSY:                 "Line busy",
+  NO_ANSWER:                 "No answer",
+  CALL_REJECTED:             "Call rejected",
+  UNREGISTERED:              "User not registered",
+  USER_NOT_REGISTERED:       "User not registered",
+  SUBSCRIBER_ABSENT:         "Subscriber absent",
+  DESTINATION_OUT_OF_ORDER:  "Destination out of order",
+  NO_ROUTE_DESTINATION:      "No route to destination",
+  UNALLOCATED_NUMBER:        "Number not allocated",
+  ALLOTTED_TIMEOUT:          "Insufficient balance",
+  SERVICE_UNAVAILABLE:       "Service unavailable",
+  NETWORK_OUT_OF_ORDER:      "Network out of order",
+  INCOMPATIBLE_DESTINATION:  "Incompatible destination",
+  NORMAL_CLEARING:           "Normal clearing",
+  ORIGINATOR_CANCEL:         "Caller cancelled",
+  RECOVERY_ON_TIMER_EXPIRE:  "Timer expired",
+};
+
+function humanHangup(hangupCause?: string, failReason?: string): string {
+  if (failReason) return failReason;
+  if (!hangupCause) return "Unknown";
+  return HANGUP_LABELS[hangupCause] ?? hangupCause.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function ErrorsTab() {
+  const { toast } = useToast();
+  const [calls, setCalls]       = useState<any[]>([]);
+  const [total, setTotal]       = useState(0);
+  const [page, setPage]         = useState(1);
+  const [loading, setLoading]   = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const LIMIT = 20;
+
+  const load = useCallback((p = 1) => {
+    setLoading(true);
+    adminFetch(`/admin/failed-calls?page=${p}&limit=${LIMIT}`)
+      .then((d: any) => { setCalls(d.calls ?? []); setTotal(d.total ?? 0); setPage(p); })
+      .catch((e: any) => toast({ title: "Failed to load errors", description: e.message, variant: "destructive" }))
+      .finally(() => setLoading(false));
+  }, [toast]);
+
+  useEffect(() => { load(1); }, [load]);
+
+  const pages = Math.max(1, Math.ceil(total / LIMIT));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Call Errors</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>
+            {total} failed, no-answer, busy or cancelled call{total !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <button
+          onClick={() => load(page)}
+          disabled={loading}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "7px 14px",
+            borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none",
+            cursor: loading ? "not-allowed" : "pointer",
+            background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)",
+            opacity: loading ? 0.5 : 1,
+          }}
+        >
+          <RefreshCw style={{ width: 11, height: 11, animation: loading ? "spin 1s linear infinite" : "none" }} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {Object.entries(ERROR_STATUS_META).map(([k, v]) => (
+          <span key={k} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: v.color, fontWeight: 600 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: v.color, flexShrink: 0 }} />
+            {v.label}
+          </span>
+        ))}
+      </div>
+
+      {loading && calls.length === 0 && <Skel rows={6} h={60} />}
+
+      {!loading && calls.length === 0 && (
+        <div style={{ textAlign: "center", padding: "48px 0" }}>
+          <CheckCircle2 style={{ width: 36, height: 36, color: "#30d158", margin: "0 auto 10px" }} />
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", margin: 0 }}>No errors found</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", margin: "4px 0 0" }}>All recent calls completed successfully.</p>
+        </div>
+      )}
+
+      {calls.length > 0 && (
+        <div style={{ borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+          {calls.map((c: any, i: number) => {
+            const meta = ERROR_STATUS_META[c.status] ?? { label: c.status, color: "rgba(255,255,255,0.35)" };
+            const reason = humanHangup(c.hangupCause, c.failReason);
+            const isOpen = expanded === c._id;
+            const when = c.createdAt ? new Date(c.createdAt) : null;
+            return (
+              <div key={c._id ?? i} style={{ borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+                {/* Row */}
+                <button
+                  onClick={() => setExpanded(isOpen ? null : c._id)}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 10,
+                    padding: "11px 14px", background: "none", border: "none",
+                    cursor: "pointer", textAlign: "left",
+                  }}
+                >
+                  {/* Status dot */}
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: meta.color, flexShrink: 0 }} />
+
+                  {/* Number */}
+                  <span style={{ flex: 1, fontSize: 13, fontFamily: "monospace", color: "rgba(255,255,255,0.8)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {c.recipientNumber ?? c.callerNumber ?? "—"}
+                  </span>
+
+                  {/* Status pill */}
+                  <span style={{ fontSize: 10, fontWeight: 700, color: meta.color, background: `${meta.color}18`, padding: "2px 8px", borderRadius: 6, flexShrink: 0 }}>
+                    {meta.label}
+                  </span>
+
+                  {/* Time */}
+                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", flexShrink: 0, minWidth: 52, textAlign: "right" }}>
+                    {when ? formatDistanceToNow(when, { addSuffix: true }) : "—"}
+                  </span>
+
+                  <ChevronDown style={{ width: 12, height: 12, color: "rgba(255,255,255,0.25)", flexShrink: 0, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                </button>
+
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div style={{ padding: "0 14px 14px 32px", display: "flex", flexDirection: "column", gap: 6 }}>
+                    {/* Error reason — highlighted */}
+                    <div style={{ padding: "10px 12px", borderRadius: 10, background: `${meta.color}10`, border: `1px solid ${meta.color}28` }}>
+                      <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Reason</p>
+                      <p style={{ fontSize: 13, color: meta.color, margin: 0, fontWeight: 600 }}>{reason}</p>
+                    </div>
+
+                    {/* Detail rows */}
+                    {[
+                      { label: "Call ID",      value: c._id },
+                      { label: "Direction",    value: c.direction ?? "outbound" },
+                      { label: "Type",         value: c.callType ?? "external" },
+                      { label: "User ID",      value: c.userId },
+                      { label: "Hangup cause", value: c.hangupCause ?? "—" },
+                      { label: "Duration",     value: c.duration != null ? `${c.duration}s` : "0s" },
+                      { label: "Started",      value: c.startedAt ? format(new Date(c.startedAt), "dd MMM yyyy HH:mm:ss") : "—" },
+                      { label: "Ended",        value: c.endedAt   ? format(new Date(c.endedAt),   "dd MMM yyyy HH:mm:ss") : "—" },
+                    ].map(({ label, value }) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontWeight: 500, flexShrink: 0 }}>{label}</span>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", fontFamily: "monospace", textAlign: "right", wordBreak: "break-all" }}>{String(value ?? "—")}</span>
+                      </div>
+                    ))}
+
+                    {/* Fix hints */}
+                    <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>
+                        How to fix
+                      </p>
+                      <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.5 }}>
+                        {c.status === "failed" && c.hangupCause === "ALLOTTED_TIMEOUT"
+                          ? "User ran out of balance. Go to Users tab → find user → Adjust Credits."
+                          : c.status === "failed" && (c.hangupCause === "UNREGISTERED" || c.hangupCause === "USER_NOT_REGISTERED")
+                          ? "The callee's SIP extension is not registered with FreeSWITCH. Check the System tab → ESL connection and push config if needed."
+                          : c.status === "failed" && (c.hangupCause === "NO_ROUTE_DESTINATION" || c.hangupCause === "UNALLOCATED_NUMBER")
+                          ? "The dialled number doesn't exist. No action needed — the user dialled a wrong or disconnected number."
+                          : c.status === "busy"
+                          ? "The line was busy when the call was placed. No action needed — the user can try again."
+                          : c.status === "no-answer"
+                          ? "The callee did not answer. No action needed — this is expected behaviour."
+                          : c.status === "cancelled"
+                          ? "The caller hung up before the callee answered. No action needed."
+                          : c.failReason
+                          ? `Check server logs for more details about: "${c.failReason}".`
+                          : "Check the System tab for ESL and database connectivity. Review server logs for the call ID above."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {pages > 1 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <button
+            onClick={() => load(page - 1)}
+            disabled={page <= 1 || loading}
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: page <= 1 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", opacity: page <= 1 ? 0.4 : 1 }}
+          >
+            ← Prev
+          </button>
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+            {page} / {pages}
+          </span>
+          <button
+            onClick={() => load(page + 1)}
+            disabled={page >= pages || loading}
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: page >= pages ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", opacity: page >= pages ? 0.4 : 1 }}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -2237,6 +2462,7 @@ export default function Admin() {
         {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
+        {tab === "errors"        && <ErrorsTab />}
         {tab === "system"        && <SystemTab />}
         {tab === "push"          && <PushTab />}
         {tab === "referrals"     && <ReferralsTab />}

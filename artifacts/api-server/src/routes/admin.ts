@@ -1242,6 +1242,27 @@ router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
   res.status(result.ok ? 200 : 500).json(result);
 });
 
+// ── Failed / errored calls ─────────────────────────────────────────────────────
+
+router.get("/admin/failed-calls", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { page, limit } = parsePageLimit(req.query);
+  const skip = (page - 1) * limit;
+
+  const query = { status: { $in: ["failed", "no-answer", "busy", "cancelled"] } };
+
+  const [calls, total] = await Promise.all([
+    CallModel.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    CallModel.countDocuments(query),
+  ]);
+
+  res.json({ calls, total, page, limit });
+});
+
 router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) => {
   const appUrl = getAppUrl();
   const fsDomain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
