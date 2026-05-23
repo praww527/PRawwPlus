@@ -49,11 +49,46 @@ export function VertoInit() {
     document.addEventListener("touchstart", unlock, { capture: true, once: true });
     document.addEventListener("keydown",    unlock, { capture: true, once: true });
 
-    // Request notification permission so incoming calls can show a browser
-    // notification when the tab is in the background.
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
+    // Request notification permission and subscribe to web push so calls and
+    // missed-call alerts arrive even when the tab is closed/backgrounded.
+    (async () => {
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+      let permission = Notification.permission;
+      if (permission === "default") {
+        permission = await Notification.requestPermission().catch(() => "denied" as NotificationPermission);
+      }
+      if (permission !== "granted") return;
+
+      try {
+        const keyResp = await fetch("/api/users/vapid-public-key");
+        if (!keyResp.ok) return;
+        const { key } = (await keyResp.json()) as { key?: string };
+        if (!key) return;
+
+        const registration = await navigator.serviceWorker.ready;
+        let sub = await registration.pushManager.getSubscription();
+
+        if (!sub) {
+          const appServerKey = Uint8Array.from(
+            atob(key.replace(/-/g, "+").replace(/_/g, "/")),
+            (c) => c.charCodeAt(0),
+          );
+          sub = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: appServerKey,
+          });
+        }
+
+        await fetch("/api/users/web-push-subscription", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription: sub.toJSON() }),
+        });
+      } catch (err) {
+        console.warn("[Push] Web push subscription error:", err);
+      }
+    })();
 
     return () => {
       document.removeEventListener("click",      unlock, true);

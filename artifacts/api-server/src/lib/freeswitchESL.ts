@@ -196,6 +196,30 @@ async function sendFcmDataMessage(
   }
 }
 
+async function sendWebPush(
+  subscription: { endpoint: string; keys: { auth: string; p256dh: string } },
+  data: Record<string, string>,
+): Promise<void> {
+  const vapidPublicKey  = process.env.VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+  if (!vapidPublicKey || !vapidPrivateKey) return;
+
+  try {
+    const webpush = await import("web-push");
+    const appUrl  = process.env.APP_URL ?? "";
+    const subject = appUrl ? `mailto:admin@${new URL(appUrl).hostname}` : "mailto:admin@praww.co.za";
+    webpush.setVapidDetails(subject, vapidPublicKey, vapidPrivateKey);
+    await webpush.sendNotification(subscription as Parameters<typeof webpush.sendNotification>[0], JSON.stringify(data), { TTL: 60 });
+    logger.info({ endpointPrefix: subscription.endpoint.slice(0, 40) }, "[Push] Web push sent OK");
+  } catch (err: any) {
+    if (err?.statusCode === 410 || err?.statusCode === 404) {
+      logger.info("[Push] Web push subscription expired/gone — will be cleaned up on next login");
+    } else {
+      logger.error({ err }, "[Push] Failed to send web push notification");
+    }
+  }
+}
+
 // ─── FreeSwitchESL class ───────────────────────────────────────────────────
 
 class FreeSwitchESL {
@@ -579,16 +603,19 @@ class FreeSwitchESL {
 
     await connectDB();
     const user = await UserModel.findOne({ extension: parseInt(ext, 10) })
-      .select("expoPushToken fcmToken notificationPrefs")
+      .select("expoPushToken fcmToken webPushSubscription notificationPrefs")
       .lean();
 
-    if (!user?.expoPushToken && !user?.fcmToken) return;
+    if (!user?.expoPushToken && !user?.fcmToken && !user?.webPushSubscription) return;
     if (user.notificationPrefs?.voicemail === false) return;
 
     const data = { type: "voicemail", extension: ext };
 
     if (user.fcmToken) {
       await sendFcmDataMessage(user.fcmToken, data);
+    }
+    if (user.webPushSubscription) {
+      await sendWebPush(user.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } }, data);
     }
     if (user.expoPushToken) {
       await sendExpoPush(
@@ -642,10 +669,10 @@ class FreeSwitchESL {
 
     await connectDB();
     const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
-      .select("expoPushToken fcmToken notificationPrefs dnd")
+      .select("expoPushToken fcmToken webPushSubscription notificationPrefs dnd")
       .lean();
 
-    if (!destUser?.expoPushToken && !destUser?.fcmToken) return;
+    if (!destUser?.expoPushToken && !destUser?.fcmToken && !destUser?.webPushSubscription) return;
     if (destUser.dnd) {
       logger.info({ destExt }, "[ESL] Push skipped — callee has DND enabled");
       return;
@@ -675,6 +702,12 @@ class FreeSwitchESL {
 
     if (destUser.fcmToken) {
       await sendFcmDataMessage(destUser.fcmToken, pushData);
+    }
+    if (destUser.webPushSubscription) {
+      await sendWebPush(
+        destUser.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+        { ...pushData, title: "Incoming Call", body: `${callerDisplay} is calling you` },
+      );
     }
     if (destUser.expoPushToken) {
       await sendExpoPush(
@@ -751,10 +784,10 @@ class FreeSwitchESL {
   private async sendMissedCallPush(fsCallId: string, destExt: string, callerExt: string) {
     await connectDB();
     const destUser = await UserModel.findOne({ extension: parseInt(destExt) })
-      .select("expoPushToken fcmToken notificationPrefs")
+      .select("expoPushToken fcmToken webPushSubscription notificationPrefs")
       .lean();
 
-    if (!destUser?.expoPushToken && !destUser?.fcmToken) return;
+    if (!destUser?.expoPushToken && !destUser?.fcmToken && !destUser?.webPushSubscription) return;
     if (destUser.notificationPrefs?.missedCalls === false) return;
 
     // Resolve caller's phone/name so the push body never exposes raw extensions
@@ -779,6 +812,12 @@ class FreeSwitchESL {
 
     if (destUser.fcmToken) {
       await sendFcmDataMessage(destUser.fcmToken, pushData);
+    }
+    if (destUser.webPushSubscription) {
+      await sendWebPush(
+        destUser.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+        { ...pushData, title: "Missed Call", body: `You missed a call from ${callerDisplay}` },
+      );
     }
     if (destUser.expoPushToken) {
       await sendExpoPush(

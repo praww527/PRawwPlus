@@ -67,6 +67,11 @@ export interface IUser extends Document<string> {
   freeswitchPort?: number;
   expoPushToken?: string;
   fcmToken?: string;
+  webPushSubscription?: {
+    endpoint: string;
+    expirationTime?: number | null;
+    keys: { auth: string; p256dh: string };
+  };
   notificationPrefs: INotificationPrefs;
   verified?: boolean;
   verificationStatus?: "none" | "pending" | "approved" | "rejected";
@@ -130,6 +135,19 @@ const UserSchema = new Schema<IUser>(
     freeswitchPort: { type: Number },
     expoPushToken: { type: String },
     fcmToken: { type: String },
+    webPushSubscription: {
+      type: new Schema({
+        endpoint:       { type: String, required: true },
+        expirationTime: { type: Number },
+        keys: {
+          type: new Schema({
+            auth:   { type: String, required: true },
+            p256dh: { type: String, required: true },
+          }, { _id: false }),
+          required: true,
+        },
+      }, { _id: false }),
+    },
     verified: { type: Boolean, default: false },
     verificationStatus: { type: String, enum: ["none", "pending", "approved", "rejected"], default: "none" },
     verificationDocUrl: { type: String },

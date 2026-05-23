@@ -442,6 +442,46 @@ router.delete("/users/push-token", async (req: Request, res: Response) => {
   res.json({ message: "Push token removed" });
 });
 
+router.get("/users/vapid-public-key", (_req: Request, res: Response) => {
+  const key = process.env.VAPID_PUBLIC_KEY;
+  if (!key) {
+    res.status(503).json({ error: "Web push not configured on this server" });
+    return;
+  }
+  res.json({ key });
+});
+
+router.post("/users/web-push-subscription", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  const { subscription } = req.body as {
+    subscription?: { endpoint?: string; keys?: { auth?: string; p256dh?: string } };
+  };
+
+  if (!subscription?.endpoint || !subscription?.keys?.auth || !subscription?.keys?.p256dh) {
+    res.status(400).json({ error: "Invalid push subscription" });
+    return;
+  }
+
+  await UserModel.updateOne({ _id: userId }, { $set: { webPushSubscription: subscription } });
+  res.json({ message: "Web push subscription saved" });
+});
+
+router.delete("/users/web-push-subscription", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+  await UserModel.updateOne({ _id: userId }, { $unset: { webPushSubscription: 1 } });
+  res.json({ message: "Web push subscription removed" });
+});
+
 router.post("/users/fcm-token", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
