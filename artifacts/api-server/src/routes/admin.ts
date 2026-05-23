@@ -167,6 +167,39 @@ router.get("/admin/users/:userId", requireAdmin, async (req, res) => {
   });
 });
 
+// Force-terminate all active sessions for a user (admin action)
+router.delete("/admin/users/:userId/sessions", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+  const user = await UserModel.findById(userId);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  let deleted = 0;
+  try {
+    const result = await SessionModel.deleteMany({ "sess.user.id": userId } as any);
+    deleted = result.deletedCount ?? 0;
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete sessions" });
+    return;
+  }
+
+  try {
+    const admin = req.user as any;
+    const { AuditLog } = await import("../models/AuditLog");
+    await AuditLog.create({
+      action: "FORCE_LOGOUT",
+      adminId: admin?._id ?? admin?.id,
+      adminEmail: admin?.email,
+      targetId: userId,
+      targetLabel: user.email,
+      details: { sessionsDeleted: deleted },
+      ip: req.ip,
+    });
+  } catch { /* audit log is best-effort */ }
+
+  res.json({ ok: true, sessionsDeleted: deleted });
+});
+
 router.post("/admin/users/:userId/approve", requireAdmin, async (req, res) => {
   await connectDB();
   const { userId } = req.params;

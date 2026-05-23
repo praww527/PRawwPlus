@@ -9,6 +9,7 @@ import {
 } from "react";
 import { VertoClient, type VertoConfig, type HangupCause } from "@/lib/verto";
 import { useMakeCall } from "@workspace/api-client-react";
+import { connectionStore } from "@/hooks/useConnectionStatus";
 
 export type CallState = "idle" | "outgoing" | "incoming" | "active";
 export type CallPhase = "calling" | "ringing" | "connected" | "ended";
@@ -161,8 +162,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!vertoConfig?.configured || !vertoConfig.wsUrl) return;
 
     const client = new VertoClient(vertoConfig, {
-      onConnected:    () => { setIsVertoConnected(true); setVertoError(null); },
-      onDisconnected: () => setIsVertoConnected(false),
+      onConnected:    () => {
+        setIsVertoConnected(true);
+        setVertoError(null);
+        connectionStore.setVertoReady(true);
+        fetch("/api/metrics/reconnect", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event: "reconnect_success" }),
+        }).catch(() => {});
+      },
+      onDisconnected: () => {
+        setIsVertoConnected(false);
+        connectionStore.setVertoReady(false);
+        connectionStore.setReconnecting(true);
+      },
       onError:        (err) => { console.warn("[Verto]", err); setVertoError(err); },
 
       onRinging: (_callId) => {

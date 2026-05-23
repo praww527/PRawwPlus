@@ -20,11 +20,12 @@ import {
 
 const TABS = [
   { id: "overview",      label: "Overview",      icon: BarChart3   },
+  { id: "observability", label: "Observability", icon: Activity    },
   { id: "users",         label: "Users",         icon: Users       },
-  { id: "live",          label: "Live Calls",    icon: Activity    },
+  { id: "live",          label: "Live Calls",    icon: PhoneCall   },
   { id: "errors",        label: "Errors",        icon: AlertTriangle },
   { id: "system",        label: "System",        icon: Server      },
-  { id: "push",          label: "Push",          icon: PhoneCall   },
+  { id: "push",          label: "Push",          icon: Bell        },
   { id: "referrals",     label: "Referrals",     icon: Link2       },
   { id: "earnings",      label: "Earnings",      icon: BadgeDollarSign },
   { id: "expenses",      label: "Expenses",      icon: Receipt     },
@@ -3129,6 +3130,167 @@ function ErrorsTab({ onSwitchTab }: { onSwitchTab: (tab: any) => void }) {
   );
 }
 
+// ─── Observability / Metrics Tab ───────────────────────────────────────────────
+
+interface MetricsSnapshot {
+  startedAt: string;
+  uptimeSeconds: number;
+  activeVertoClients: number;
+  activeSipClients: number;
+  activeCalls: number;
+  callsInitiated: number;
+  callsAnswered: number;
+  callsFailed: number;
+  wsDisconnectsVerto: number;
+  wsDisconnectsSip: number;
+  iceFailures: number;
+  registrationFailures: number;
+  reconnectAttempts: number;
+  reconnectSuccesses: number;
+  reconnectFailures: number;
+  upstreamDisconnectsVerto: number;
+  upstreamDisconnectsSip: number;
+  callSetupLatency: { p50: number; p95: number; p99: number; count: number };
+}
+
+function MetricCard({ label, value, sub, color }: { label: string; value: React.ReactNode; sub?: string; color?: string }) {
+  return (
+    <div style={{
+      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+      borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4,
+    }}>
+      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.07em" }}>{label}</span>
+      <span style={{ fontSize: 26, fontWeight: 700, color: color ?? "rgba(255,255,255,0.9)", lineHeight: 1 }}>{value}</span>
+      {sub && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{sub}</span>}
+    </div>
+  );
+}
+
+function fmtUptime(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function ObservabilityTab() {
+  const [data, setData] = React.useState<MetricsSnapshot | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = React.useState<Date | null>(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      const snap = await adminFetch("/metrics/json");
+      setData(snap);
+      setLastRefresh(new Date());
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load metrics");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    load();
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  if (loading && !data) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "20px 0", color: "rgba(255,255,255,0.35)" }}>
+      <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Loading metrics…
+    </div>
+  );
+
+  if (error && !data) return (
+    <div style={{ padding: "16px", background: "rgba(255,69,58,0.1)", border: "1px solid rgba(255,69,58,0.25)", borderRadius: 10, color: "#ff453a", fontSize: 13 }}>
+      {error}
+    </div>
+  );
+
+  if (!data) return null;
+
+  const answerRate = data.callsInitiated > 0
+    ? Math.round((data.callsAnswered / data.callsInitiated) * 100)
+    : 0;
+  const failRate = data.callsInitiated > 0
+    ? Math.round((data.callsFailed / data.callsInitiated) * 100)
+    : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.85)", margin: 0 }}>Real-Time Platform Metrics</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {lastRefresh && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>Updated {formatDistanceToNow(lastRefresh, { addSuffix: true })}</span>}
+          <button onClick={load} style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: "4px 10px", color: "rgba(255,255,255,0.5)", fontSize: 11, cursor: "pointer" }}>
+            <RefreshCw size={10} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Active gauges */}
+      <div>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Live State</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+          <MetricCard label="Active Calls"    value={data.activeCalls}        color={data.activeCalls > 0 ? "#30d158" : undefined} />
+          <MetricCard label="Verto Clients"   value={data.activeVertoClients} color={data.activeVertoClients > 0 ? "#1a8cff" : undefined} />
+          <MetricCard label="SIP Clients"     value={data.activeSipClients}   color={data.activeSipClients > 0 ? "#bf5af2" : undefined} />
+          <MetricCard label="Uptime"          value={fmtUptime(data.uptimeSeconds)} />
+        </div>
+      </div>
+
+      {/* Call counters */}
+      <div>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Calls (since restart)</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+          <MetricCard label="Initiated"   value={data.callsInitiated} />
+          <MetricCard label="Answered"    value={data.callsAnswered}  color={data.callsAnswered > 0 ? "#30d158" : undefined} sub={`${answerRate}% answer rate`} />
+          <MetricCard label="Failed"      value={data.callsFailed}    color={data.callsFailed > 0 ? "#ff453a" : undefined}  sub={`${failRate}% fail rate`} />
+        </div>
+      </div>
+
+      {/* Reliability counters */}
+      <div>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Reliability (since restart)</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+          <MetricCard label="WS Disconnects (Verto)" value={data.wsDisconnectsVerto}      color={data.wsDisconnectsVerto > 10 ? "#ff9f0a" : undefined} />
+          <MetricCard label="WS Disconnects (SIP)"   value={data.wsDisconnectsSip}        color={data.wsDisconnectsSip > 10 ? "#ff9f0a" : undefined} />
+          <MetricCard label="ICE Failures"           value={data.iceFailures}             color={data.iceFailures > 0 ? "#ff453a" : undefined} />
+          <MetricCard label="Reg. Failures"          value={data.registrationFailures}    color={data.registrationFailures > 0 ? "#ff9f0a" : undefined} />
+          <MetricCard label="FS Disconnects (Verto)" value={data.upstreamDisconnectsVerto} color={data.upstreamDisconnectsVerto > 5 ? "#ff9f0a" : undefined} />
+          <MetricCard label="FS Disconnects (SIP)"   value={data.upstreamDisconnectsSip}  color={data.upstreamDisconnectsSip > 5 ? "#ff9f0a" : undefined} />
+          <MetricCard label="Reconnects"             value={data.reconnectAttempts}       />
+          <MetricCard label="Reconnect OK"           value={data.reconnectSuccesses}      color={data.reconnectSuccesses > 0 ? "#30d158" : undefined} />
+        </div>
+      </div>
+
+      {/* Latency */}
+      {data.callSetupLatency.count > 0 && (
+        <div>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Call Setup Latency ({data.callSetupLatency.count} samples)</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <MetricCard label="p50" value={`${data.callSetupLatency.p50}ms`} />
+            <MetricCard label="p95" value={`${data.callSetupLatency.p95}ms`} color={data.callSetupLatency.p95 > 3000 ? "#ff9f0a" : undefined} />
+            <MetricCard label="p99" value={`${data.callSetupLatency.p99}ms`} color={data.callSetupLatency.p99 > 5000 ? "#ff453a" : undefined} />
+          </div>
+        </div>
+      )}
+
+      {/* Prometheus scrape info */}
+      <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "12px 14px" }}>
+        <p style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.5)", margin: "0 0 4px" }}>Prometheus Scrape Endpoint</p>
+        <code style={{ fontSize: 11, color: "#a8ff78", fontFamily: "monospace" }}>/api/metrics</code>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "6px 0 0" }}>Add this URL to your Prometheus <code>scrape_configs</code> to collect all PRaww+ platform metrics.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -3172,6 +3334,7 @@ export default function Admin() {
       {/* Tab content */}
       <div>
         {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
+        {tab === "observability" && <ObservabilityTab />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
         {tab === "errors"        && <ErrorsTab onSwitchTab={setTab} />}

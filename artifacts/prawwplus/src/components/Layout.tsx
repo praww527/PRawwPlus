@@ -2,6 +2,8 @@ import { useRef, useState, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Phone, Clock, Users, Voicemail } from "lucide-react";
 import { VertoInit } from "@/components/VertoInit";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -24,6 +26,7 @@ export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
   const navRef     = useRef<HTMLDivElement>(null);
   const [pillRect, setPillRect] = useState({ left: 0, width: 44 });
+  const { isVertoReady, isOnline, isReconnecting } = useConnectionStatus();
 
   const activeIndex = navItems.findIndex((item) =>
     item.href === "/dashboard"
@@ -46,6 +49,7 @@ export function Layout({ children }: LayoutProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh", overflow: "hidden", background: "transparent" }}>
       <VertoInit />
+      <ConnectionBanner />
 
       <main style={{
         flex: 1,
@@ -107,6 +111,31 @@ export function Layout({ children }: LayoutProps) {
                   WebkitTapHighlightColor: "transparent", position: "relative", zIndex: 1,
                 }}
               >
+                {/* Connection status dot — only on the Phone/Keypad tab */}
+                {item.href === "/dashboard" && (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      right: "calc(50% - 14px)",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: !isOnline
+                        ? "#ff453a"
+                        : isReconnecting
+                        ? "#ff9f0a"
+                        : isVertoReady
+                        ? "#30d158"
+                        : "#636366",
+                      boxShadow: isVertoReady && isOnline
+                        ? "0 0 0 2px rgba(48,209,88,0.25)"
+                        : undefined,
+                      transition: "background 0.4s, box-shadow 0.4s",
+                    }}
+                  />
+                )}
                 <item.icon
                   style={{
                     width: 18, height: 18,

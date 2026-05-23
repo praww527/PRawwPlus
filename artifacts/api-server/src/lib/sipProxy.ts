@@ -12,6 +12,7 @@ import type { IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import { logger } from "./logger";
 import { getSshForwardUrl } from "./sshForwardServer";
+import { metrics } from "./metrics";
 
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 
@@ -71,7 +72,8 @@ export function createSipProxy(): WebSocketServer {
       client.close(1011, Buffer.from("upstream configuration failed"));
       return;
     }
-    logger.info({ upstreamUrl }, "SIP proxy: client connected, opening upstream");
+    metrics.activeSipClients++;
+    logger.info({ upstreamUrl, activeClients: metrics.activeSipClients }, "SIP proxy: client connected, opening upstream");
 
     const upstream = new WebSocket(upstreamUrl, ["sip"]);
 
@@ -106,6 +108,7 @@ export function createSipProxy(): WebSocketServer {
     });
 
     upstream.on("close", (code, reason) => {
+      metrics.upstreamDisconnectsSip++;
       const safe = safeCloseCode(code);
       logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: upstream closed");
       if (client.readyState === WebSocket.OPEN) client.close(safe, reason);
@@ -129,8 +132,10 @@ export function createSipProxy(): WebSocketServer {
 
     client.on("close", (code, reason) => {
       cleanup();
+      metrics.wsDisconnectsSip++;
+      metrics.activeSipClients = Math.max(0, metrics.activeSipClients - 1);
       const safe = safeCloseCode(code);
-      logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: client closed");
+      logger.info({ code, safe, reason: reason.toString(), activeClients: metrics.activeSipClients }, "SIP proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(safe, reason);
     });
 

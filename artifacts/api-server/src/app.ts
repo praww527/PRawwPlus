@@ -7,6 +7,7 @@ import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { csrfMiddleware } from "./middlewares/csrf";
 import { requestIdMiddleware } from "./middlewares/requestId";
 import { getTrustedClientIp } from "./lib/clientIp";
 import { captureError } from "./lib/errorStore";
@@ -188,6 +189,7 @@ app.use("/api/users/me/request-verification", express.json({ limit: "6mb" }));
 app.use(express.json({ limit: "256kb" }));
 app.use(express.urlencoded({ extended: true, limit: "256kb" }));
 app.use(authMiddleware);
+app.use(csrfMiddleware);
 
 app.use("/api/auth/login", rateLimit(10, 60_000));
 app.use("/api/auth/signup", rateLimit(5, 60_000));

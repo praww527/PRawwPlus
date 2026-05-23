@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useGetVertoConfig } from "@workspace/api-client-react";
 import { useCall } from "@/context/CallContext";
 import { phoneAudio } from "@/lib/phoneAudio";
+import { useVisibilityReconnect } from "@/hooks/useConnectionStatus";
 
 /**
  * Initialises the Verto WebSocket client once the user's config is loaded.
@@ -26,6 +27,17 @@ import { phoneAudio } from "@/lib/phoneAudio";
 export function VertoInit() {
   const { data } = useGetVertoConfig();
   const { setVertoConfig, callState, acceptCall, declineCall } = useCall();
+
+  // Re-trigger Verto config (which reconnects the WebSocket) when the tab
+  // becomes visible again and the connection is already lost.
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  useVisibilityReconnect(() => {
+    if (!dataRef.current) return;
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${proto}//${location.host}/api/verto/ws`;
+    setVertoConfig({ ...dataRef.current, wsUrl, configured: true });
+  });
 
   // Keep stable refs to the latest call handlers so the SW listener never
   // becomes stale and never needs to be re-registered on every state change.

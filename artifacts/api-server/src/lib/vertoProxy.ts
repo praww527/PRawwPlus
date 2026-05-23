@@ -18,6 +18,7 @@ import type { IncomingMessage } from "http";
 import type { Duplex } from "stream";
 import { logger } from "./logger";
 import { getSshForwardUrl } from "./sshForwardServer";
+import { metrics } from "./metrics";
 
 // Close codes that are "receive-only" — cannot be sent per RFC 6455 §7.4.2
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
@@ -109,7 +110,8 @@ export function createVertoProxy(): WebSocketServer {
       client.close(1011, Buffer.from("upstream configuration failed"));
       return;
     }
-    logger.info({ upstreamUrl }, "Verto proxy: browser connected, opening upstream");
+    metrics.activeVertoClients++;
+    logger.info({ upstreamUrl, activeClients: metrics.activeVertoClients }, "Verto proxy: browser connected, opening upstream");
 
     const upstream = new WebSocket(upstreamUrl, ["verto"]);
 
@@ -151,8 +153,18 @@ export function createVertoProxy(): WebSocketServer {
           if (method) {
             const params = (msg.params ?? {}) as Record<string, unknown>;
             const callID = params.callID as string | undefined;
-            if (method === "verto.bye") {
-              logger.info({ method, callID, cause: params.cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
+            if (method === "verto.invite") {
+              metrics.callsInitiated++;
+              metrics.activeCalls++;
+              logger.info({ method, callID }, "Verto ← FS [inbound call]");
+            } else if (method === "verto.answer") {
+              metrics.callsAnswered++;
+              logger.info({ method, callID }, "Verto ← FS [answered]");
+            } else if (method === "verto.bye") {
+              metrics.activeCalls = Math.max(0, metrics.activeCalls - 1);
+              const cause = params.cause as string | undefined;
+              if (cause && cause !== "NORMAL_CLEARING" && cause !== "ORIGINATOR_CANCEL") metrics.callsFailed++;
+              logger.info({ method, callID, cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
             } else if (method !== "verto.info") {
               logger.info({ method, callID }, "Verto ← FS");
             }
@@ -175,6 +187,7 @@ export function createVertoProxy(): WebSocketServer {
     });
 
     upstream.on("close", (code, reason) => {
+      metrics.upstreamDisconnectsVerto++;
       const safe = safeCloseCode(code);
       logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: upstream closed");
       if (client.readyState === WebSocket.OPEN) {
@@ -208,6 +221,10 @@ export function createVertoProxy(): WebSocketServer {
             const params = (msg.params ?? {}) as Record<string, unknown>;
             const callID = params.callID as string | undefined;
             const to = (params.dialogParams as Record<string, unknown> | undefined)?.to;
+            if (method === "verto.invite") {
+              metrics.callsInitiated++;
+              metrics.activeCalls++;
+            }
             logger.info({ method, callID, to }, "Verto → FS");
           }
         } catch { /* not JSON — ignore */ }
@@ -216,8 +233,10 @@ export function createVertoProxy(): WebSocketServer {
 
     client.on("close", (code, reason) => {
       cleanup();
+      metrics.wsDisconnectsVerto++;
+      metrics.activeVertoClients = Math.max(0, metrics.activeVertoClients - 1);
       const safe = safeCloseCode(code);
-      logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: client closed");
+      logger.info({ code, safe, reason: reason.toString(), activeClients: metrics.activeVertoClients }, "Verto proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.close(safe, reason);
       }
