@@ -19,12 +19,18 @@ export async function sendAdminPush(
   let fcmSent  = false;
   let expoSent = false;
 
-  if (fcmToken) {
-    const projectId    = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail  = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey   = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  // Fire FCM and Expo in parallel — both are attempted whenever the token
+  // exists, rather than using Expo only as a fallback.  This maximises
+  // delivery reliability across Android (FCM) and iOS (Expo/APNs).
+  const tasks: Promise<void>[] = [];
 
-    if (projectId && clientEmail && privateKey) {
+  if (fcmToken) {
+    tasks.push((async () => {
+      const projectId    = process.env.FIREBASE_PROJECT_ID;
+      const clientEmail  = process.env.FIREBASE_CLIENT_EMAIL;
+      const privateKey   = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+      if (!projectId || !clientEmail || !privateKey) return;
       try {
         const now     = Math.floor(Date.now() / 1000);
         const payload = {
@@ -61,8 +67,14 @@ export async function sendAdminPush(
                   token: fcmToken,
                   notification: { title, body },
                   data: { ...data, title, body },
-                  android: { priority: "HIGH", ttl: "60s", notification: { channel_id: "admin" } },
-                  apns: { payload: { aps: { alert: { title, body }, sound: "default" } } },
+                  android: {
+                    priority: "HIGH",
+                    ttl: "60s",
+                    notification: { channel_id: "admin", sound: "default" },
+                  },
+                  apns: {
+                    payload: { aps: { alert: { title, body }, sound: "default" } },
+                  },
                 },
               }),
               signal: AbortSignal.timeout(15_000),
@@ -77,17 +89,21 @@ export async function sendAdminPush(
       } catch (err) {
         logger.error({ err }, "[FCM] sendAdminPush threw");
       }
-    }
+    })());
   }
 
-  if (!fcmSent && expoPushToken) {
-    try {
-      await sendExpoPush(expoPushToken, title, body, { ...data, title, body });
-      expoSent = true;
-    } catch (err) {
-      logger.error({ err }, "[Push] sendAdminPush Expo fallback threw");
-    }
+  if (expoPushToken) {
+    tasks.push((async () => {
+      try {
+        await sendExpoPush(expoPushToken, title, body, { ...data, title, body });
+        expoSent = true;
+      } catch (err) {
+        logger.error({ err }, "[Push] sendAdminPush Expo threw");
+      }
+    })());
   }
+
+  await Promise.all(tasks);
 
   return { fcmSent, expoSent };
 }

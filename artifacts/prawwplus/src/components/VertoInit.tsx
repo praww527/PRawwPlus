@@ -145,7 +145,21 @@ export function VertoInit() {
     }
 
     // ── Request notification permission + web-push subscription ─────────────
-    (async () => {
+    //
+    // iOS Safari 16.4+ supports Web Push but ONLY:
+    //   1. When the site is added to the Home Screen (standalone PWA mode)
+    //   2. When Notification.requestPermission() is called inside a user-gesture
+    //      handler (calling it outside a gesture is silently blocked on iOS)
+    //
+    // Strategy:
+    //   - Non-iOS browsers: subscribe immediately (Chrome/Firefox/Edge allow
+    //     permission prompts outside gesture handlers).
+    //   - iOS Safari: defer the permission request to the first user interaction
+    //     so it runs inside the gesture-handling stack required by iOS.
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as { MSStream?: unknown }).MSStream;
+
+    const setupPushSubscription = async () => {
       if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
       let permission = Notification.permission;
@@ -201,7 +215,20 @@ export function VertoInit() {
       } catch (err) {
         console.warn("[Push] Web push subscription error:", err);
       }
-    })();
+    };
+
+    if (isIOS) {
+      // Defer to the user-gesture unlock handler — required by iOS Safari.
+      const iosUnlock = () => {
+        setupPushSubscription().catch(() => {});
+        document.removeEventListener("click",      iosUnlock, true);
+        document.removeEventListener("touchstart", iosUnlock, true);
+      };
+      document.addEventListener("click",      iosUnlock, { capture: true, once: true });
+      document.addEventListener("touchstart", iosUnlock, { capture: true, once: true });
+    } else {
+      setupPushSubscription().catch(() => {});
+    }
 
     return () => {
       document.removeEventListener("click",      unlock, true);

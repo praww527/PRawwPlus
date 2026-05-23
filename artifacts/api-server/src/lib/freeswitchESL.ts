@@ -122,7 +122,7 @@ async function sendExpoPush(
 async function sendFcmDataMessage(
   fcmToken: string,
   data: Record<string, string>,
-  notification?: { title: string; body: string },
+  androidNotification?: { title: string; body: string },
 ): Promise<void> {
   const projectId   = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -180,16 +180,20 @@ async function sendFcmDataMessage(
           message: {
             token: fcmToken,
             data,
-            ...(notification ? { notification } : {}),
             android: {
               priority: "HIGH",
               ttl: "30s",
-              ...(notification ? { notification: { channelId: "calls", sound: "default", defaultVibrateTimings: false, vibrateTimingsMillis: ["0", "250", "250", "250"] } } : {}),
+              ...(androidNotification ? {
+                notification: {
+                  title: androidNotification.title,
+                  body: androidNotification.body,
+                  channelId: "calls",
+                  sound: "default",
+                  defaultVibrateTimings: false,
+                  vibrateTimingsMillis: ["0", "250", "250", "250"],
+                },
+              } : {}),
             },
-            apns: notification ? {
-              payload: { aps: { alert: { title: notification.title, body: notification.body }, sound: "default", badge: 1, contentAvailable: true } },
-              headers: { "apns-priority": "10" },
-            } : undefined,
           },
         }),
         signal: AbortSignal.timeout(15_000),
