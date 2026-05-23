@@ -33,7 +33,7 @@ router.patch("/users/me/profile-image", async (req: Request, res: Response) => {
     return;
   }
   if (profileImage.length > 4_000_000) {
-    res.status(400).json({ error: "Image too large (max 3MB)" });
+    res.status(400).json({ error: "Image too large (max 4MB)" });
     return;
   }
   const user = await UserModel.findByIdAndUpdate(

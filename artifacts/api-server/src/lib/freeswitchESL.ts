@@ -199,6 +199,7 @@ async function sendFcmDataMessage(
 async function sendWebPush(
   subscription: { endpoint: string; keys: { auth: string; p256dh: string } },
   data: Record<string, string>,
+  userId?: string,
 ): Promise<void> {
   const vapidPublicKey  = process.env.VAPID_PUBLIC_KEY;
   const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
@@ -213,7 +214,12 @@ async function sendWebPush(
     logger.info({ endpointPrefix: subscription.endpoint.slice(0, 40) }, "[Push] Web push sent OK");
   } catch (err: any) {
     if (err?.statusCode === 410 || err?.statusCode === 404) {
-      logger.info("[Push] Web push subscription expired/gone — will be cleaned up on next login");
+      logger.info({ userId, endpointPrefix: subscription.endpoint.slice(0, 40) }, "[Push] Web push subscription expired/gone — removing");
+      if (userId) {
+        await UserModel.updateOne({ _id: userId }, { $unset: { webPushSubscription: 1 } }).catch((dbErr: unknown) => {
+          logger.warn({ dbErr }, "[Push] Failed to remove stale web push subscription");
+        });
+      }
     } else {
       logger.error({ err }, "[Push] Failed to send web push notification");
     }
@@ -615,7 +621,7 @@ class FreeSwitchESL {
       await sendFcmDataMessage(user.fcmToken, data);
     }
     if (user.webPushSubscription) {
-      await sendWebPush(user.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } }, data);
+      await sendWebPush(user.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } }, data, String(user._id));
     }
     if (user.expoPushToken) {
       await sendExpoPush(
@@ -707,6 +713,7 @@ class FreeSwitchESL {
       await sendWebPush(
         destUser.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
         { ...pushData, title: "Incoming Call", body: `${callerDisplay} is calling you` },
+        String(destUser._id),
       );
     }
     if (destUser.expoPushToken) {
@@ -817,6 +824,7 @@ class FreeSwitchESL {
       await sendWebPush(
         destUser.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
         { ...pushData, title: "Missed Call", body: `You missed a call from ${callerDisplay}` },
+        String(destUser._id),
       );
     }
     if (destUser.expoPushToken) {

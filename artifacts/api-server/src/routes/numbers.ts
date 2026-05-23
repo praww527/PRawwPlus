@@ -266,6 +266,15 @@ router.post("/numbers/change", async (req, res) => {
     return;
   }
 
+  const availableNum = await PhoneNumberModel.findOne({ number: newPhoneNumber, userId: null });
+  if (!availableNum) {
+    res.status(404).json({
+      error: "number_unavailable",
+      message: "The requested phone number is not available. Please choose a different number.",
+    });
+    return;
+  }
+
   const paymentId = randomUUID();
   const base = getBaseUrl(req);
   const { merchantId, merchantKey, passphrase, paymentUrl } = getPayFastCredentials();

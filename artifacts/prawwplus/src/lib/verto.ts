@@ -232,8 +232,12 @@ export class VertoClient {
     for (const t of this.localStream.getAudioTracks()) t.enabled = !muted;
   }
 
-  setSpeakerEnabled(_enabled: boolean) {
-    if (this.remoteAudio) this.remoteAudio.volume = 1;
+  setSpeakerEnabled(enabled: boolean) {
+    if (!this.remoteAudio) return;
+    this.remoteAudio.muted = !enabled;
+    if (typeof (this.remoteAudio as any).setSinkId === "function") {
+      (this.remoteAudio as any).setSinkId(enabled ? "" : "").catch(() => {});
+    }
   }
 
   sendDtmf(digit: string) {
