@@ -8,7 +8,7 @@
  * Set APP_URL in your environment to the public-facing domain of the application.
  */
 export function getAppUrl(): string {
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  if (process.env.APP_URL) return process.env.APP_URL.trim().replace(/\/$/, "");
   return "";
 }
 
@@ -20,10 +20,11 @@ export function getAppUrl(): string {
 export function getBaseUrl(req: { headers: Record<string, string | string[] | undefined> }): string {
   const appUrl = getAppUrl();
   if (appUrl) return appUrl;
-  const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-  const host =
+  const proto = ((req.headers["x-forwarded-proto"] as string) || "https").trim();
+  const host = (
     (req.headers["x-forwarded-host"] as string) ||
     (req.headers["host"] as string) ||
-    "localhost";
+    "localhost"
+  ).trim();
   return `${proto}://${host}`;
 }

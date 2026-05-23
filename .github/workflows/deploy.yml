@@ -70,6 +70,7 @@ jobs:
           script: |
             set -e
             DEPLOY_DIR="${{ secrets.VPS_DEPLOY_DIR }}"
+            DEPLOY_DIR="${DEPLOY_DIR//[[:space:]]/}"
 
             echo "==> [1/7] Pull latest code"
             git -C "$DEPLOY_DIR" pull origin "$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
