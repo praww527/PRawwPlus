@@ -12,6 +12,7 @@ import {
   AnnouncementModel,
   AbuseFlagModel,
   SessionModel,
+  AuditLogModel,
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
@@ -20,6 +21,7 @@ import { sendAdminPush } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
 import { logger } from "../lib/logger";
+import { logAdminAction } from "../lib/auditLogger";
 
 const router: IRouter = Router();
 
@@ -204,6 +206,7 @@ router.post("/admin/users/:userId/lock", requireAdmin, async (req, res) => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.locked = true;
   await user.save();
+  logAdminAction(req, { action: "user.lock", targetType: "user", targetId: userId, targetLabel: user.email ?? user.username ?? userId });
   res.json({ message: "User locked", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -214,6 +217,7 @@ router.post("/admin/users/:userId/unlock", requireAdmin, async (req, res) => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.locked = false;
   await user.save();
+  logAdminAction(req, { action: "user.unlock", targetType: "user", targetId: userId, targetLabel: user.email ?? user.username ?? userId });
   res.json({ message: "User unlocked", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -241,6 +245,7 @@ router.post("/admin/users/:userId/set-role", requireAdmin, async (req, res) => {
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
+  const prevRole = user.role;
   user.role = role;
   user.isAdmin = role === "admin";
 
@@ -266,6 +271,7 @@ router.post("/admin/users/:userId/set-role", requireAdmin, async (req, res) => {
     }
   } catch { /* non-critical — user will see new role on next login if this fails */ }
 
+  logAdminAction(req, { action: "user.set-role", targetType: "user", targetId: userId, targetLabel: user.email ?? user.username ?? userId, details: { role, prevRole } });
   res.json({ message: `Role set to ${role}`, user: { ...user.toObject(), id: user._id } });
 });
 
@@ -278,6 +284,7 @@ router.post("/admin/users/:userId/verify-email", requireAdmin, async (req, res) 
   user.verificationToken = undefined;
   user.verificationTokenExpiry = undefined;
   await user.save();
+  logAdminAction(req, { action: "user.verify-email", targetType: "user", targetId: userId, targetLabel: user.email ?? userId });
   res.json({ message: "Email verified successfully", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -296,6 +303,7 @@ router.post("/admin/users/:userId/verify-phone", requireAdmin, async (req, res) 
   user.phoneOtpAttempts = 0;
   user.phoneOtpLockedUntil = undefined;
   await user.save();
+  logAdminAction(req, { action: "user.verify-phone", targetType: "user", targetId: userId, targetLabel: user.phone ?? userId });
   res.json({ message: "Phone number verified successfully", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -307,6 +315,7 @@ router.post("/admin/users/:userId/grant-badge", requireAdmin, async (req, res) =
   user.verified = true;
   user.verificationStatus = "approved";
   await user.save();
+  logAdminAction(req, { action: "user.grant-badge", targetType: "user", targetId: userId, targetLabel: user.email ?? user.username ?? userId });
   res.json({ message: "Verified badge granted", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -318,6 +327,7 @@ router.post("/admin/users/:userId/reject-badge", requireAdmin, async (req, res) 
   user.verified = false;
   user.verificationStatus = "rejected";
   await user.save();
+  logAdminAction(req, { action: "user.reject-badge", targetType: "user", targetId: userId, targetLabel: user.email ?? user.username ?? userId });
   res.json({ message: "Verification rejected", user: { ...user.toObject(), id: user._id } });
 });
 
@@ -343,10 +353,7 @@ router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res)
   const prevCoins = user.coins;
   user.coins = Math.max(0, user.coins + parsed);
   await user.save();
-  logger.info(
-    { adminId: (req as any).user?._id, targetUserId: userId, adjustment: parsed, prevCoins, newCoins: user.coins },
-    "Admin credit adjustment applied",
-  );
+  logAdminAction(req, { action: "user.adjust-credit", targetType: "user", targetId: userId, targetLabel: user.email ?? user.username ?? userId, details: { adjustment: parsed, prevCoins, newCoins: user.coins } });
   res.json({ ...user.toObject(), id: user._id });
 });
 
@@ -1275,6 +1282,27 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) =>
     dialplan:   dialplanXml(fsHost),
     sipProfile: sipProfileXml(fsHost, appUrl ?? ""),
   });
+});
+
+// ── Audit Logs ─────────────────────────────────────────────────────────────────
+
+router.get("/admin/audit-logs", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { page, limit, skip } = parsePageLimit(req.query);
+  const { adminId, action, targetType, targetId } = req.query;
+
+  const filter: Record<string, unknown> = {};
+  if (adminId)    filter.adminId    = adminId;
+  if (action)     filter.action     = action;
+  if (targetType) filter.targetType = targetType;
+  if (targetId)   filter.targetId   = targetId;
+
+  const [logs, total] = await Promise.all([
+    AuditLogModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AuditLogModel.countDocuments(filter),
+  ]);
+
+  res.json({ logs, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
 export default router;

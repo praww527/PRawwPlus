@@ -210,18 +210,25 @@ router.post("/payments/webhook", async (req, res) => {
       return;
     }
 
-    if (payment.status === "completed") {
-      res.sendStatus(200);
-      return;
-    }
-
+    // Atomic idempotency lock: use findOneAndUpdate with a $ne filter so only
+    // the first concurrent webhook delivery wins. Any replay or duplicate delivery
+    // will find status already "completed" and return null — safe to ACK and exit.
     const now = new Date();
     const nextPayment = new Date(now);
     nextPayment.setMonth(nextPayment.getMonth() + 1);
 
-    await PaymentModel.updateOne({ _id: m_payment_id }, { status: "completed", completedAt: now });
+    const claimed = await PaymentModel.findOneAndUpdate(
+      { _id: m_payment_id, status: { $ne: "completed" } },
+      { $set: { status: "completed", completedAt: now } },
+      { new: false },
+    );
+    if (!claimed) {
+      // Already processed — acknowledge and exit
+      res.sendStatus(200);
+      return;
+    }
 
-    const targetUserId = payment.userId;
+    const targetUserId = claimed.userId;
 
     // ── Referral commission (30%) ──────────────────────────────────────────
     try {

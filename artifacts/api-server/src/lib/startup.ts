@@ -25,7 +25,66 @@ function generateSipPassword(): string {
   return pw;
 }
 
+// ── Environment validation ───────────────────────────────────────────────────
+// Called once at startup. Warns on missing/weak settings so developers and
+// ops see clear guidance in the logs rather than cryptic runtime failures.
+function validateEnv(): void {
+  const isProduction = process.env.NODE_ENV === "production";
+
+  const required: Array<{ key: string; note?: string }> = [
+    { key: "MONGODB_URI",       note: "MongoDB connection string — DB features will not work" },
+    { key: "SESSION_SECRET",    note: "Cookie signing secret — sessions are insecure without this" },
+    { key: "APP_URL",           note: "Canonical domain URL — PayFast callbacks and CORS will be unreliable" },
+  ];
+
+  const recommended: Array<{ key: string; note: string }> = [
+    { key: "PAYFAST_MERCHANT_ID",   note: "Required for live payments (sandbox used in dev only)" },
+    { key: "PAYFAST_MERCHANT_KEY",  note: "Required for live payments" },
+    { key: "FREESWITCH_DOMAIN",     note: "Required for SIP/WebRTC calling" },
+    { key: "FREESWITCH_ESL_PASSWORD", note: "Required for FreeSWITCH event socket" },
+    { key: "VAPID_PUBLIC_KEY",      note: "Required for web push notifications" },
+    { key: "VAPID_PRIVATE_KEY",     note: "Required for web push notifications" },
+    { key: "SENDGRID_API_KEY",      note: "Required for transactional email delivery" },
+  ];
+
+  const missing = required.filter((e) => !process.env[e.key]);
+  const missingRecommended = recommended.filter((e) => !process.env[e.key]);
+
+  if (missing.length > 0) {
+    for (const e of missing) {
+      logger.error({ key: e.key }, `[env] MISSING required variable: ${e.key} — ${e.note}`);
+    }
+    if (isProduction) {
+      logger.error("[env] One or more required environment variables are missing. The platform may not function correctly in production.");
+    }
+  }
+
+  if (missingRecommended.length > 0) {
+    for (const e of missingRecommended) {
+      logger.warn({ key: e.key }, `[env] Missing recommended variable: ${e.key} — ${e.note}`);
+    }
+  }
+
+  // Warn about weak or default secrets in production
+  if (isProduction) {
+    const secret = process.env.SESSION_SECRET ?? "";
+    if (secret.length < 32) {
+      logger.error("[env] SESSION_SECRET is too short (must be at least 32 characters) — sessions are insecure");
+    }
+    if (secret === "changeme" || secret === "secret" || secret === "development") {
+      logger.error("[env] SESSION_SECRET is using a default/weak value — change this before deploying");
+    }
+  }
+
+  if (missing.length === 0 && missingRecommended.length === 0) {
+    logger.info("[env] All environment variables validated OK");
+  }
+}
+
 export async function runStartup(): Promise<void> {
+  // ── 0. Validate environment ─────────────────────────────────────────────
+  validateEnv();
+
   // ── 1. Connect to MongoDB ────────────────────────────────────────────────
   const uri = process.env.MONGODB_URI ?? process.env.MONGO_URI;
   if (!uri) {

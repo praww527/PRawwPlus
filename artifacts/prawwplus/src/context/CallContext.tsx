@@ -139,6 +139,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pollIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollAttemptsRef   = useRef(0);
   const hangupTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Epoch counter — incremented each time a new call starts (outgoing or incoming).
+  // Guards stale async callbacks and timers from mutating state for a new call.
+  const callEpochRef      = useRef(0);
 
   const { mutateAsync: createCallRecord } = useMakeCall();
 
@@ -168,6 +171,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       onIncoming: (callId, callerNumber, sdp) => {
         if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
+        const epoch = ++callEpochRef.current;
         incomingSdpRef.current = sdp;
         // Always store the raw Verto caller ID (extension or phone) in the ref
         // so acceptCall() can use it for the inbound call record.
@@ -195,6 +199,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           fetch(`/api/users/extension-lookup?extension=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string; phone?: string | null } | null) => {
+              if (callEpochRef.current !== epoch) return; // stale — new call started
               setCallInfo((prev) => {
                 if (prev?.callId !== callId) return prev;
                 return {
@@ -214,6 +219,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           fetch(`/api/users/phone-lookup?phone=${encodeURIComponent(callerNumber)}`)
             .then((r) => r.ok ? r.json() : null)
             .then((data: { found: boolean; name?: string } | null) => {
+              if (callEpochRef.current !== epoch) return; // stale — new call started
               if (data?.found) {
                 setCallInfo((prev) =>
                   prev?.callId === callId
@@ -269,14 +275,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
           try { incomingNotificationRef.current.close(); } catch {}
           incomingNotificationRef.current = null;
         }
+        const epochAtHangup = callEpochRef.current;
         const info = resolveHangupInfo(hc);
         setHangupInfo(info);
         setCallPhase("ended");
         if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
         hangupTimerRef.current = setTimeout(() => {
           hangupTimerRef.current = null;
-          setCallState("idle");
-          setCallInfo(null);
+          // Only reset state if no new call has started since this hangup fired.
+          // This prevents a delayed onHangup from a previous call from clearing
+          // a new call that started in the 3-second window.
+          if (callEpochRef.current === epochAtHangup) {
+            setCallState("idle");
+            setCallInfo(null);
+          }
         }, 3000);
       },
     });
@@ -360,6 +372,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const startOutgoing = useCallback((info: CallInfo) => {
     if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
+    callEpochRef.current += 1; // new call epoch — invalidates any pending stale timers
     setHangupInfo(null);
     setCallInfo(info);
     setCallPhase("calling");

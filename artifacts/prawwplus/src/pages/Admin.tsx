@@ -31,6 +31,7 @@ const TABS = [
   { id: "payouts",       label: "Payouts",       icon: CreditCard  },
   { id: "abuse",         label: "Calls & Abuse", icon: ShieldAlert },
   { id: "announcements", label: "Announcements", icon: Megaphone   },
+  { id: "audit",         label: "Audit Log",     icon: FileText    },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -1946,7 +1947,11 @@ function SystemTab() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const pushConfig = async () => {
     setPushing(true);
@@ -2481,7 +2486,126 @@ export default function Admin() {
         {tab === "payouts"       && <PayoutsTab />}
         {tab === "abuse"         && <CallsAbuseTab />}
         {tab === "announcements" && <AnnouncementsTab />}
+        {tab === "audit"         && <AuditTab />}
       </div>
+    </div>
+  );
+}
+
+// ─── Audit Log Tab ─────────────────────────────────────────────────────────────
+interface AuditEntry {
+  _id: string;
+  adminId: string;
+  adminEmail?: string;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  targetLabel?: string;
+  details?: Record<string, unknown>;
+  ip?: string;
+  createdAt: string;
+}
+
+const ACTION_COLOR: Record<string, string> = {
+  "user.lock":           "#f87171",
+  "user.unlock":         "#34d399",
+  "user.set-role":       "#a78bfa",
+  "user.adjust-credit":  "#fbbf24",
+  "user.grant-badge":    "#60a5fa",
+  "user.reject-badge":   "#f87171",
+  "user.verify-email":   "#34d399",
+  "user.verify-phone":   "#34d399",
+};
+
+function AuditTab() {
+  const { toast } = useToast();
+  const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const LIMIT = 25;
+
+  const load = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const data = await adminFetch(`/admin/audit-logs?page=${p}&limit=${LIMIT}`);
+      setLogs(data.logs ?? []);
+      setTotal(data.total ?? 0);
+      setPage(p);
+    } catch (e: any) {
+      toast({ title: "Failed to load audit logs", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => { load(1); }, [load]);
+
+  const totalPages = Math.ceil(total / LIMIT);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Audit Log</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Immutable record of all admin actions — retained for 2 years</p>
+        </div>
+        <button onClick={() => load(1)} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: loading ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)", opacity: loading ? 0.5 : 1 }}>
+          <RefreshCw style={{ width: 11, height: 11, animation: loading ? "spin 1s linear infinite" : "none" }} />
+          Refresh
+        </button>
+      </div>
+
+      {loading && logs.length === 0 && (
+        <div className="space-y-2">
+          {[1,2,3,4,5].map((i) => <div key={i} className="rounded-xl bg-white/[0.04] animate-pulse" style={{ height: 52 }} />)}
+        </div>
+      )}
+
+      {!loading && logs.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px 0", color: "rgba(255,255,255,0.25)", fontSize: 13 }}>
+          No audit log entries yet. Admin actions will appear here.
+        </div>
+      )}
+
+      {logs.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {logs.map((entry) => {
+            const actionColor = ACTION_COLOR[entry.action] ?? "rgba(255,255,255,0.45)";
+            return (
+              <div key={entry._id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div style={{ flexShrink: 0, width: 8, height: 8, borderRadius: "50%", background: actionColor, marginTop: 5 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: actionColor, fontFamily: "monospace" }}>{entry.action}</span>
+                    {entry.targetLabel && (
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.targetLabel}</span>
+                    )}
+                    {entry.details && Object.keys(entry.details).length > 0 && (
+                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontFamily: "monospace" }}>
+                        {Object.entries(entry.details).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ")}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 12, marginTop: 3, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>by {entry.adminEmail ?? entry.adminId}</span>
+                    {entry.ip && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", fontFamily: "monospace" }}>{entry.ip}</span>}
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>{formatDistanceToNow(new Date(entry.createdAt), { addSuffix: true })}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, paddingTop: 4 }}>
+          <button onClick={() => load(page - 1)} disabled={page <= 1 || loading} style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 600, border: "none", cursor: page <= 1 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: page <= 1 ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)" }}>← Prev</button>
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>Page {page} of {totalPages}</span>
+          <button onClick={() => load(page + 1)} disabled={page >= totalPages || loading} style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 600, border: "none", cursor: page >= totalPages ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: page >= totalPages ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)" }}>Next →</button>
+        </div>
+      )}
     </div>
   );
 }

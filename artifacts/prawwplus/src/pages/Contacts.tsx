@@ -235,6 +235,7 @@ export default function Contacts() {
   const { data: callData } = useListCalls({ limit: 500 });
   const prompted = useRef(false);
 
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const { data: contactsData, isLoading, refetch } = useListContacts();
   const createContact = useCreateContact();
   const bulkImport = useBulkImportContacts();
@@ -298,11 +299,17 @@ export default function Contacts() {
   };
 
   const handleDelete = async (contactId: string, name: string) => {
+    setPendingDeleteIds((prev) => new Set([...prev, contactId]));
     try {
       await deleteContact.mutateAsync({ contactId });
-      await refetch();
       toast({ title: `${name} removed` });
-    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
+    } catch {
+      setPendingDeleteIds((prev) => { const s = new Set(prev); s.delete(contactId); return s; });
+      toast({ title: "Failed to delete", variant: "destructive" });
+      return;
+    }
+    setPendingDeleteIds((prev) => { const s = new Set(prev); s.delete(contactId); return s; });
+    refetch();
   };
 
   const handleCall = async (number: string, name?: string) => {
@@ -330,6 +337,7 @@ export default function Contacts() {
   const contacts: any[] = contactsData?.contacts ?? [];
 
   const filteredContacts = contacts.filter((c: any) => {
+    if (pendingDeleteIds.has(c._id ?? c.id)) return false;
     const q = query.toLowerCase();
     const matchesSearch = c.name.toLowerCase().includes(q) || c.number.includes(q);
     if (!matchesSearch) return false;
