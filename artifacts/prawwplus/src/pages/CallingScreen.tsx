@@ -189,15 +189,29 @@ export default function CallingScreen() {
     switch (cause) {
       case "USER_BUSY":
         return "busy";
-      case "ORIGINATOR_CANCEL":
-      case "CALL_REJECTED":
-        return "failed";
       case "NO_ANSWER":
       case "RECOVERY_ON_TIMER_EXPIRE":
+      case "RECOVERY_ON_TIMER_EXPIRY":
         return "no-answer";
       case "NORMAL_CLEARING":
       case "ALLOTTED_TIMEOUT":
+      case "ATTENDED_TRANSFER":
         return "completed";
+      case "ORIGINATOR_CANCEL":
+      case "CALL_REJECTED":
+      case "UNREGISTERED":
+      case "USER_NOT_REGISTERED":
+      case "SUBSCRIBER_ABSENT":
+      case "DESTINATION_OUT_OF_ORDER":
+      case "NO_ROUTE_DESTINATION":
+      case "UNALLOCATED_NUMBER":
+      case "INCOMPATIBLE_DESTINATION":
+      case "MANDATORY_IE_MISSING":
+      case "SERVICE_UNAVAILABLE":
+      case "NETWORK_OUT_OF_ORDER":
+      case "CHAN_NOT_IMPLEMENTED":
+      case "FACILITY_NOT_IMPLEMENTED":
+        return "failed";
       default:
         return "failed";
     }
