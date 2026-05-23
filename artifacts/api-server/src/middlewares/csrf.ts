@@ -47,6 +47,13 @@ export function csrfMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
+  // Bearer-token clients (mobile app) are immune to CSRF — attackers cannot forge
+  // the Authorization header in a cross-site request, so no token check is needed.
+  if (req.headers["authorization"]?.startsWith("Bearer ")) {
+    next();
+    return;
+  }
+
   // Ensure every response carries a fresh CSRF token cookie (SameSite=Strict)
   let token = req.cookies?.[CSRF_COOKIE] as string | undefined;
   if (!token || token.length < 32) {
