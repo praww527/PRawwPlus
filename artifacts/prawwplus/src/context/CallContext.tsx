@@ -231,16 +231,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
             .catch(() => {});
         }
 
-        // Browser notification when the tab is not in focus
+        // Browser notification when the tab is not in focus.
+        // Use the local `callerNumber` value here — state updates (setCallInfo)
+        // are async and callInfo won't reflect the new call yet.
         if (
           document.hidden &&
           "Notification" in window &&
           Notification.permission === "granted"
         ) {
           try {
-            const n = new Notification("Incoming Call — PRaww+", {
-              body: "Incoming call",
-              icon: "/favicon.ico",
+            const displayCaller = looksInternal ? "PRaww+ User" : callerNumber;
+            const n = new Notification("📞 Incoming Call — PRaww+", {
+              body: `${displayCaller} is calling`,
+              icon: "/favicon.svg",
               tag: "incoming-call",
               requireInteraction: true,
             });

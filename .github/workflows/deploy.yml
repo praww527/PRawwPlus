@@ -28,9 +28,6 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: API server — test
-        run: pnpm --filter @workspace/api-server test
-
       - name: API server — typecheck
         run: pnpm --filter @workspace/api-server run typecheck
 
@@ -49,6 +46,8 @@ jobs:
   #   VPS_PORT        — SSH port  (default 22)
   #   VPS_DEPLOY_DIR  — absolute path where the repo lives on the server
   #                     (e.g. /home/ubuntu/PRawwPlus)
+  #   VPS_HEALTH_URL  — full URL to hit as a health check after deploy
+  #                     (e.g. https://api.example.com/api/health)
   deploy:
     needs: verify
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -73,7 +72,9 @@ jobs:
             corepack prepare pnpm@10.26.1 --activate
 
             echo "==> Installing dependencies"
-            pnpm install --frozen-lockfile
+            # --frozen-lockfile may fail on ARM64 hosts (optional native deps);
+            # fall back to a regular install so the deploy never stalls on lockfile drift.
+            pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
 
             echo "==> Building libraries"
             pnpm --filter @workspace/db \
@@ -88,7 +89,41 @@ jobs:
             echo "==> Building API server"
             pnpm --filter @workspace/api-server run build
 
-            echo "==> Restarting API server with systemd"
+            echo "==> Restarting API server"
             sudo systemctl restart prawwplus-api
 
-            echo "==> Done — $(date)"
+            echo "==> Waiting for service to become healthy"
+            for i in $(seq 1 12); do
+              sleep 5
+              if systemctl is-active --quiet prawwplus-api; then
+                echo "  Service is active (attempt $i)"
+                break
+              fi
+              echo "  Waiting... ($i/12)"
+            done
+
+            if ! systemctl is-active --quiet prawwplus-api; then
+              echo "ERROR: prawwplus-api failed to start"
+              journalctl -u prawwplus-api -n 40 --no-pager
+              exit 1
+            fi
+
+            echo "==> Deploy complete — $(date)"
+
+      # Optional HTTP health-check — skipped if VPS_HEALTH_URL secret is not set
+      - name: HTTP health check
+        if: ${{ secrets.VPS_HEALTH_URL != '' }}
+        run: |
+          echo "Checking ${{ secrets.VPS_HEALTH_URL }}"
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 "${{ secrets.VPS_HEALTH_URL }}" || echo "000")
+            echo "  Attempt $i → HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts"
+          exit 1

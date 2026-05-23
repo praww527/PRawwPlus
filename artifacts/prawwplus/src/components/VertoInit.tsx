@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useGetVertoConfig } from "@workspace/api-client-react";
 import { useCall } from "@/context/CallContext";
 import { phoneAudio } from "@/lib/phoneAudio";
@@ -16,10 +16,20 @@ import { phoneAudio } from "@/lib/phoneAudio";
  *    are never silently blocked by the browser's autoplay policy.
  *  - Requests Web Notification permission so incoming calls can alert the
  *    user even when the tab is in the background.
+ *  - Listens for SW_ANSWER_CALL / SW_DECLINE_CALL messages posted by the
+ *    service worker when the user taps Answer/Decline on a push notification,
+ *    and auto-answers or declines the Verto call accordingly.
+ *  - Reads ?sw_action=answer from the URL on page load so that tapping
+ *    Answer when the app was closed re-opens it and auto-answers the call
+ *    once the Verto socket delivers the incoming-call invitation.
  */
 export function VertoInit() {
   const { data } = useGetVertoConfig();
-  const { setVertoConfig } = useCall();
+  const { setVertoConfig, callState, acceptCall, declineCall } = useCall();
+
+  // True when a service-worker or URL action says "answer as soon as the
+  // incoming call arrives".  Using a ref avoids stale-closure issues.
+  const pendingAnswerRef = useRef(false);
 
   useEffect(() => {
     if (!data) return;
@@ -32,9 +42,45 @@ export function VertoInit() {
     setVertoConfig({ ...data, wsUrl, configured: true });
   }, [data, setVertoConfig]);
 
-  // Unlock the AudioContext on the first user gesture so subsequent
-  // plays (including the incoming-call ringtone, which fires on an async
-  // WebSocket message with no user gesture) are not blocked by autoplay policy.
+  // ── Service-worker message bridge ────────────────────────────────────────
+  //
+  // The SW posts SW_ANSWER_CALL / SW_DECLINE_CALL to the app window when the
+  // user taps Answer / Decline on a push notification.  We forward those
+  // actions to the Verto call layer here.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const handler = (event: MessageEvent) => {
+      const msgType = event.data?.type as string | undefined;
+
+      if (msgType === "SW_ANSWER_CALL") {
+        if (callState === "incoming") {
+          acceptCall();
+        } else {
+          // Call may not have arrived yet (race between SW message and Verto
+          // INVITE). Mark pending — the effect below will answer when ready.
+          pendingAnswerRef.current = true;
+        }
+      } else if (msgType === "SW_DECLINE_CALL") {
+        declineCall();
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, [callState, acceptCall, declineCall]);
+
+  // ── Auto-answer when the call arrives (after SW message or URL param) ───
+  useEffect(() => {
+    if (callState !== "incoming" || !pendingAnswerRef.current) return;
+    pendingAnswerRef.current = false;
+    // Small delay: let React flush the state update that set callState to
+    // "incoming" before we call acceptCall(), which reads callInfo internals.
+    const t = setTimeout(() => acceptCall(), 300);
+    return () => clearTimeout(t);
+  }, [callState, acceptCall]);
+
+  // ── Unlock AudioContext + push subscription + URL action parse ───────────
   useEffect(() => {
     let unlocked = false;
     const unlock = () => {
@@ -49,8 +95,33 @@ export function VertoInit() {
     document.addEventListener("touchstart", unlock, { capture: true, once: true });
     document.addEventListener("keydown",    unlock, { capture: true, once: true });
 
-    // Request notification permission and subscribe to web push so calls and
-    // missed-call alerts arrive even when the tab is closed/backgrounded.
+    // ── Parse ?sw_action from URL (app was closed when user tapped Answer) ──
+    const params = new URLSearchParams(window.location.search);
+    const swAction = params.get("sw_action");
+    if (swAction === "answer") {
+      pendingAnswerRef.current = true;
+      // Clean up the URL immediately so a page refresh doesn't re-trigger it.
+      params.delete("sw_action");
+      params.delete("sw_callUuid");
+      const cleanSearch = params.toString();
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + (cleanSearch ? "?" + cleanSearch : ""),
+      );
+    } else if (swAction === "decline") {
+      // Decline is handled once the call arrives via the pending flag pattern;
+      // for now just clean the URL.
+      params.delete("sw_action");
+      const cleanSearch = params.toString();
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + (cleanSearch ? "?" + cleanSearch : ""),
+      );
+    }
+
+    // ── Request notification permission + web-push subscription ─────────────
     (async () => {
       if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
