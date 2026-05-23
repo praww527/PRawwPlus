@@ -591,6 +591,24 @@ class FreeSwitchESL {
               .catch((e) => logger.error({ err: e }, "[ESL] Missed call record error"));
           }
 
+          // Also notify the CALLER when the call could not be connected.
+          // The Verto bye covers the case where the tab is in focus; this push
+          // covers the case where the caller backgrounded their app after dialling.
+          const shouldNotifyCaller = (
+            hangupCause === "UNREGISTERED"            ||
+            hangupCause === "USER_NOT_REGISTERED"     ||
+            hangupCause === "SUBSCRIBER_ABSENT"       ||
+            hangupCause === "DESTINATION_OUT_OF_ORDER"||
+            hangupCause === "NO_ANSWER"               ||
+            hangupCause === "RECOVERY_ON_TIMER_EXPIRE"||
+            hangupCause === "CALL_REJECTED"
+          );
+          if (origEntry && shouldNotifyCaller) {
+            const { destExt, callerExt } = origEntry;
+            this.sendCallerCallFailedPush(callerExt, destExt, hangupCause)
+              .catch((e) => logger.error({ err: e }, "[Push] Caller call-failed push error"));
+          }
+
           enqueueEslEvent(
             uuid,
             "CHANNEL_HANGUP_COMPLETE",
@@ -802,6 +820,72 @@ class FreeSwitchESL {
       logger.info({ destExt, callerExt, hangupCause }, "[ESL] Missed call record created for callee");
     } catch (err) {
       logger.error({ err, destExt, callerExt }, "[ESL] Failed to create missed call record for callee");
+    }
+  }
+
+  /**
+   * Notifies the CALLER via push when their outbound call could not be connected —
+   * covers cases where the callee was unregistered, didn't answer, or declined.
+   * The Verto bye already updates the caller's UI if the tab is in focus, but this
+   * push ensures they are informed even when the app is backgrounded.
+   */
+  private async sendCallerCallFailedPush(callerExt: string, destExt: string, hangupCause: string) {
+    if (!/^[1-9]\d{3}$/.test(callerExt)) return;
+    await connectDB();
+    const callerUser = await UserModel.findOne({ extension: parseInt(callerExt, 10) })
+      .select("expoPushToken fcmToken webPushSubscription notificationPrefs")
+      .lean();
+
+    if (!callerUser?.expoPushToken && !callerUser?.fcmToken && !callerUser?.webPushSubscription) return;
+
+    // Resolve callee's display name / number
+    const destExtNum = /^[1-9]\d{3}$/.test(destExt) ? parseInt(destExt, 10) : null;
+    let destDisplay = destExt;
+    if (destExtNum) {
+      const destUser = await UserModel.findOne({ extension: destExtNum })
+        .select("name phone phoneVerified")
+        .lean();
+      destDisplay = destUser?.name ?? (destUser?.phoneVerified ? (destUser?.phone ?? destExt) : destExt);
+    }
+
+    let title: string;
+    let body: string;
+    let type: string;
+    if (
+      hangupCause === "UNREGISTERED" ||
+      hangupCause === "USER_NOT_REGISTERED" ||
+      hangupCause === "SUBSCRIBER_ABSENT" ||
+      hangupCause === "DESTINATION_OUT_OF_ORDER"
+    ) {
+      title = "Call Not Connected";
+      body  = `${destDisplay} is not available right now.`;
+      type  = "call_failed_unavailable";
+    } else if (hangupCause === "CALL_REJECTED") {
+      title = "Call Declined";
+      body  = `${destDisplay} is not available right now.`;
+      type  = "call_failed_declined";
+    } else {
+      // NO_ANSWER / RECOVERY_ON_TIMER_EXPIRE
+      title = "Call Not Answered";
+      body  = `${destDisplay} did not answer your call.`;
+      type  = "call_failed_no_answer";
+    }
+
+    logger.info({ callerExt, destExt, hangupCause }, "[Push] Sending caller call-failed notification");
+    const pushData: Record<string, string> = { type, title, body, toExtension: destExt };
+
+    if (callerUser.fcmToken) {
+      await sendFcmDataMessage(callerUser.fcmToken, pushData, { title, body });
+    }
+    if (callerUser.webPushSubscription) {
+      await sendWebPush(
+        callerUser.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+        pushData,
+        String(callerUser._id),
+      );
+    }
+    if (callerUser.expoPushToken) {
+      await sendExpoPush(callerUser.expoPushToken, title, body, pushData);
     }
   }
 

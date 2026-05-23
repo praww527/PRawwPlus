@@ -210,6 +210,7 @@ export function VertoInit() {
         await fetch("/api/users/web-push-subscription", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ subscription: sub.toJSON() }),
         });
       } catch (err) {

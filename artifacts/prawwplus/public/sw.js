@@ -24,8 +24,8 @@ self.addEventListener("push", (event) => {
 
   if (data.type === "incoming_call") {
     const caller = data.fromPhone || data.fromExtension || "Unknown";
-    title  = "📞 Incoming Call";
-    body   = `${caller} is calling you`;
+    title  = data.title  || "📞 Incoming Call";
+    body   = data.body   || `${caller} is calling you`;
     tag    = "incoming-call";
     requireInteraction = true;
     vibrate = [300, 150, 300, 150, 300];
@@ -35,13 +35,22 @@ self.addEventListener("push", (event) => {
     ];
   } else if (data.type === "missed_call") {
     const caller = data.fromPhone || data.fromExtension || "Unknown";
-    title = "📵 Missed Call";
-    body  = `You missed a call from ${caller}`;
+    title = data.title || "📵 Missed Call";
+    body  = data.body  || `You missed a call from ${caller}`;
     tag   = "missed-call";
     vibrate = [200, 100, 200];
+  } else if (
+    data.type === "call_failed_unavailable" ||
+    data.type === "call_failed_declined"    ||
+    data.type === "call_failed_no_answer"
+  ) {
+    title = data.title || "Call Ended";
+    body  = data.body  || "Your call could not be connected.";
+    tag   = "call-failed";
+    vibrate = [150, 75, 150];
   } else if (data.type === "voicemail") {
-    title = "📬 New Voicemail";
-    body  = data.body ?? "You have a new voicemail message";
+    title = data.title || "📬 New Voicemail";
+    body  = data.body  || "You have a new voicemail message";
     tag   = "voicemail";
   }
 
