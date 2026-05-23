@@ -1449,6 +1449,38 @@ router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
   res.status(result.ok ? 200 : 500).json(result);
 });
 
+// ── TURN / ICE diagnostics ─────────────────────────────────────────────────────
+
+/**
+ * GET /admin/turn-config
+ * Returns the current TURN configuration mode without exposing secrets.
+ * Used by the admin UI to show whether managed TURN (HMAC) mode is active.
+ */
+router.get("/admin/turn-config", requireAdmin, (_req, res) => {
+  const turnSecretSet = Boolean(process.env.TURN_SECRET);
+  const turnHost      = process.env.TURN_HOST ?? null;
+  const managed       = turnSecretSet && Boolean(turnHost);
+
+  res.json({
+    turnSecretSet,
+    turnHostSet: Boolean(turnHost),
+    turnHost: turnHost ?? null,
+    mode: managed ? "auto" : "manual",
+    iceUrls: managed && turnHost
+      ? [
+          `stun:${turnHost}:3478`,
+          `turn:${turnHost}:3478?transport=udp`,
+          `turn:${turnHost}:3478?transport=tcp`,
+          `turns:${turnHost}:5349?transport=tcp`,
+        ]
+      : [],
+    note: managed
+      ? "HMAC time-limited credentials are generated per-request. " +
+        "Coturn must be configured with use-auth-secret and the same TURN_SECRET."
+      : "Set TURN_HOST and TURN_SECRET env vars to enable automatic HMAC credential generation.",
+  });
+});
+
 // ── Failed / errored calls ─────────────────────────────────────────────────────
 
 router.get("/admin/failed-calls", requireAdmin, async (req, res) => {

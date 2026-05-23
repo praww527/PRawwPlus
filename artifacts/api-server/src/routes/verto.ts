@@ -1,7 +1,33 @@
+import crypto from "crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel, SystemConfigModel } from "@workspace/db";
 import { assignExtensionIfNeeded } from "../lib/extension";
 import { getBaseUrl } from "../lib/appUrl";
+
+/**
+ * Generate time-limited TURN credentials using the Coturn REST API secret.
+ *
+ * Standard: https://tools.ietf.org/html/draft-uberti-behave-turn-rest-00
+ *   username  = "<expiry_unix_ts>:<userId>"
+ *   credential = HMAC-SHA1(secret, username) → base64
+ *
+ * Coturn must be configured with:
+ *   use-auth-secret
+ *   static-auth-secret=<TURN_SECRET>
+ */
+function generateTurnCredentials(
+  userId: string,
+  secret: string,
+  ttlSeconds = 86_400,
+): { username: string; credential: string } {
+  const expires  = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const username = `${expires}:${userId}`;
+  const credential = crypto
+    .createHmac("sha1", secret)
+    .update(username)
+    .digest("base64");
+  return { username, credential };
+}
 
 const router: IRouter = Router();
 
@@ -47,19 +73,49 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     { urls: "stun:stun4.l.google.com:19302" },
   ];
 
-  // ICE server priority: DB (admin-configurable) → ICE_SERVERS env var → built-in STUN defaults.
-  // The DB path is best for production because it takes effect immediately without a server restart.
-  let iceServers = defaultIceServers;
-  try {
-    const sysConfig = await SystemConfigModel.findById("singleton").lean();
-    if (sysConfig?.iceServers?.length) {
-      iceServers = sysConfig.iceServers as typeof defaultIceServers;
-    } else if (process.env.ICE_SERVERS) {
-      iceServers = JSON.parse(process.env.ICE_SERVERS);
-    }
-  } catch {
-    if (process.env.ICE_SERVERS) {
-      try { iceServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* use defaults */ }
+  // ── ICE server resolution ────────────────────────────────────────────────────
+  //
+  // Priority (highest → lowest):
+  //   1. TURN_SECRET + TURN_HOST env vars  → auto-generate time-limited HMAC
+  //      credentials for every request (Coturn REST API secret mode).
+  //      Returns: STUN + TURN UDP + TURN TCP + TURNS TLS entries.
+  //   2. DB (admin-configurable via /admin/ice-servers)
+  //   3. ICE_SERVERS env var (JSON array)
+  //   4. Built-in Google STUN defaults (STUN-only, not suitable for production)
+  //
+  let iceServers: { urls: string | string[]; username?: string; credential?: string }[] = defaultIceServers;
+
+  const turnSecret = process.env.TURN_SECRET;
+  const turnHost   = process.env.TURN_HOST;
+
+  if (turnSecret && turnHost) {
+    // Managed TURN mode — generate fresh short-lived credentials for this user.
+    const { username, credential } = generateTurnCredentials(userId, turnSecret);
+    iceServers = [
+      { urls: `stun:${turnHost}:3478` },
+      {
+        urls: [
+          `turn:${turnHost}:3478?transport=udp`,
+          `turn:${turnHost}:3478?transport=tcp`,
+          `turns:${turnHost}:5349?transport=tcp`,
+        ],
+        username,
+        credential,
+      },
+    ];
+  } else {
+    // Manual / fallback mode
+    try {
+      const sysConfig = await SystemConfigModel.findById("singleton").lean();
+      if (sysConfig?.iceServers?.length) {
+        iceServers = sysConfig.iceServers as typeof iceServers;
+      } else if (process.env.ICE_SERVERS) {
+        iceServers = JSON.parse(process.env.ICE_SERVERS);
+      }
+    } catch {
+      if (process.env.ICE_SERVERS) {
+        try { iceServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* use defaults */ }
+      }
     }
   }
 

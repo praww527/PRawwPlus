@@ -170,16 +170,43 @@ router.get("/healthz/turn", async (_req, res) => {
   const flat = probeResults.flat();
   const allReachable  = flat.every((r) => r.reachable);
   const hasTurn       = flat.some((r)  => r.isTurn);
-  const turnReachable = flat.filter((r) => r.isTurn).every((r) => r.reachable);
+  const onlyStun      = !hasTurn;
+  const turnReachable = hasTurn ? flat.filter((r) => r.isTurn).every((r) => r.reachable) : false;
 
-  res.json({
-    ok:         allReachable,
+  // Determine overall health — STUN-only is treated as a hard failure for
+  // production because symmetric NAT (mobile carriers, corporate firewalls)
+  // will drop peer-to-peer ICE candidates and calls will fail silently.
+  const ok = allReachable && hasTurn && turnReachable;
+
+  let summary: string;
+  if (onlyStun) {
+    summary =
+      "STUN-only — TURN server not configured. " +
+      "Calls will fail behind symmetric NAT (4G/LTE mobile, most corporate networks). " +
+      "Deploy Coturn and set TURN_HOST + TURN_SECRET env vars before production rollout.";
+  } else if (!allReachable) {
+    summary =
+      "One or more ICE servers are unreachable. " +
+      "Check firewall rules: ports 3478 TCP/UDP (TURN), 5349 TCP (TURNS/TLS), " +
+      "and relay UDP range 49152-65535 must be open.";
+  } else if (!turnReachable) {
+    summary =
+      "TURN server is configured but unreachable. " +
+      "Verify Coturn is running and ports 3478/5349 are open in the VPS firewall.";
+  } else {
+    summary = "TURN server reachable — relay candidates will be available for symmetric NAT traversal.";
+  }
+
+  res.status(ok ? 200 : 503).json({
+    ok,
     hasTurn,
-    turnReachable: hasTurn ? turnReachable : null,
-    servers:    flat,
-    summary: allReachable
-      ? "All ICE servers reachable via TCP"
-      : "One or more ICE servers unreachable — check firewall rules for port 3478/5349",
+    onlyStun,
+    turnReachable: hasTurn ? turnReachable : false,
+    servers: flat,
+    summary,
+    // Expose whether managed TURN mode (HMAC credentials) is active
+    managedTurn: Boolean(process.env.TURN_SECRET && process.env.TURN_HOST),
+    turnHost: process.env.TURN_HOST ?? null,
   });
 });
 

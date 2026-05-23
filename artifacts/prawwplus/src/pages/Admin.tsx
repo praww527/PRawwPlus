@@ -2206,6 +2206,7 @@ function SystemTab() {
   const [iceEditing, setIceEditing] = useState(false);
   const [iceList,    setIceList]    = useState<Array<{ urls: string; username: string; credential: string }>>([]);
   const [newIce,     setNewIce]     = useState({ urls: "", username: "", credential: "" });
+  const [turnConfig, setTurnConfig] = useState<{ turnSecretSet: boolean; turnHostSet: boolean; turnHost: string | null; mode: string; iceUrls: string[]; note: string } | null>(null);
 
   // Directory / call-path test state
   const [dirResult,  setDirResult]  = useState<any>(null);
@@ -2224,6 +2225,7 @@ function SystemTab() {
   useEffect(() => {
     load();
     loadIce();
+    loadTurnConfig();
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2264,6 +2266,13 @@ function SystemTab() {
     } catch (e: any) {
       toast({ title: "Failed to load ICE servers", description: e.message, variant: "destructive" });
     } finally { setIceLoading(false); }
+  };
+
+  const loadTurnConfig = async () => {
+    try {
+      const data = await adminFetch("/admin/turn-config");
+      setTurnConfig(data);
+    } catch { /* non-critical */ }
   };
 
   const saveIce = async () => {
@@ -2577,14 +2586,58 @@ function SystemTab() {
             </div>
           </div>
 
+          {/* TURN auto-config status panel */}
+          {turnConfig && (
+            <div style={{ margin: "0 0 0", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", background: turnConfig.mode === "auto" ? "rgba(48,209,88,0.04)" : "rgba(255,159,10,0.04)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 6, background: turnConfig.mode === "auto" ? "rgba(48,209,88,0.18)" : "rgba(255,159,10,0.18)", color: turnConfig.mode === "auto" ? "#30d158" : "#ff9f0a" }}>
+                  {turnConfig.mode === "auto" ? "AUTO / HMAC" : "MANUAL"}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: turnConfig.mode === "auto" ? "#30d158" : "#ff9f0a" }}>
+                  {turnConfig.mode === "auto"
+                    ? `Managed TURN active — ${turnConfig.turnHost}`
+                    : "TURN_SECRET / TURN_HOST not set — manual or STUN-only mode"}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.5 }}>{turnConfig.note}</p>
+              {turnConfig.mode === "auto" && turnConfig.iceUrls.length > 0 && (
+                <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+                  {turnConfig.iceUrls.map((u) => {
+                    const isTurn = u.startsWith("turn:") || u.startsWith("turns:");
+                    return (
+                      <span key={u} style={{ fontSize: 10, fontFamily: "monospace", color: isTurn ? "rgba(48,209,88,0.8)" : "rgba(255,255,255,0.3)" }}>
+                        {isTurn ? "↗ " : "◉ "}{u}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Effective server list (read mode) */}
           {!iceEditing && (
             <>
+              {/* Hard TURN-missing warning — shown when not in managed mode and no TURN in list */}
+              {turnConfig?.mode !== "auto" && iceData && !iceData.effective.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:")) && (
+                <div style={{ padding: "12px 16px", background: "rgba(255,69,58,0.10)", borderBottom: "2px solid rgba(255,69,58,0.35)" }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 700, color: "#ff453a" }}>
+                    ✕ No TURN server — calls will fail on 4G/mobile and behind NAT
+                  </p>
+                  <p style={{ margin: 0, fontSize: 11, color: "rgba(255,100,90,0.85)", lineHeight: 1.5 }}>
+                    Symmetric NAT (used by all mobile carriers and most corporate networks) drops direct ICE candidates.
+                    Without TURN relay, WebRTC calls silently fail to connect.
+                    Deploy Coturn and set <code style={{ fontSize: 10 }}>TURN_HOST</code> + <code style={{ fontSize: 10 }}>TURN_SECRET</code> for automatic HMAC credential mode,
+                    or add TURN entries manually above.
+                  </p>
+                </div>
+              )}
               {iceLoading && !iceData && (
                 <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.25)" }}>Loading…</div>
               )}
               {iceData && iceData.effective.map((s: any, i: number) => {
-                const isTurn = s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:");
+                const urlStr = Array.isArray(s.urls) ? s.urls.join(", ") : (s.urls ?? "");
+                const isTurn = urlStr.includes("turn:") || urlStr.includes("turns:");
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                     <span style={{
@@ -2594,20 +2647,13 @@ function SystemTab() {
                     }}>
                       {isTurn ? "TURN" : "STUN"}
                     </span>
-                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.urls}</span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{urlStr}</span>
                     {s.username && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontFamily: "monospace" }}>🔑 {s.username}</span>}
                   </div>
                 );
               })}
               {iceData && !iceData.effective.length && (
                 <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.25)" }}>No ICE servers configured</div>
-              )}
-              {iceData?.source === "defaults" && (
-                <div style={{ padding: "10px 16px", background: "rgba(255,159,10,0.06)", borderTop: "1px solid rgba(255,159,10,0.15)" }}>
-                  <p style={{ margin: 0, fontSize: 11, color: "#ff9f0a" }}>
-                    ⚠ Only STUN servers are active. Calls will fail behind symmetric NAT (most mobile networks, corporate firewalls). Add a TURN server above for reliable production calls.
-                  </p>
-                </div>
               )}
             </>
           )}
@@ -2686,36 +2732,66 @@ function SystemTab() {
         </SysSection>
 
         {/* ── Production checklist ── */}
-        <SysSection title="Production Checklist" icon={<CheckCircle2 style={{ width: 12, height: 12 }} />}>
-          {[
-            { label: "MongoDB URI set",             ok: health.envVars.find((v) => v.key === "MONGODB_URI")?.set ?? false },
-            { label: "Database connected",          ok: health.db.connected },
-            { label: "FreeSWITCH domain set",       ok: Boolean(health.config.domain) },
-            { label: "SSH key set (config push)",   ok: health.envVars.find((v) => v.key === "FREESWITCH_SSH_KEY")?.set ?? false },
-            { label: "ESL password set",            ok: health.envVars.find((v) => v.key === "FREESWITCH_ESL_PASSWORD")?.set ?? false },
-            { label: "ESL connected",               ok: health.esl.connected },
-            { label: "App URL set (HTTPS)",         ok: health.envVars.find((v) => v.key === "APP_URL")?.set ?? false },
-            { label: "Session secret set",          ok: health.envVars.find((v) => v.key === "SESSION_SECRET")?.set ?? false },
-            { label: "Webhook secret set",          ok: health.envVars.find((v) => v.key === "FREESWITCH_WEBHOOK_SECRET")?.set ?? false },
-            {
-              label: "TURN server configured (required for mobile/NAT)",
-              ok: Boolean(iceData && (
-                iceData.source === "database"
-                  ? iceData.dbServers.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:"))
-                  : iceData.source === "env"
-                    ? iceData.effective.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:"))
-                    : false
-              )),
-            },
-          ].map(({ label, ok }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-              {ok
-                ? <CheckCircle2 style={{ width: 14, height: 14, color: "#30d158", flexShrink: 0 }} />
-                : <AlertTriangle style={{ width: 14, height: 14, color: "#ff453a", flexShrink: 0 }} />}
-              <span style={{ fontSize: 12, color: ok ? "rgba(255,255,255,0.75)" : "#ff453a", fontWeight: ok ? 400 : 600 }}>{label}</span>
-            </div>
-          ))}
-        </SysSection>
+        {(() => {
+          const turnOk = Boolean(
+            turnConfig?.mode === "auto" ||
+            (iceData && (
+              iceData.source === "database"
+                ? iceData.dbServers.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:"))
+                : iceData.source === "env"
+                  ? iceData.effective.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:"))
+                  : false
+            ))
+          );
+          const checklist = [
+            { label: "MongoDB URI set",                                     ok: health.envVars.find((v) => v.key === "MONGODB_URI")?.set ?? false,                     critical: true },
+            { label: "Database connected",                                  ok: health.db.connected,                                                                    critical: true },
+            { label: "FreeSWITCH domain set",                               ok: Boolean(health.config.domain),                                                          critical: true },
+            { label: "SSH key set (config push)",                           ok: health.envVars.find((v) => v.key === "FREESWITCH_SSH_KEY")?.set ?? false,               critical: false },
+            { label: "ESL password set",                                    ok: health.envVars.find((v) => v.key === "FREESWITCH_ESL_PASSWORD")?.set ?? false,          critical: true },
+            { label: "ESL connected",                                       ok: health.esl.connected,                                                                   critical: true },
+            { label: "App URL set (HTTPS)",                                 ok: health.envVars.find((v) => v.key === "APP_URL")?.set ?? false,                         critical: true },
+            { label: "Session secret set",                                  ok: health.envVars.find((v) => v.key === "SESSION_SECRET")?.set ?? false,                  critical: true },
+            { label: "Webhook secret set",                                  ok: health.envVars.find((v) => v.key === "FREESWITCH_WEBHOOK_SECRET")?.set ?? false,       critical: false },
+            { label: "TURN relay configured — required for 4G/mobile/NAT", ok: turnOk,                                                                                 critical: true },
+          ];
+          const allGreen = checklist.every((c) => c.ok);
+          const criticalFail = checklist.some((c) => c.critical && !c.ok);
+          return (
+            <SysSection title="Production Checklist" icon={<CheckCircle2 style={{ width: 12, height: 12 }} />}>
+              {criticalFail && (
+                <div style={{ padding: "10px 16px", background: "rgba(255,69,58,0.08)", borderBottom: "1px solid rgba(255,69,58,0.2)" }}>
+                  <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#ff453a" }}>
+                    ✕ Critical items are not configured. Do not roll out to production until all red items are resolved.
+                  </p>
+                </div>
+              )}
+              {allGreen && (
+                <div style={{ padding: "10px 16px", background: "rgba(48,209,88,0.06)", borderBottom: "1px solid rgba(48,209,88,0.15)" }}>
+                  <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#30d158" }}>
+                    ✓ All checks pass — system is production ready.
+                  </p>
+                </div>
+              )}
+              {checklist.map(({ label, ok, critical }) => (
+                <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: (!ok && critical) ? "rgba(255,69,58,0.04)" : "transparent" }}>
+                  {ok
+                    ? <CheckCircle2 style={{ width: 14, height: 14, color: "#30d158", flexShrink: 0, marginTop: 1 }} />
+                    : <AlertTriangle style={{ width: 14, height: 14, color: critical ? "#ff453a" : "#ff9f0a", flexShrink: 0, marginTop: 1 }} />}
+                  <div>
+                    <span style={{ fontSize: 12, color: ok ? "rgba(255,255,255,0.75)" : (critical ? "#ff453a" : "#ff9f0a"), fontWeight: ok ? 400 : 600 }}>{label}</span>
+                    {!ok && critical && label.includes("TURN") && (
+                      <p style={{ margin: "3px 0 0", fontSize: 10, color: "rgba(255,100,90,0.7)", lineHeight: 1.4 }}>
+                        Set TURN_HOST + TURN_SECRET env vars and run deploy/coturn-setup.sh on your VPS.
+                        Ports required: 3478 TCP/UDP, 5349 TCP, 49152–65535 UDP (relay range).
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </SysSection>
+          );
+        })()}
 
       </>)}
     </div>
