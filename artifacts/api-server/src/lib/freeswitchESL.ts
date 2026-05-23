@@ -304,6 +304,23 @@ class FreeSwitchESL {
   /** Maps B-leg UUID → { destExt, callerExt } for missed-call push + DB record */
   private originateDestMap = new Map<string, { destExt: string; callerExt: string }>();
 
+  // ── bgapi job tracking ──────────────────────────────────────────────────────
+  // FreeSWITCH responds to every bgapi command with:
+  //   command/reply  →  Reply-Text: +OK Job-UUID: <uuid>
+  // Then later fires a BACKGROUND_JOB event with the actual result (+OK / -ERR).
+  // We track in-flight commands in a FIFO queue so we can correlate Job-UUID
+  // with the command that was sent (ESL socket is serial — replies are ordered).
+  private bgapiCmdQueue: Array<{
+    cmd:     string;
+    sentAt:  number;
+    resolve: ((result: string) => void) | undefined;
+  }> = [];
+  private bgapiJobMap = new Map<string, {
+    cmd:     string;
+    sentAt:  number;
+    resolve: ((result: string) => void) | undefined;
+  }>();
+
   connect() {
     if (!ESL_HOST) {
       logger.warn("[ESL] FREESWITCH_DOMAIN not set — ESL disabled");
@@ -444,6 +461,11 @@ class FreeSwitchESL {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     clearAllHangupTimers();
     this.originateDestMap.clear();
+    // Flush pending bgapi promises so callers aren't left hanging
+    for (const item of this.bgapiCmdQueue)  item.resolve?.("-ERR ESL disconnected");
+    for (const item of this.bgapiJobMap.values()) item.resolve?.("-ERR ESL disconnected");
+    this.bgapiCmdQueue = [];
+    this.bgapiJobMap.clear();
     this.socket?.destroy?.();
     this.sshConn?.end();
     this.socket  = null;
@@ -467,23 +489,49 @@ class FreeSwitchESL {
     }
   }
 
-  sendApiCommand(apiCmd: string) {
+  sendApiCommand(apiCmd: string, resolve?: (result: string) => void) {
     if (!this.authenticated) {
       logger.warn({ apiCmd }, "[ESL] sendApiCommand called while not authenticated — ignored");
+      resolve?.("-ERR not authenticated");
       return;
     }
-    // Log call-control commands at INFO so they appear in standard logs
+    // Log call-control commands at INFO — include the FULL originate string so
+    // admins can verify the dial-string, sofia profile, and domain are correct.
     const isCallCmd = apiCmd.startsWith("uuid_kill")    ||
                       apiCmd.startsWith("uuid_bridge")   ||
                       apiCmd.startsWith("uuid_transfer") ||
                       apiCmd.startsWith("originate")     ||
                       apiCmd.startsWith("sofia");
     if (isCallCmd) {
-      logger.info({ apiCmd }, "[ESL] ▶ sending ESL command");
+      logger.info({ apiCmd }, "[ESL] ▶ sending bgapi command (full originate string logged)");
     } else {
-      logger.debug({ apiCmd }, "[ESL] sending API command");
+      logger.debug({ apiCmd }, "[ESL] sending bgapi API command");
     }
+    // Push to the FIFO queue so we can correlate the Job-UUID that FreeSWITCH
+    // returns in command/reply with this specific command.
+    this.bgapiCmdQueue.push({ cmd: apiCmd, sentAt: Date.now(), resolve });
     this.sendLine(`bgapi ${apiCmd}`);
+  }
+
+  /**
+   * Like sendApiCommand but returns a Promise that resolves with the
+   * BACKGROUND_JOB result string (+OK … or -ERR …).
+   * Used by the synchronous diagnostics endpoint.
+   */
+  sendApiCommandAwait(apiCmd: string, timeoutMs = 10_000): Promise<string> {
+    return new Promise((resolve) => {
+      if (!this.authenticated) {
+        resolve("-ERR ESL not authenticated");
+        return;
+      }
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) { settled = true; resolve(`-ERR timeout after ${timeoutMs}ms`); }
+      }, timeoutMs);
+      this.sendApiCommand(apiCmd, (result) => {
+        if (!settled) { settled = true; clearTimeout(timer); resolve(result); }
+      });
+    });
   }
 
   private scheduleReconnect(reason?: string) {
@@ -553,19 +601,50 @@ class FreeSwitchESL {
     }
 
     if (ct === "command/reply") {
-      const reply = event.headers["Reply-Text"] ?? "";
+      const reply   = event.headers["Reply-Text"] ?? "";
+      const jobUuid = event.headers["Job-UUID"]   ?? "";
       if (reply.startsWith("+OK accepted")) {
         logger.info("[ESL] Authenticated — subscribing to call events");
-        this.authenticated = true;
+        this.authenticated    = true;
         this.reconnectAttempt = 0;
         lastConnectedAt = Date.now();
         // Wire the orchestrator's ESL command function now that we are authenticated
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));
-        this.sendLine("event plain CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_DESTROY MESSAGE_WAITING");
+        // Task 4: subscribe to BACKGROUND_JOB so bgapi originate results are captured.
+        // Without BACKGROUND_JOB we never learn if the originate was rejected by FS
+        // before any channel was created (the call stays INITIATED forever).
+        this.sendLine(
+          "event plain " +
+          "CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA " +
+          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE " +
+          "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB",
+        );
       } else if (reply.startsWith("+OK")) {
-        // Subscription/command ACK — ignore
+        // This is the bgapi Job-UUID ACK.  Pop the oldest queued command and
+        // register it in the job map so we can correlate the BACKGROUND_JOB result.
+        if (jobUuid) {
+          const pending = this.bgapiCmdQueue.shift();
+          if (pending) {
+            logger.debug({ jobUuid, cmd: pending.cmd.slice(0, 120) },
+              "[ESL] bgapi Job-UUID registered — awaiting BACKGROUND_JOB result");
+            this.bgapiJobMap.set(jobUuid, {
+              cmd:     pending.cmd,
+              sentAt:  pending.sentAt,
+              resolve: pending.resolve,
+            });
+          } else {
+            logger.warn({ jobUuid }, "[ESL] command/reply Job-UUID but bgapiCmdQueue was empty");
+          }
+        }
+        // else: subscription ACK (no Job-UUID) — ignore
       } else if (reply.startsWith("-ERR")) {
-        logger.error({ reply }, "[ESL] Auth/command error");
+        logger.error({ reply }, "[ESL] command/reply -ERR from FreeSWITCH");
+        // The front-of-queue command was rejected synchronously (before any BACKGROUND_JOB)
+        const failedCmd = this.bgapiCmdQueue.shift();
+        if (failedCmd) {
+          logger.error({ cmd: failedCmd.cmd, reply }, "[ESL] bgapi command rejected immediately by FreeSWITCH");
+          failedCmd.resolve?.(reply);
+        }
       }
       return;
     }
@@ -580,7 +659,56 @@ class FreeSwitchESL {
       // diagnostics panel can show exactly where the call flow stopped.
       if (uuid) recordEslTrace(uuid, evtName);
 
-      if (evtName === "CHANNEL_CREATE") {
+      // ── Task 5-6: BACKGROUND_JOB — bgapi result (including originate -ERR) ──────
+      if (evtName === "BACKGROUND_JOB") {
+        const jobUuid = body["Job-UUID"] ?? "";
+        // The job result lives in the nested body AFTER the BACKGROUND_JOB event
+        // headers.  FreeSWITCH uses a double-\n separator between event headers
+        // and the job result payload (just like the outer ESL envelope).
+        const headerEnd = event.body.indexOf("\n\n");
+        const jobResult = (headerEnd !== -1
+          ? event.body.slice(headerEnd + 2)
+          : "").trim();
+        const isErr = jobResult.startsWith("-ERR");
+
+        const pending = this.bgapiJobMap.get(jobUuid);
+        if (pending) {
+          this.bgapiJobMap.delete(jobUuid);
+          const elapsedMs = Date.now() - pending.sentAt;
+          if (isErr) {
+            // Task 6: -ERR from FS means the originate (or other command) was
+            // rejected BEFORE any channel was created — this is why ESL trace
+            // is completely empty.  Log at ERROR with the full command so the
+            // admin can see exactly what FS rejected and why.
+            logger.error({
+              jobUuid,
+              cmd:       pending.cmd,
+              result:    jobResult,
+              elapsedMs,
+            }, "[ESL] ▼ BACKGROUND_JOB -ERR — FreeSWITCH rejected command before channel creation; check originate string, sofia profile, and endpoint registration");
+          } else {
+            logger.info({
+              jobUuid,
+              cmd:       pending.cmd.slice(0, 120),
+              result:    jobResult.slice(0, 200),
+              elapsedMs,
+            }, "[ESL] ▼ BACKGROUND_JOB +OK");
+          }
+          pending.resolve?.(jobResult);
+        } else {
+          // Spontaneous BACKGROUND_JOB from FS-initiated operations (not from
+          // our bgapi commands, e.g. XML CDR, mod_event_socket built-ins).
+          if (isErr) {
+            logger.warn({ jobUuid, result: jobResult.slice(0, 200) },
+              "[ESL] BACKGROUND_JOB -ERR (no pending job tracked — spontaneous FS event)");
+          } else {
+            logger.debug({ jobUuid, result: jobResult.slice(0, 80) },
+              "[ESL] BACKGROUND_JOB +OK (spontaneous — no pending job)");
+          }
+        }
+        return; // BACKGROUND_JOB is not a channel event — skip channel handlers below
+
+      } else if (evtName === "CHANNEL_CREATE") {
         // Root-cause indicator: if no CHANNEL_CREATE fires, the ESL subscription
         // or originate command itself failed.  If CREATE fires but no PROGRESS
         // follows, the issue is routing/SIP delivery.
@@ -1265,4 +1393,18 @@ export function sendEslApiCommand(cmd: string): boolean {
   if (!eslClient?.isConnected()) return false;
   eslClient.sendApiCommand(cmd);
   return true;
+}
+
+/**
+ * Send a bgapi command to FreeSWITCH and await the BACKGROUND_JOB result.
+ * Returns the raw result string ("+OK ..." or "-ERR ...").
+ * Resolves with "-ERR ESL not connected" if ESL is down.
+ * Resolves with "-ERR timeout after Nms" if FreeSWITCH takes too long.
+ *
+ * Used by the synchronous diagnostics endpoint so admins see real FS output
+ * directly in the HTTP response rather than having to read server logs.
+ */
+export function sendEslBgapiAwait(cmd: string, timeoutMs = 10_000): Promise<string> {
+  if (!eslClient?.isConnected()) return Promise.resolve("-ERR ESL not connected");
+  return eslClient.sendApiCommandAwait(cmd, timeoutMs);
 }

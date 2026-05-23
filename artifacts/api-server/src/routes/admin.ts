@@ -18,7 +18,7 @@ import {
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
-import { eslStatus, sendEslApiCommand, getLastEslEvent, getEslTrace } from "../lib/freeswitchESL";
+import { eslStatus, sendEslApiCommand, sendEslBgapiAwait, getLastEslEvent, getEslTrace } from "../lib/freeswitchESL";
 import { sendAdminPush, sendWebPushToSubscription } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
@@ -1579,17 +1579,28 @@ router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) =>
  *   show calls count                       — total active call count
  *   status                                 — FS server health summary
  */
+// Tasks 7-10: Expanded whitelist — includes the actual profile name (prawwplus_mobile)
+// and registration queries so admins can verify ext 1003 is really registered.
 const ESL_DIAG_WHITELIST: Record<string, string> = {
-  "sofia status":                     "SIP profile status overview",
-  "sofia status profile internal":    "Internal SIP profile status",
-  "sofia status profile internal reg": "Registered endpoints on internal profile",
-  "sofia status profile external":    "External SIP profile status",
-  "show registrations":               "All registered SIP/Verto endpoints",
-  "show channels":                    "All active FreeSWITCH channels",
-  "show calls count":                 "Number of active calls on FreeSWITCH",
-  "status":                           "FreeSWITCH server health summary",
+  "sofia status":                              "SIP profile status overview (all profiles)",
+  "sofia status profile internal":             "Internal SIP profile status",
+  "sofia status profile internal reg":         "Registered endpoints on internal profile",
+  "sofia status profile external":             "External SIP profile status",
+  "sofia status profile prawwplus_mobile":     "PRaww+ mobile SIP profile status",
+  "sofia status profile prawwplus_mobile reg": "Registered endpoints on prawwplus_mobile profile",
+  "show registrations":                        "All registered SIP/Verto endpoints (all profiles)",
+  "show channels":                             "All active FreeSWITCH channels",
+  "show calls count":                          "Number of active calls on FreeSWITCH",
+  "show calls":                                "All active calls with UUID and state",
+  "status":                                    "FreeSWITCH server health summary",
+  "version":                                   "FreeSWITCH version",
 };
 
+/**
+ * POST /api/admin/diagnostics/esl
+ *
+ * Fire-and-forget variant (legacy).  Results appear in server logs only.
+ */
 router.post("/admin/diagnostics/esl", requireAdmin, async (req, res) => {
   const { command } = req.body;
   if (typeof command !== "string" || !Object.prototype.hasOwnProperty.call(ESL_DIAG_WHITELIST, command.trim())) {
@@ -1608,12 +1619,57 @@ router.post("/admin/diagnostics/esl", requireAdmin, async (req, res) => {
     return;
   }
 
-  logger.info({ command: command.trim(), adminId: (req as any).user?.id }, "[Admin] ESL diagnostic command sent");
+  logger.info({ command: command.trim(), adminId: (req as any).user?.id }, "[Admin] ESL diagnostic command sent (fire-and-forget)");
 
   res.json({
     ok:      true,
     command: command.trim(),
     note:    "Command sent via FreeSWITCH bgapi. Results appear asynchronously in server logs tagged [ESL].",
+  });
+});
+
+/**
+ * POST /api/admin/diagnostics/esl-sync
+ *
+ * Synchronous variant — waits for the BACKGROUND_JOB result from FreeSWITCH
+ * and returns it directly in the HTTP response.  Timeout: 10 s.
+ *
+ * This is the recommended endpoint for diagnostic use because it shows the
+ * actual FreeSWITCH output (registration table, channel list, etc.) rather
+ * than requiring the admin to read server logs.
+ *
+ * Tasks 7-10: use commands like:
+ *   "sofia status profile prawwplus_mobile reg" → verify ext 1003 is registered
+ *   "show channels"                             → see all active FS channels
+ *   "show registrations"                        → see all registered endpoints
+ */
+router.post("/admin/diagnostics/esl-sync", requireAdmin, async (req, res) => {
+  const { command } = req.body;
+  if (typeof command !== "string" || !Object.prototype.hasOwnProperty.call(ESL_DIAG_WHITELIST, command.trim())) {
+    res.status(400).json({
+      error:   "Command not in whitelist",
+      allowed: Object.entries(ESL_DIAG_WHITELIST).map(([cmd, desc]) => ({ command: cmd, description: desc })),
+    });
+    return;
+  }
+
+  const cmd = command.trim();
+  logger.info({ command: cmd, adminId: (req as any).user?.id }, "[Admin] ESL sync diagnostic command — awaiting FS response");
+
+  const result = await sendEslBgapiAwait(cmd, 10_000);
+  const isErr  = result.startsWith("-ERR");
+
+  if (isErr) {
+    logger.warn({ command: cmd, result }, "[Admin] ESL sync diagnostic — FreeSWITCH returned error");
+  } else {
+    logger.info({ command: cmd, resultLength: result.length }, "[Admin] ESL sync diagnostic — success");
+  }
+
+  res.status(isErr ? 502 : 200).json({
+    ok:      !isErr,
+    command: cmd,
+    result,
+    ts:      new Date().toISOString(),
   });
 });
 
