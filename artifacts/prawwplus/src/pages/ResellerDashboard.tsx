@@ -16,6 +16,7 @@ const TABS = [
   { id: "overview",  label: "Overview",  icon: BarChart3       },
   { id: "earnings",  label: "Earnings",  icon: BadgeDollarSign },
   { id: "referrals", label: "Referrals", icon: Users            },
+  { id: "customers", label: "Customers", icon: TrendingUp       },
   { id: "payouts",   label: "Payouts",   icon: CreditCard       },
 ] as const;
 
@@ -424,6 +425,97 @@ function PayoutsTab({ pendingEarnings }: { pendingEarnings: number }) {
 }
 
 // ─── Main Reseller Dashboard ───────────────────────────────────────────────────
+function CustomersTab() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    resellerFetch("/reseller/referrals?limit=100").then(setData).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Skel />;
+
+  const referrals: any[] = data?.referrals ?? [];
+  const sorted = [...referrals].sort((a, b) => (b.earnings?.total ?? 0) - (a.earnings?.total ?? 0));
+  const activeCount = sorted.filter((r) => (r.earnings?.count ?? 0) > 0).length;
+
+  return (
+    <div className="space-y-3">
+      {/* Summary row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", margin: 0, flex: 1 }}>
+          {data?.total ?? 0} referred users
+        </p>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#34d399", background: "rgba(52,211,153,0.1)", padding: "3px 9px", borderRadius: 8 }}>
+          {activeCount} with orders
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.06)", padding: "3px 9px", borderRadius: 8 }}>
+          {sorted.length - activeCount} inactive
+        </span>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, padding: "44px 20px", textAlign: "center" }}>
+          <Users style={{ width: 28, height: 28, color: "rgba(255,255,255,0.12)", margin: "0 auto 10px" }} />
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.25)", margin: 0 }}>No customers yet</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.15)", marginTop: 4 }}>Share your referral link to get started</p>
+        </div>
+      ) : (
+        <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 18, overflow: "hidden" }}>
+          {sorted.map((r, i) => {
+            const isActive = (r.earnings?.count ?? 0) > 0;
+            const initials = (r.name || r.username || "?").slice(0, 2).toUpperCase();
+            return (
+              <div key={r.id} style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+                {/* Avatar */}
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                  background: isActive ? "rgba(52,211,153,0.12)" : "rgba(255,255,255,0.06)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? "#34d399" : "rgba(255,255,255,0.3)" }}>{initials}</span>
+                </div>
+
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "#fff", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.name || r.username}
+                    </p>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, flexShrink: 0,
+                      color: isActive ? "#34d399" : "rgba(255,255,255,0.25)",
+                      background: isActive ? "rgba(52,211,153,0.1)" : "rgba(255,255,255,0.06)",
+                      padding: "2px 7px", borderRadius: 6,
+                    }}>
+                      {isActive ? "active" : "no orders"}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.email}
+                  </p>
+                </div>
+
+                {/* Revenue */}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  {isActive && (
+                    <p style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: "#34d399", margin: 0 }}>
+                      R{(r.earnings?.total ?? 0).toFixed(2)}
+                    </p>
+                  )}
+                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", margin: isActive ? "2px 0 0" : 0 }}>
+                    {r.earnings?.count ?? 0} order{(r.earnings?.count ?? 0) !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResellerDashboard() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabId>("overview");
@@ -549,6 +641,7 @@ export default function ResellerDashboard() {
           {tab === "overview"  && <OverviewTab stats={stats} />}
           {tab === "earnings"  && <EarningsTab />}
           {tab === "referrals" && <ReferralsTab />}
+          {tab === "customers" && <CustomersTab />}
           {tab === "payouts"   && <PayoutsTab pendingEarnings={stats?.pendingEarnings ?? 0} />}
         </>
       )}

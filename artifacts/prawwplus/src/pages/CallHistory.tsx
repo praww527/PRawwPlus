@@ -6,7 +6,7 @@ import { format } from "date-fns";
 import {
   PhoneOutgoing, ChevronLeft, ChevronRight,
   PhoneMissed, PhoneOff, Phone, Trash2, ChevronDown, ChevronUp,
-  PhoneIncoming, Voicemail, WifiOff, PhoneCall,
+  PhoneIncoming, Voicemail, WifiOff, PhoneCall, Search, X,
 } from "lucide-react";
 import { useCall } from "@/context/CallContext";
 import { useToast } from "@/hooks/use-toast";
@@ -65,6 +65,7 @@ function formatCallDate(dateStr: string | Date) {
 export default function CallHistory() {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<FilterType>("all");
+  const [search, setSearch] = useState("");
   const { data, isLoading } = useListCalls({ page, limit: 20 });
   const { mutateAsync: initiateCall } = useMakeCall();
   const { toast } = useToast();
@@ -112,7 +113,15 @@ export default function CallHistory() {
 
   const allCalls = (data?.calls ?? []).filter((c: any) => !deletedIds.has(c.id));
 
-  const filteredCalls = allCalls.filter((c: any) => {
+  const searchedCalls = search
+    ? allCalls.filter((c: any) => {
+        const q = search.toLowerCase();
+        const num = (c.recipientNumber ?? c.callerNumber ?? c.number ?? "").toLowerCase();
+        return num.includes(q);
+      })
+    : allCalls;
+
+  const filteredCalls = searchedCalls.filter((c: any) => {
     if (filter === "all")      return true;
     if (filter === "missed")   return c.status !== "completed";
     if (filter === "incoming") return (c.direction ?? "").toLowerCase().includes("in");
@@ -132,6 +141,32 @@ export default function CallHistory() {
         <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 3 }}>
           {data?.total ? `${data.total} calls` : "Your recent calls"}
         </p>
+      </div>
+
+      {/* Search input */}
+      <div style={{ position: "relative" }}>
+        <Search style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 14, height: 14, color: "var(--text-3)", pointerEvents: "none" }} />
+        <input
+          type="text"
+          placeholder="Search by number…"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          style={{
+            width: "100%", padding: "9px 36px 9px 34px", borderRadius: 12,
+            background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
+            fontSize: 14, color: "var(--text-1)", outline: "none",
+            backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+            boxSizing: "border-box",
+          }}
+        />
+        {search && (
+          <button
+            onClick={() => { setSearch(""); setPage(1); }}
+            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center" }}
+          >
+            <X style={{ width: 14, height: 14, color: "var(--text-3)" }} />
+          </button>
+        )}
       </div>
 
       {/* Filter chips */}

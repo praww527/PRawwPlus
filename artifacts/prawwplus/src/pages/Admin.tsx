@@ -11,7 +11,7 @@ import {
 import {
   Users, DollarSign, PhoneCall, ShieldAlert, Lock, Unlock, UserCheck,
   UserX, BarChart3, Link2, BadgeDollarSign, Receipt, CreditCard, RefreshCw,
-  ChevronDown, Trash2, CheckCircle2, Shield, Settings, Megaphone,
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, Shield, Settings, Megaphone,
   AlertTriangle, Flag, Clock, Edit2, ToggleLeft, ToggleRight, Smartphone,
   BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone, PhoneOff,
   Loader2, Bell, BellRing, Send, Users2, Wrench, Info, Server, Database,
@@ -127,29 +127,38 @@ function Chip({ color, disabled, onClick, children }: { color: "green" | "amber"
 }
 
 // ─── Overview Tab ──────────────────────────────────────────────────────────────
-function OverviewTab() {
+function OverviewTab({ onSwitchTab }: { onSwitchTab: (tab: TabId) => void }) {
+  const { toast } = useToast();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    adminFetch("/admin/stats").then(setStats).finally(() => setLoading(false));
-  }, []);
+  const load = useCallback(() => {
+    setLoading(true);
+    adminFetch("/admin/stats")
+      .then(setStats)
+      .catch((e: any) => toast({ title: "Failed to load stats", description: e.message, variant: "destructive" }))
+      .finally(() => setLoading(false));
+  }, [toast]);
+
+  useEffect(() => { load(); }, [load]);
 
   if (loading) return (
     <div className="space-y-3">
-      <div className="rounded-2xl bg-white/[0.04] h-16 animate-pulse" />
+      <div className="rounded-2xl bg-white/[0.04] h-14 animate-pulse" />
+      <div className="rounded-2xl bg-white/[0.04] h-24 animate-pulse" />
+      <div className="rounded-2xl bg-white/[0.04] h-20 animate-pulse" />
       <div className="rounded-2xl bg-white/[0.04] h-52 animate-pulse" />
     </div>
   );
   if (!stats) return null;
 
   const topStats = [
-    { label: "Users",    value: stats.totalUsers       },
-    { label: "Calls",    value: stats.totalCalls        },
-    { label: "Resellers",value: stats.totalResellers   },
-    { label: "Pending",  value: stats.pendingApprovals },
-    { label: "Locked",   value: stats.lockedUsers      },
-    { label: "Subs",     value: stats.activeSubscriptions },
+    { label: "Users",     value: stats.totalUsers,            color: "#818cf8" },
+    { label: "Calls",     value: stats.totalCalls,            color: "#60a5fa" },
+    { label: "Today",     value: stats.callsToday ?? 0,       color: "#34d399" },
+    { label: "Resellers", value: stats.totalResellers,        color: "#f59e0b" },
+    { label: "Active Sub",value: stats.activeSubscriptions,   color: "#a78bfa" },
+    { label: "Locked",    value: stats.lockedUsers ?? 0,      color: "#f87171" },
   ];
 
   const chartData = [
@@ -159,19 +168,82 @@ function OverviewTab() {
     { name: "Profit",      v: stats.profit          ?? 0, color: "#34d399" },
   ];
 
+  const quickActions: { label: string; tab: TabId; color: string; badge?: number }[] = [
+    { label: "Live Calls",    tab: "live",   color: "#30d158" },
+    { label: "Pending Users", tab: "users",  color: "#ffd60a", badge: stats.pendingApprovals },
+    { label: "System Health", tab: "system", color: "#60a5fa" },
+    { label: "Abuse & Calls", tab: "abuse",  color: "#f87171" },
+  ];
+
   return (
     <div className="space-y-3">
+      {/* Pending approvals alert */}
+      {(stats.pendingApprovals ?? 0) > 0 && (
+        <button
+          onClick={() => onSwitchTab("users")}
+          style={{
+            width: "100%", padding: "12px 16px", borderRadius: 16, textAlign: "left", cursor: "pointer",
+            background: "rgba(255,214,10,0.07)", border: "1px solid rgba(255,214,10,0.22)",
+            display: "flex", alignItems: "center", gap: 12,
+          }}
+        >
+          <AlertTriangle style={{ width: 16, height: 16, color: "#ffd60a", flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#ffd60a", margin: 0 }}>
+              {stats.pendingApprovals} user{stats.pendingApprovals !== 1 ? "s" : ""} awaiting document review
+            </p>
+            <p style={{ fontSize: 11, color: "rgba(255,214,10,0.55)", margin: "2px 0 0" }}>Tap to open Users → Verify Requests</p>
+          </div>
+          <ChevronRight style={{ width: 13, height: 13, color: "#ffd60a", flexShrink: 0 }} />
+        </button>
+      )}
+
+      {/* KPI grid */}
       <div className="rounded-2xl bg-white/[0.04]" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
         {topStats.map((s, i) => (
-          <div key={s.label} style={{ padding: "12px 8px", textAlign: "center", borderLeft: i % 3 !== 0 ? "1px solid rgba(255,255,255,0.07)" : "none", borderTop: i >= 3 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
-            <p className="text-base font-bold text-white font-mono leading-none">{s.value ?? 0}</p>
-            <p className="text-[10px] text-white/35 mt-1 uppercase tracking-wider leading-none">{s.label}</p>
+          <div key={s.label} style={{
+            padding: "14px 8px", textAlign: "center",
+            borderLeft: i % 3 !== 0 ? "1px solid rgba(255,255,255,0.07)" : "none",
+            borderTop: i >= 3     ? "1px solid rgba(255,255,255,0.07)" : "none",
+          }}>
+            <p style={{ fontSize: 22, fontWeight: 800, color: s.color, fontFamily: "monospace", lineHeight: 1, margin: 0 }}>{s.value ?? 0}</p>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.07em", margin: "4px 0 0" }}>{s.label}</p>
           </div>
         ))}
       </div>
 
+      {/* Quick-nav buttons */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+        {quickActions.map((a) => (
+          <button
+            key={a.tab}
+            onClick={() => onSwitchTab(a.tab)}
+            style={{
+              padding: "11px 14px", borderRadius: 14, textAlign: "left", cursor: "pointer", border: "none",
+              background: `${a.color}0f`, outline: `1px solid ${a.color}28`,
+              display: "flex", alignItems: "center", gap: 8,
+            }}
+          >
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: a.color }}>{a.label}</span>
+            {(a.badge ?? 0) > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, background: `${a.color}25`, color: a.color, padding: "2px 7px", borderRadius: 8 }}>{a.badge}</span>
+            )}
+            <ChevronRight style={{ width: 12, height: 12, color: `${a.color}88`, flexShrink: 0 }} />
+          </button>
+        ))}
+      </div>
+
+      {/* Financial overview */}
       <div className="rounded-2xl bg-white/[0.04] p-4 space-y-4">
-        <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest">Financial Overview</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest" style={{ margin: 0 }}>Financial Overview</p>
+          <button
+            onClick={load}
+            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "rgba(255,255,255,0.25)", background: "none", border: "none", cursor: "pointer" }}
+          >
+            <RefreshCw style={{ width: 10, height: 10 }} /> Refresh
+          </button>
+        </div>
         <ResponsiveContainer width="100%" height={150}>
           <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }} barSize={32}>
             <XAxis dataKey="name" tick={{ fontSize: 11, fill: "rgba(255,255,255,0.35)" }} axisLine={false} tickLine={false} />
@@ -184,10 +256,10 @@ function OverviewTab() {
         </ResponsiveContainer>
         <div className="space-y-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
           {[
-            { label: "Total Revenue",        value: `R${(stats.totalRevenue ?? 0).toFixed(2)}` },
-            { label: "Commissions Paid Out",  value: `– R${(stats.totalCommissions ?? 0).toFixed(2)}`, color: "#f59e0b" },
-            { label: "Total Expenses",        value: `– R${(stats.totalExpenses ?? 0).toFixed(2)}`,   color: "#f87171" },
-            { label: "Net Profit",            value: `R${(stats.profit ?? 0).toFixed(2)}`, color: (stats.profit ?? 0) >= 0 ? "#34d399" : "#f87171", bold: true },
+            { label: "Total Revenue",       value: `R${(stats.totalRevenue ?? 0).toFixed(2)}` },
+            { label: "Commissions Paid",    value: `– R${(stats.totalCommissions ?? 0).toFixed(2)}`, color: "#f59e0b" },
+            { label: "Total Expenses",      value: `– R${(stats.totalExpenses ?? 0).toFixed(2)}`,   color: "#f87171" },
+            { label: "Net Profit",          value: `R${(stats.profit ?? 0).toFixed(2)}`, color: (stats.profit ?? 0) >= 0 ? "#34d399" : "#f87171", bold: true },
           ].map((row) => (
             <div key={row.label} className="flex justify-between items-center">
               <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", fontWeight: (row as any).bold ? 600 : 400 }}>{row.label}</span>
@@ -196,6 +268,25 @@ function OverviewTab() {
           ))}
         </div>
       </div>
+
+      {/* Recent calls */}
+      {(stats.recentCalls ?? []).length > 0 && (
+        <div className="rounded-2xl bg-white/[0.04] overflow-hidden">
+          <div style={{ padding: "13px 16px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Recent Calls</p>
+            <button onClick={() => onSwitchTab("abuse")} style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", background: "none", border: "none", cursor: "pointer" }}>View all →</button>
+          </div>
+          {stats.recentCalls.slice(0, 5).map((c: any, i: number) => (
+            <div key={c.id ?? i} style={{ padding: "9px 16px", display: "flex", alignItems: "center", gap: 10, borderTop: i > 0 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: c.status === "completed" ? "#30d158" : c.status === "failed" ? "#ff453a" : "#f59e0b" }} />
+              <span style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.recipientNumber ?? c.callerNumber ?? "—"}
+              </span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", textTransform: "capitalize", flexShrink: 0 }}>{c.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -211,7 +302,7 @@ function UsersTab() {
   const [newRole, setNewRole] = useState("user");
   const [acting, setActing] = useState(false);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "pending_verify">("all");
+  const [filter, setFilter] = useState<"all" | "pending_verify" | "locked" | "resellers" | "active_sub">("all");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -239,9 +330,10 @@ function UsersTab() {
         (u.username || "").toLowerCase().includes(search.toLowerCase()))
     : users;
 
-  if (filter === "pending_verify") {
-    filtered = filtered.filter((u) => u.verificationStatus === "pending");
-  }
+  if (filter === "pending_verify") filtered = filtered.filter((u) => u.verificationStatus === "pending");
+  if (filter === "locked")         filtered = filtered.filter((u) => u.locked === true);
+  if (filter === "resellers")      filtered = filtered.filter((u) => u.role === "reseller");
+  if (filter === "active_sub")     filtered = filtered.filter((u) => u.subscriptionStatus === "active");
 
   const pendingVerifyCount = users.filter((u) => u.verificationStatus === "pending").length;
 
@@ -263,19 +355,25 @@ function UsersTab() {
       </div>
 
       {/* Filter chips */}
-      <div className="flex gap-2">
-        {(["all", "pending_verify"] as const).map((f) => (
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none" }}>
+        {([
+          { key: "all"           as const, label: "All" },
+          { key: "pending_verify"as const, label: pendingVerifyCount > 0 ? `Verify Req (${pendingVerifyCount})` : "Verify Req" },
+          { key: "active_sub"    as const, label: "Active Sub" },
+          { key: "resellers"     as const, label: "Resellers" },
+          { key: "locked"        as const, label: "Locked" },
+        ]).map((f) => (
           <button
-            key={f}
-            onClick={() => setFilter(f)}
+            key={f.key}
+            onClick={() => setFilter(f.key)}
             style={{
               padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              background: filter === f ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
-              color: filter === f ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
-              border: "none", transition: "all 0.15s",
+              background: filter === f.key ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
+              color: filter === f.key ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
+              border: "none", transition: "all 0.15s", whiteSpace: "nowrap", flexShrink: 0,
             }}
           >
-            {f === "all" ? "All Users" : `Verify Requests${pendingVerifyCount > 0 ? ` (${pendingVerifyCount})` : ""}`}
+            {f.label}
           </button>
         ))}
       </div>
@@ -318,6 +416,7 @@ function UsersTab() {
                   </div>
                   <p className="text-xs text-white/40 mt-0.5 truncate">{u.email}</p>
                   {u.phone && <p className="text-[11px] text-white/25 font-mono">{u.phone}</p>}
+                  {u.extension && <p className="text-[11px] text-white/20 font-mono">ext {u.extension}</p>}
                 </div>
                 <p className="text-xs font-bold text-white font-mono shrink-0">{formatCurrency(u.coins || 0)}</p>
               </div>
@@ -2135,7 +2234,7 @@ export default function Admin() {
 
       {/* Tab content */}
       <div>
-        {tab === "overview"      && <OverviewTab />}
+        {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
         {tab === "system"        && <SystemTab />}
