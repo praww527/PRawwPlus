@@ -146,17 +146,33 @@ class PhoneAudio {
 
     // If the AudioContext is suspended (no prior user gesture yet), wait for it
     // to resume before starting the cadence. Once running, tick() drives it.
+    //
+    // Strategy: listen for the statechange event (fastest path) AND poll
+    // every 80 ms as a fallback.  ctx.resume() is called on each poll so
+    // that any pending user gesture can unblock the context quickly.
     if (ctx.state === "running") {
       tick();
     } else {
       ctx.resume().catch(() => {});
-      const onStateChange = () => {
+
+      let pollId: ReturnType<typeof setInterval> | null = null;
+
+      const tryStart = () => {
+        if (this.cadenceStopped) {
+          if (pollId) clearInterval(pollId);
+          return;
+        }
         if (ctx.state === "running") {
-          ctx.removeEventListener("statechange", onStateChange);
-          if (!this.cadenceStopped) tick();
+          if (pollId) clearInterval(pollId);
+          ctx.removeEventListener("statechange", tryStart);
+          tick();
+        } else {
+          ctx.resume().catch(() => {});
         }
       };
-      ctx.addEventListener("statechange", onStateChange);
+
+      ctx.addEventListener("statechange", tryStart);
+      pollId = setInterval(tryStart, 80);
     }
 
     return g;
