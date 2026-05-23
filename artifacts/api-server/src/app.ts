@@ -9,6 +9,7 @@ import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { requestIdMiddleware } from "./middlewares/requestId";
 import { getTrustedClientIp } from "./lib/clientIp";
+import { captureError } from "./lib/errorStore";
 
 const app: Express = express();
 
@@ -234,8 +235,9 @@ if (process.env.NODE_ENV === "production") {
 // inside async route handlers (Express 5 wraps async throws automatically).
 // Without this, unhandled errors write a stack trace to stdout and may leave
 // the response hanging (no status sent to the client).
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   logger.error({ err: err.message, stack: err.stack }, "Unhandled Express error");
+  captureError(err, { path: req.path, method: req.method });
   if (res.headersSent) return;
   res.status(500).json({ error: "Internal server error" });
 });

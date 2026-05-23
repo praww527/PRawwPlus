@@ -2211,10 +2211,10 @@ function SystemTab() {
 // ─── Errors Tab ────────────────────────────────────────────────────────────────
 
 const ERROR_STATUS_META: Record<string, { label: string; color: string }> = {
-  failed:    { label: "Failed",    color: "#ff453a" },
-  "no-answer": { label: "No Answer", color: "#ff9f0a" },
-  busy:      { label: "Busy",      color: "#ff9f0a" },
-  cancelled: { label: "Cancelled", color: "rgba(255,255,255,0.35)" },
+  failed:       { label: "Failed",    color: "#ff453a" },
+  "no-answer":  { label: "No Answer", color: "#ff9f0a" },
+  busy:         { label: "Busy",      color: "#ff9f0a" },
+  cancelled:    { label: "Cancelled", color: "rgba(255,255,255,0.35)" },
 };
 
 const HANGUP_LABELS: Record<string, string> = {
@@ -2242,161 +2242,443 @@ function humanHangup(hangupCause?: string, failReason?: string): string {
   return HANGUP_LABELS[hangupCause] ?? hangupCause.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function ErrorsTab() {
+function fixBtnStyle(color: "blue" | "orange" | "red"): React.CSSProperties {
+  const c = color === "blue" ? "#1a8cff" : color === "orange" ? "#ff9f0a" : "#ff453a";
+  return {
+    flexShrink: 0, padding: "5px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700,
+    border: `1px solid ${c}40`, background: `${c}18`, color: c,
+    cursor: "pointer", whiteSpace: "nowrap" as const,
+  };
+}
+
+// ─ System Alerts Panel ────────────────────────────────────────────────────────
+
+interface HealthData {
+  db:      { connected: boolean; error: string | null };
+  esl:     { connected: boolean; lastEvent: string | null };
+  envVars: { key: string; label: string; required: boolean; set: boolean; hint: string }[];
+}
+
+function SystemAlertsPanel({ onSwitchTab }: { onSwitchTab: (tab: any) => void }) {
   const { toast } = useToast();
-  const [calls, setCalls]       = useState<any[]>([]);
-  const [total, setTotal]       = useState(0);
-  const [page, setPage]         = useState(1);
-  const [loading, setLoading]   = useState(true);
+  const [health, setHealth]       = useState<HealthData | null>(null);
+  const [pushingConfig, setPushingConfig] = useState(false);
+
+  useEffect(() => {
+    adminFetch("/admin/system-health").then(setHealth).catch(() => {});
+  }, []);
+
+  if (!health) return null;
+
+  const missingRequired = (health.envVars ?? []).filter((v) => v.required && !v.set);
+  const alerts: { label: string; detail: string; fix?: React.ReactNode }[] = [];
+
+  if (!health.db.connected) {
+    alerts.push({
+      label: "Database disconnected",
+      detail: health.db.error ?? "Cannot reach MongoDB — all DB operations are failing",
+      fix: <button onClick={() => onSwitchTab("system")} style={fixBtnStyle("blue")}>Go to System</button>,
+    });
+  }
+
+  if (!health.esl?.connected) {
+    alerts.push({
+      label: "FreeSWITCH ESL offline",
+      detail: "Event Socket is not connected — calls cannot be placed or received",
+      fix: (
+        <button
+          disabled={pushingConfig}
+          onClick={async () => {
+            setPushingConfig(true);
+            try {
+              await adminFetch("/admin/freeswitch/push-config", { method: "POST" });
+              toast({ title: "FreeSWITCH config pushed — ESL should reconnect in a few seconds" });
+            } catch (e: any) {
+              toast({ title: "Push failed", description: e.message, variant: "destructive" });
+            } finally {
+              setPushingConfig(false);
+            }
+          }}
+          style={fixBtnStyle("orange")}
+        >
+          {pushingConfig ? "Pushing…" : "📡 Push Config"}
+        </button>
+      ),
+    });
+  }
+
+  if (missingRequired.length > 0) {
+    alerts.push({
+      label: `${missingRequired.length} required env var${missingRequired.length !== 1 ? "s" : ""} missing`,
+      detail: missingRequired.map((v) => v.label).join(", "),
+      fix: <button onClick={() => onSwitchTab("system")} style={fixBtnStyle("blue")}>Go to System</button>,
+    });
+  }
+
+  if (alerts.length === 0) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <p style={{ fontSize: 11, fontWeight: 700, color: "#ff453a", textTransform: "uppercase", letterSpacing: "0.07em", margin: 0 }}>
+        🚨 System Alerts
+      </p>
+      {alerts.map((a, i) => (
+        <div key={i} style={{
+          display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
+          borderRadius: 12, background: "rgba(255,69,58,0.07)", border: "1px solid rgba(255,69,58,0.2)",
+        }}>
+          <AlertTriangle style={{ width: 14, height: 14, color: "#ff453a", flexShrink: 0, marginTop: 2 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "#ff453a", margin: 0 }}>{a.label}</p>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", margin: "2px 0 0", lineHeight: 1.4 }}>{a.detail}</p>
+          </div>
+          {a.fix}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─ Server Errors Panel ────────────────────────────────────────────────────────
+
+interface AppErrEntry {
+  id: string; timestamp: string; message: string; stack?: string; path?: string; method?: string;
+}
+
+function ServerErrorsPanel() {
+  const { toast } = useToast();
+  const [errors,   setErrors]   = useState<AppErrEntry[]>([]);
+  const [loading,  setLoading]  = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminFetch("/admin/app-errors")
+      .then((d: any) => setErrors(d.errors ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const clearAll = async () => {
+    setClearing(true);
+    try {
+      await adminFetch("/admin/app-errors", { method: "DELETE" });
+      setErrors([]);
+      toast({ title: "Server error log cleared" });
+    } catch (e: any) {
+      toast({ title: "Clear failed", description: e.message, variant: "destructive" });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  if (!loading && errors.length === 0) return null;
+
+  return (
+    <div style={{ borderRadius: 14, background: "rgba(255,69,58,0.05)", border: "1px solid rgba(255,69,58,0.15)", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: errors.length > 0 ? "1px solid rgba(255,69,58,0.09)" : "none" }}>
+        <Terminal style={{ width: 13, height: 13, color: "#ff453a" }} />
+        <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: 0, flex: 1 }}>Server Errors</p>
+        {errors.length > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 700, background: "#ff453a", color: "#fff", padding: "2px 7px", borderRadius: 6 }}>
+            {errors.length}
+          </span>
+        )}
+        <button onClick={load} disabled={loading} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", padding: 4 }}>
+          <RefreshCw style={{ width: 11, height: 11, animation: loading ? "spin 1s linear infinite" : "none" }} />
+        </button>
+        {errors.length > 0 && (
+          <button onClick={clearAll} disabled={clearing} style={{ fontSize: 11, fontWeight: 600, color: "#ff453a", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            {clearing ? "Clearing…" : "Clear all"}
+          </button>
+        )}
+      </div>
+
+      {loading && errors.length === 0 && (
+        <div style={{ padding: "12px 14px" }}><Skel rows={2} h={32} /></div>
+      )}
+
+      {errors.map((e, i) => (
+        <div key={e.id} style={{ borderTop: i > 0 ? "1px solid rgba(255,69,58,0.07)" : "none" }}>
+          <button
+            onClick={() => setExpanded(expanded === e.id ? null : e.id)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#ff453a", flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {e.method && <span style={{ color: "#ff9f0a", marginRight: 6 }}>[{e.method} {e.path}]</span>}
+              {e.message}
+            </span>
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", flexShrink: 0 }}>
+              {formatDistanceToNow(new Date(e.timestamp), { addSuffix: true })}
+            </span>
+            <ChevronDown style={{ width: 11, height: 11, color: "rgba(255,255,255,0.25)", transform: expanded === e.id ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+          </button>
+          {expanded === e.id && e.stack && (
+            <div style={{ padding: "0 14px 12px 28px" }}>
+              <pre style={{
+                fontSize: 10, color: "rgba(255,255,255,0.4)", background: "rgba(0,0,0,0.3)",
+                borderRadius: 8, padding: "8px 10px", margin: 0, overflowX: "auto",
+                maxHeight: 200, lineHeight: 1.5, whiteSpace: "pre-wrap" as const,
+              }}>
+                {e.stack}
+              </pre>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─ Call Errors Panel ──────────────────────────────────────────────────────────
+
+function CallErrorsPanel() {
+  const { toast } = useToast();
+  const [calls, setCalls]               = useState<any[]>([]);
+  const [total, setTotal]               = useState(0);
+  const [page,  setPage]                = useState(1);
+  const [loading, setLoading]           = useState(true);
+  const [expanded, setExpanded]         = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dismissing,  setDismissing]    = useState<string | null>(null);
+  const [pushingFor,  setPushingFor]    = useState<string | null>(null);
+  const [creditCallId, setCreditCallId] = useState<string | null>(null);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [savingCredit, setSavingCredit] = useState(false);
+  const statusFilterRef = useRef(statusFilter);
+  statusFilterRef.current = statusFilter;
   const LIMIT = 20;
 
-  const load = useCallback((p = 1) => {
+  const load = useCallback((p = 1, sf?: string) => {
+    const filter = sf ?? statusFilterRef.current;
     setLoading(true);
-    adminFetch(`/admin/failed-calls?page=${p}&limit=${LIMIT}`)
+    const q = filter !== "all" ? `&status=${filter}` : "";
+    adminFetch(`/admin/failed-calls?page=${p}&limit=${LIMIT}${q}`)
       .then((d: any) => { setCalls(d.calls ?? []); setTotal(d.total ?? 0); setPage(p); })
-      .catch((e: any) => toast({ title: "Failed to load errors", description: e.message, variant: "destructive" }))
+      .catch((e: any) => toast({ title: "Failed to load", description: e.message, variant: "destructive" }))
       .finally(() => setLoading(false));
   }, [toast]);
 
   useEffect(() => { load(1); }, [load]);
 
+  const changeFilter = (sf: string) => { setStatusFilter(sf); load(1, sf); };
+
+  const dismiss = async (callId: string) => {
+    setDismissing(callId);
+    try {
+      await adminFetch(`/admin/calls/${callId}/dismiss`, { method: "POST" });
+      setCalls((prev) => prev.filter((c) => c._id !== callId));
+      setTotal((t) => Math.max(0, t - 1));
+      toast({ title: "Error dismissed" });
+    } catch (e: any) {
+      toast({ title: "Dismiss failed", description: e.message, variant: "destructive" });
+    } finally { setDismissing(null); }
+  };
+
+  const pushConfig = async (callId: string) => {
+    setPushingFor(callId);
+    try {
+      await adminFetch("/admin/freeswitch/push-config", { method: "POST" });
+      toast({ title: "FreeSWITCH config pushed — user should re-register" });
+    } catch (e: any) {
+      toast({ title: "Push failed", description: e.message, variant: "destructive" });
+    } finally { setPushingFor(null); }
+  };
+
+  const addCredit = async (userId: string) => {
+    const parsed = parseFloat(creditAmount);
+    if (!isFinite(parsed) || parsed === 0) { toast({ title: "Enter a valid amount", variant: "destructive" }); return; }
+    setSavingCredit(true);
+    try {
+      await adminFetch(`/admin/users/${userId}/adjust-credit`, { method: "POST", body: JSON.stringify({ amount: parsed }) });
+      toast({ title: `R${parsed.toFixed(2)} credit applied` });
+      setCreditCallId(null); setCreditAmount("");
+    } catch (e: any) {
+      toast({ title: "Credit failed", description: e.message, variant: "destructive" });
+    } finally { setSavingCredit(false); }
+  };
+
   const pages = Math.max(1, Math.ceil(total / LIMIT));
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+  const FILTER_PILLS = [
+    { key: "all",       label: "All" },
+    { key: "failed",    label: "Failed" },
+    { key: "no-answer", label: "No Answer" },
+    { key: "busy",      label: "Busy" },
+    { key: "cancelled", label: "Cancelled" },
+  ];
 
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div>
           <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>Call Errors</p>
           <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>
-            {total} failed, no-answer, busy or cancelled call{total !== 1 ? "s" : ""}
+            {total} call error{total !== 1 ? "s" : ""}
+            {statusFilter !== "all" ? ` · ${statusFilter}` : ""}
           </p>
         </div>
         <button
           onClick={() => load(page)}
           disabled={loading}
-          style={{
-            display: "flex", alignItems: "center", gap: 6, padding: "7px 14px",
-            borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none",
-            cursor: loading ? "not-allowed" : "pointer",
-            background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)",
-            opacity: loading ? 0.5 : 1,
-          }}
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: loading ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.55)", opacity: loading ? 0.5 : 1 }}
         >
           <RefreshCw style={{ width: 11, height: 11, animation: loading ? "spin 1s linear infinite" : "none" }} />
           Refresh
         </button>
       </div>
 
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        {Object.entries(ERROR_STATUS_META).map(([k, v]) => (
-          <span key={k} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: v.color, fontWeight: 600 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: v.color, flexShrink: 0 }} />
-            {v.label}
-          </span>
-        ))}
+      {/* Filter pills */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {FILTER_PILLS.map((f) => {
+          const active = statusFilter === f.key;
+          const meta = ERROR_STATUS_META[f.key];
+          const c = meta?.color ?? "#1a8cff";
+          return (
+            <button key={f.key} onClick={() => changeFilter(f.key)} style={{
+              padding: "5px 12px", borderRadius: 16, fontSize: 12, fontWeight: 600,
+              border: active ? `1px solid ${c}40` : "1px solid rgba(255,255,255,0.08)",
+              background: active ? `${c}18` : "rgba(255,255,255,0.04)",
+              color: active ? c : "rgba(255,255,255,0.45)", cursor: "pointer",
+            }}>
+              {f.label}
+            </button>
+          );
+        })}
       </div>
 
-      {loading && calls.length === 0 && <Skel rows={6} h={60} />}
+      {loading && calls.length === 0 && <Skel rows={5} h={58} />}
 
       {!loading && calls.length === 0 && (
-        <div style={{ textAlign: "center", padding: "48px 0" }}>
-          <CheckCircle2 style={{ width: 36, height: 36, color: "#30d158", margin: "0 auto 10px" }} />
+        <div style={{ textAlign: "center", padding: "40px 0" }}>
+          <CheckCircle2 style={{ width: 32, height: 32, color: "#30d158", margin: "0 auto 10px" }} />
           <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", margin: 0 }}>No errors found</p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", margin: "4px 0 0" }}>All recent calls completed successfully.</p>
         </div>
       )}
 
       {calls.length > 0 && (
         <div style={{ borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
           {calls.map((c: any, i: number) => {
-            const meta = ERROR_STATUS_META[c.status] ?? { label: c.status, color: "rgba(255,255,255,0.35)" };
-            const reason = humanHangup(c.hangupCause, c.failReason);
-            const isOpen = expanded === c._id;
-            const when = c.createdAt ? new Date(c.createdAt) : null;
+            const meta      = ERROR_STATUS_META[c.status] ?? { label: c.status, color: "rgba(255,255,255,0.35)" };
+            const reason    = humanHangup(c.hangupCause, c.failReason);
+            const isOpen    = expanded === c._id;
+            const when      = c.createdAt ? new Date(c.createdAt) : null;
+            const user      = c.userInfo;
+            const userLabel = user?.name ?? user?.email ?? user?.username ?? null;
+            const isLowBal  = c.hangupCause === "ALLOTTED_TIMEOUT";
+            const isUnreg   = c.hangupCause === "UNREGISTERED" || c.hangupCause === "USER_NOT_REGISTERED" || c.hangupCause === "SUBSCRIBER_ABSENT";
+            const noAction  = c.status === "busy" || c.status === "no-answer" || c.status === "cancelled";
+
             return (
               <div key={c._id ?? i} style={{ borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-                {/* Row */}
                 <button
                   onClick={() => setExpanded(isOpen ? null : c._id)}
-                  style={{
-                    width: "100%", display: "flex", alignItems: "center", gap: 10,
-                    padding: "11px 14px", background: "none", border: "none",
-                    cursor: "pointer", textAlign: "left",
-                  }}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                 >
-                  {/* Status dot */}
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: meta.color, flexShrink: 0 }} />
-
-                  {/* Number */}
-                  <span style={{ flex: 1, fontSize: 13, fontFamily: "monospace", color: "rgba(255,255,255,0.8)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {c.recipientNumber ?? c.callerNumber ?? "—"}
-                  </span>
-
-                  {/* Status pill */}
-                  <span style={{ fontSize: 10, fontWeight: 700, color: meta.color, background: `${meta.color}18`, padding: "2px 8px", borderRadius: 6, flexShrink: 0 }}>
-                    {meta.label}
-                  </span>
-
-                  {/* Time */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontFamily: "monospace", color: "rgba(255,255,255,0.85)", fontWeight: 500, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.recipientNumber ?? c.callerNumber ?? "—"}
+                    </span>
+                    {userLabel && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{userLabel}</span>}
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: meta.color, background: `${meta.color}18`, padding: "2px 8px", borderRadius: 6, flexShrink: 0 }}>{meta.label}</span>
                   <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", flexShrink: 0, minWidth: 52, textAlign: "right" }}>
                     {when ? formatDistanceToNow(when, { addSuffix: true }) : "—"}
                   </span>
-
                   <ChevronDown style={{ width: 12, height: 12, color: "rgba(255,255,255,0.25)", flexShrink: 0, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                 </button>
 
-                {/* Expanded detail */}
                 {isOpen && (
-                  <div style={{ padding: "0 14px 14px 32px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    {/* Error reason — highlighted */}
-                    <div style={{ padding: "10px 12px", borderRadius: 10, background: `${meta.color}10`, border: `1px solid ${meta.color}28` }}>
+                  <div style={{ padding: "0 14px 14px 32px", display: "flex", flexDirection: "column", gap: 10 }}>
+                    {/* Reason highlight */}
+                    <div style={{ padding: "9px 12px", borderRadius: 10, background: `${meta.color}10`, border: `1px solid ${meta.color}28` }}>
                       <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Reason</p>
                       <p style={{ fontSize: 13, color: meta.color, margin: 0, fontWeight: 600 }}>{reason}</p>
                     </div>
 
-                    {/* Detail rows */}
-                    {[
-                      { label: "Call ID",      value: c._id },
-                      { label: "Direction",    value: c.direction ?? "outbound" },
-                      { label: "Type",         value: c.callType ?? "external" },
-                      { label: "User ID",      value: c.userId },
-                      { label: "Hangup cause", value: c.hangupCause ?? "—" },
-                      { label: "Duration",     value: c.duration != null ? `${c.duration}s` : "0s" },
-                      { label: "Started",      value: c.startedAt ? format(new Date(c.startedAt), "dd MMM yyyy HH:mm:ss") : "—" },
-                      { label: "Ended",        value: c.endedAt   ? format(new Date(c.endedAt),   "dd MMM yyyy HH:mm:ss") : "—" },
-                    ].map(({ label, value }) => (
-                      <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontWeight: 500, flexShrink: 0 }}>{label}</span>
-                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", fontFamily: "monospace", textAlign: "right", wordBreak: "break-all" }}>{String(value ?? "—")}</span>
-                      </div>
-                    ))}
+                    {/* Details */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {([
+                        ["Call ID",      c._id],
+                        ["Direction",    c.direction ?? "outbound"],
+                        ["User",         userLabel ?? c.userId ?? "—"],
+                        ["Hangup cause", c.hangupCause ?? "—"],
+                        ["Duration",     c.duration != null ? `${c.duration}s` : "0s"],
+                        ["Started",      c.startedAt ? format(new Date(c.startedAt), "dd MMM yyyy HH:mm") : "—"],
+                        ["Ended",        c.endedAt   ? format(new Date(c.endedAt),   "dd MMM yyyy HH:mm") : "—"],
+                      ] as [string, string][]).map(([label, value]) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontWeight: 500, flexShrink: 0 }}>{label}</span>
+                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", fontFamily: "monospace", textAlign: "right", wordBreak: "break-all" }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
 
-                    {/* Fix hints */}
-                    <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                      <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 4px" }}>
-                        How to fix
-                      </p>
-                      <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.5 }}>
-                        {c.status === "failed" && c.hangupCause === "ALLOTTED_TIMEOUT"
-                          ? "User ran out of balance. Go to Users tab → find user → Adjust Credits."
-                          : c.status === "failed" && (c.hangupCause === "UNREGISTERED" || c.hangupCause === "USER_NOT_REGISTERED")
-                          ? "The callee's SIP extension is not registered with FreeSWITCH. Check the System tab → ESL connection and push config if needed."
-                          : c.status === "failed" && (c.hangupCause === "NO_ROUTE_DESTINATION" || c.hangupCause === "UNALLOCATED_NUMBER")
-                          ? "The dialled number doesn't exist. No action needed — the user dialled a wrong or disconnected number."
-                          : c.status === "busy"
-                          ? "The line was busy when the call was placed. No action needed — the user can try again."
-                          : c.status === "no-answer"
-                          ? "The callee did not answer. No action needed — this is expected behaviour."
-                          : c.status === "cancelled"
-                          ? "The caller hung up before the callee answered. No action needed."
-                          : c.failReason
-                          ? `Check server logs for more details about: "${c.failReason}".`
-                          : "Check the System tab for ESL and database connectivity. Review server logs for the call ID above."}
-                      </p>
+                    {/* ─── Fix Actions ─── */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.07em", margin: 0 }}>Fix Actions</p>
+
+                      {/* How-to hint */}
+                      <div style={{ padding: "7px 10px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", margin: 0, lineHeight: 1.5 }}>
+                          {isLowBal  ? "User ran out of balance mid-call. Use Add Credits below to top them up instantly."
+                          : isUnreg  ? "The SIP extension is not registered with FreeSWITCH. Push the config and ask the user to re-open the app."
+                          : noAction ? `${c.status === "busy" ? "Line was busy" : c.status === "no-answer" ? "Callee didn't answer" : "Caller hung up"}. No action needed.`
+                          : c.failReason ? `Check server logs for: "${c.failReason}"`
+                          : "Check the System tab for ESL / DB connectivity."}
+                        </p>
+                      </div>
+
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                        {/* LOW BALANCE → inline credit */}
+                        {isLowBal && c.userId && (
+                          creditCallId === c._id ? (
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <Input
+                                type="number"
+                                placeholder="Amount (R)"
+                                value={creditAmount}
+                                onChange={(e) => setCreditAmount(e.target.value)}
+                                style={{ width: 100, height: 30, fontSize: 12, padding: "0 8px" }}
+                              />
+                              <button onClick={() => addCredit(c.userId)} disabled={savingCredit} style={fixBtnStyle("blue")}>
+                                {savingCredit ? "Saving…" : "Add"}
+                              </button>
+                              <button onClick={() => { setCreditCallId(null); setCreditAmount(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", padding: 2 }}>
+                                <X style={{ width: 12, height: 12 }} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button onClick={() => { setCreditCallId(c._id); setCreditAmount(""); }} style={fixBtnStyle("blue")}>
+                              💳 Add Credits
+                            </button>
+                          )
+                        )}
+
+                        {/* UNREGISTERED → push FS config */}
+                        {isUnreg && (
+                          <button onClick={() => pushConfig(c._id)} disabled={pushingFor === c._id} style={fixBtnStyle("orange")}>
+                            {pushingFor === c._id
+                              ? <><Loader2 style={{ width: 11, height: 11, display: "inline", marginRight: 4 }} className="animate-spin" />Pushing…</>
+                              : "📡 Push FS Config"}
+                          </button>
+                        )}
+
+                        {/* Always: Dismiss */}
+                        <button
+                          onClick={() => dismiss(c._id)}
+                          disabled={dismissing === c._id}
+                          style={{ padding: "5px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.3)", cursor: "pointer" }}
+                        >
+                          {dismissing === c._id ? "Removing…" : "✕ Dismiss"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2406,28 +2688,31 @@ function ErrorsTab() {
         </div>
       )}
 
-      {/* Pagination */}
       {pages > 1 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <button
-            onClick={() => load(page - 1)}
-            disabled={page <= 1 || loading}
-            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: page <= 1 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", opacity: page <= 1 ? 0.4 : 1 }}
-          >
+          <button onClick={() => load(page - 1)} disabled={page <= 1 || loading}
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: page <= 1 ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", opacity: page <= 1 ? 0.4 : 1 }}>
             ← Prev
           </button>
-          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-            {page} / {pages}
-          </span>
-          <button
-            onClick={() => load(page + 1)}
-            disabled={page >= pages || loading}
-            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: page >= pages ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", opacity: page >= pages ? 0.4 : 1 }}
-          >
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{page} / {pages}</span>
+          <button onClick={() => load(page + 1)} disabled={page >= pages || loading}
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: page >= pages ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", opacity: page >= pages ? 0.4 : 1 }}>
             Next →
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Errors Tab orchestrator ──────────────────────────────────────────────────
+
+function ErrorsTab({ onSwitchTab }: { onSwitchTab: (tab: any) => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <SystemAlertsPanel onSwitchTab={onSwitchTab} />
+      <ServerErrorsPanel />
+      <CallErrorsPanel />
     </div>
   );
 }
@@ -2477,7 +2762,7 @@ export default function Admin() {
         {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
-        {tab === "errors"        && <ErrorsTab />}
+        {tab === "errors"        && <ErrorsTab onSwitchTab={setTab} />}
         {tab === "system"        && <SystemTab />}
         {tab === "push"          && <PushTab />}
         {tab === "referrals"     && <ReferralsTab />}

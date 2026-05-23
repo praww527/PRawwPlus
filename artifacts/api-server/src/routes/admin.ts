@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID, randomBytes } from "crypto";
+import { getRecentErrors, clearErrorStore } from "../lib/errorStore";
 import {
   connectDB,
   UserModel,
@@ -1256,18 +1257,61 @@ router.get("/admin/failed-calls", requireAdmin, async (req, res) => {
   const { page, limit } = parsePageLimit(req.query);
   const skip = (page - 1) * limit;
 
-  const query = { status: { $in: ["failed", "no-answer", "busy", "cancelled"] } };
+  const { status: statusFilter } = req.query;
+  const allowedStatuses = ["failed", "no-answer", "busy", "cancelled"];
+  const statusList = statusFilter && typeof statusFilter === "string" && allowedStatuses.includes(statusFilter)
+    ? [statusFilter]
+    : allowedStatuses;
+
+  const query: Record<string, unknown> = {
+    status:          { $in: statusList },
+    adminDismissed:  { $ne: true },
+  };
 
   const [calls, total] = await Promise.all([
-    CallModel.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
+    CallModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     CallModel.countDocuments(query),
   ]);
 
-  res.json({ calls, total, page, limit });
+  // Enrich with user info (name + email) so the dashboard can show who made/received the call
+  const userIds = [...new Set(calls.map((c: any) => c.userId).filter(Boolean))] as string[];
+  const users = userIds.length
+    ? await UserModel.find({ _id: { $in: userIds } }, { name: 1, email: 1, username: 1 }).lean()
+    : [];
+  const userMap: Record<string, { name?: string; email?: string; username?: string }> = {};
+  for (const u of users) {
+    userMap[String((u as any)._id)] = { name: (u as any).name, email: (u as any).email, username: (u as any).username };
+  }
+
+  const enriched = calls.map((c: any) => ({
+    ...c,
+    userInfo: c.userId ? (userMap[String(c.userId)] ?? null) : null,
+  }));
+
+  res.json({ calls: enriched, total, page, limit });
+});
+
+router.post("/admin/calls/:callId/dismiss", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { callId } = req.params;
+  const result = await CallModel.updateOne({ _id: callId }, { $set: { adminDismissed: true } });
+  if (result.matchedCount === 0) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// ── Server-side app errors (ring buffer) ──────────────────────────────────────
+
+router.get("/admin/app-errors", requireAdmin, (_req, res) => {
+  const errors = getRecentErrors(100);
+  res.json({ errors, count: errors.length });
+});
+
+router.delete("/admin/app-errors", requireAdmin, (_req, res) => {
+  clearErrorStore();
+  res.json({ ok: true });
 });
 
 router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) => {
