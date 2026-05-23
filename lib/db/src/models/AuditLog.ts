@@ -1,6 +1,6 @@
 import mongoose, { type Document, type Model } from "mongoose";
 
-export interface IAuditLog extends Document {
+export interface IAuditLog extends Document<string> {
   _id: string;
   adminId: string;
   adminEmail?: string;
