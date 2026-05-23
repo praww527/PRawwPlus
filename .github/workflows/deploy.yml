@@ -1,86 +1,8 @@
-name: CI / Deploy
-
+name: Test
 on:
   push:
-    branches: [master, main]
-  pull_request:
-
 jobs:
-  verify:
+  hello:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "10"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
-
-      - name: Build shared libraries
-        run: |
-          pnpm --filter @workspace/db run build
-          pnpm --filter @workspace/api-zod run build
-          pnpm --filter @workspace/auth-web run build
-          pnpm --filter @workspace/api-client-react run build
-
-      - name: API server typecheck
-        run: pnpm --filter @workspace/api-server run typecheck
-
-      - name: API server build
-        run: pnpm --filter @workspace/api-server run build
-
-      - name: Web app build
-        run: pnpm --filter @workspace/prawwplus run build
-
-  deploy:
-    needs: verify
-    if: "github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
-          script: |
-            set -e
-            cd ${{ secrets.VPS_DEPLOY_DIR }}
-            git pull origin master
-            corepack enable || npm install -g pnpm@10
-            pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
-            pnpm --filter @workspace/db --filter @workspace/api-zod --filter @workspace/auth-web --filter @workspace/api-client-react run build
-            pnpm --filter @workspace/prawwplus run build
-            pnpm --filter @workspace/api-server run build
-            sudo cp deploy/prawwplus-api.service /etc/systemd/system/prawwplus-api.service
-            sudo systemctl daemon-reload
-            sudo systemctl enable prawwplus-api
-            sudo systemctl restart prawwplus-api
-            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              sleep 5
-              systemctl is-active --quiet prawwplus-api && echo "Service active after $i attempts" && break
-              echo "Waiting $i/12..."
-            done
-            systemctl is-active --quiet prawwplus-api || { journalctl -u prawwplus-api -n 50 --no-pager; exit 1; }
-            echo "Deploy complete $(date)"
-
-      - name: HTTP health check
-        if: "${{ secrets.VPS_HEALTH_URL != '' }}"
-        env:
-          HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
-        run: |
-          for i in 1 2 3 4 5; do
-            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 10 "$HEALTH_URL" || echo "000")
-            echo "Attempt $i: HTTP $STATUS"
-            [ "$STATUS" = "200" ] && echo "Health check passed" && exit 0
-            sleep 10
-          done
-          echo "Health check failed" && exit 1
+      - run: echo hello
