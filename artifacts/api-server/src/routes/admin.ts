@@ -840,16 +840,6 @@ router.get("/admin/freeswitch/status", requireAdmin, async (_req, res) => {
   });
 });
 
-router.post("/admin/freeswitch/push-config", requireAdmin, async (_req, res) => {
-  const result = await pushFreeSwitchConfig();
-  res.json(result);
-});
-
-router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
-  const result = await testSSHConnection();
-  res.json(result);
-});
-
 router.get("/admin/freeswitch/config-preview", requireAdmin, (_req, res) => {
   const fsHost = process.env.FREESWITCH_DOMAIN ?? "YOUR_FREESWITCH_HOST";
   const appUrl = getAppUrl() || "https://rtc.PRaww.co.za";

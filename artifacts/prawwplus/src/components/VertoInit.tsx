@@ -163,11 +163,30 @@ export function VertoInit() {
         const registration = await navigator.serviceWorker.ready;
         let sub = await registration.pushManager.getSubscription();
 
+        const appServerKey = Uint8Array.from(
+          atob(key.replace(/-/g, "+").replace(/_/g, "/")),
+          (c) => c.charCodeAt(0),
+        );
+
+        // If a subscription exists, verify its key matches the current VAPID public key.
+        // If the key changed (e.g. env var was rotated), the old subscription will always
+        // return 403/410 from the push service — force a re-subscription.
+        if (sub) {
+          const existingKey = sub.options.applicationServerKey;
+          const keysMatch = existingKey && (() => {
+            const a = new Uint8Array(existingKey as ArrayBuffer);
+            const b = appServerKey;
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+            return true;
+          })();
+          if (!keysMatch) {
+            await sub.unsubscribe();
+            sub = null;
+          }
+        }
+
         if (!sub) {
-          const appServerKey = Uint8Array.from(
-            atob(key.replace(/-/g, "+").replace(/_/g, "/")),
-            (c) => c.charCodeAt(0),
-          );
           sub = await registration.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: appServerKey,

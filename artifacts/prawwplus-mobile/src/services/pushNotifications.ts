@@ -80,6 +80,12 @@ export function formatNotificationPayload(
       body: `You missed a call from ${caller}`,
     };
   }
+  if (data.type === "voicemail") {
+    return {
+      title: "📬 New Voicemail",
+      body:  data.body ?? "You have a new voicemail message",
+    };
+  }
   if (data.type === "call_terminated") {
     return {
       title: "Call Ended",
