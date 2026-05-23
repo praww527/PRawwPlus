@@ -35,6 +35,7 @@ import {
   type WaitingCall,
 } from "@/services/voip/voipEngine";
 import { callKeepService } from "@/services/voip/callKeepService";
+import { toneService } from "@/services/voip/toneService";
 import { networkMonitor } from "@/services/networkMonitor";
 import { apiRequest } from "@/services/api";
 import {
@@ -391,6 +392,14 @@ export function CallProvider({ children }: PropsWithChildren) {
       } else if (event.type === "endCall") {
         voipEngine.rejectIncomingCall();
         voipEngine.hangup();
+      } else if (event.type === "didActivateAudioSession") {
+        // iOS CallKit has activated the audio session (happens after the user
+        // answers from the lock screen or the app auto-answers a push call).
+        // Start InCallManager so audio routing (earpiece/speaker) is correct.
+        toneService.startCallAudio();
+      } else if (event.type === "didDeactivateAudioSession") {
+        // iOS released the audio session — stop InCallManager to restore device defaults.
+        toneService.stopCallAudio();
       }
     });
 

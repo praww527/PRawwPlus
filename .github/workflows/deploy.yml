@@ -47,7 +47,7 @@ jobs:
   #   VPS_DEPLOY_DIR  — absolute path where the repo lives on the server
   #                     (e.g. /home/ubuntu/PRawwPlus)
   #   VPS_HEALTH_URL  — full URL to hit as a health check after deploy
-  #                     (e.g. https://api.example.com/api/health)
+  #                     (e.g. https://rtc.praww.co.za/api/healthz)
   deploy:
     needs: verify
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')

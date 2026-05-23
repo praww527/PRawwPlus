@@ -27,9 +27,19 @@ export function VertoInit() {
   const { data } = useGetVertoConfig();
   const { setVertoConfig, callState, acceptCall, declineCall } = useCall();
 
-  // True when a service-worker or URL action says "answer as soon as the
-  // incoming call arrives".  Using a ref avoids stale-closure issues.
-  const pendingAnswerRef = useRef(false);
+  // Keep stable refs to the latest call handlers so the SW listener never
+  // becomes stale and never needs to be re-registered on every state change.
+  const callStateRef  = useRef(callState);
+  const acceptRef     = useRef(acceptCall);
+  const declineRef    = useRef(declineCall);
+  callStateRef.current = callState;
+  acceptRef.current    = acceptCall;
+  declineRef.current   = declineCall;
+
+  // "answer as soon as the incoming call arrives" flag.
+  const pendingAnswerRef  = useRef(false);
+  // "decline as soon as the incoming call arrives" flag (app-closed decline).
+  const pendingDeclineRef = useRef(false);
 
   useEffect(() => {
     if (!data) return;
@@ -44,9 +54,9 @@ export function VertoInit() {
 
   // ── Service-worker message bridge ────────────────────────────────────────
   //
-  // The SW posts SW_ANSWER_CALL / SW_DECLINE_CALL to the app window when the
-  // user taps Answer / Decline on a push notification.  We forward those
-  // actions to the Verto call layer here.
+  // Registered once (empty deps).  Uses refs for call state + handlers so it
+  // never becomes stale.  This avoids a subtle race where a SW message arrives
+  // exactly while the effect is tearing down and re-registering.
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
@@ -54,31 +64,44 @@ export function VertoInit() {
       const msgType = event.data?.type as string | undefined;
 
       if (msgType === "SW_ANSWER_CALL") {
-        if (callState === "incoming") {
-          acceptCall();
+        if (callStateRef.current === "incoming") {
+          acceptRef.current();
         } else {
-          // Call may not have arrived yet (race between SW message and Verto
-          // INVITE). Mark pending — the effect below will answer when ready.
           pendingAnswerRef.current = true;
         }
       } else if (msgType === "SW_DECLINE_CALL") {
-        declineCall();
+        if (callStateRef.current === "incoming") {
+          declineRef.current();
+        } else {
+          pendingDeclineRef.current = true;
+        }
       }
     };
 
     navigator.serviceWorker.addEventListener("message", handler);
     return () => navigator.serviceWorker.removeEventListener("message", handler);
-  }, [callState, acceptCall, declineCall]);
+  }, []); // intentionally empty — uses refs above
 
-  // ── Auto-answer when the call arrives (after SW message or URL param) ───
+  // ── Auto-answer / auto-decline when the call arrives ────────────────────
   useEffect(() => {
-    if (callState !== "incoming" || !pendingAnswerRef.current) return;
-    pendingAnswerRef.current = false;
-    // Small delay: let React flush the state update that set callState to
-    // "incoming" before we call acceptCall(), which reads callInfo internals.
-    const t = setTimeout(() => acceptCall(), 300);
-    return () => clearTimeout(t);
-  }, [callState, acceptCall]);
+    if (callState !== "incoming") return undefined;
+
+    if (pendingAnswerRef.current) {
+      pendingAnswerRef.current = false;
+      // Small delay: let React flush the "incoming" state before acceptCall()
+      // reads callInfo internals.
+      const t = setTimeout(() => acceptCall(), 300);
+      return () => clearTimeout(t);
+    }
+
+    if (pendingDeclineRef.current) {
+      pendingDeclineRef.current = false;
+      const t = setTimeout(() => declineCall(), 100);
+      return () => clearTimeout(t);
+    }
+
+    return undefined;
+  }, [callState, acceptCall, declineCall]);
 
   // ── Unlock AudioContext + push subscription + URL action parse ───────────
   useEffect(() => {
@@ -110,8 +133,8 @@ export function VertoInit() {
         window.location.pathname + (cleanSearch ? "?" + cleanSearch : ""),
       );
     } else if (swAction === "decline") {
-      // Decline is handled once the call arrives via the pending flag pattern;
-      // for now just clean the URL.
+      // Mark pending so the call is declined as soon as Verto delivers the INVITE.
+      pendingDeclineRef.current = true;
       params.delete("sw_action");
       const cleanSearch = params.toString();
       window.history.replaceState(
