@@ -14,6 +14,7 @@ import {
   AbuseFlagModel,
   SessionModel,
   AuditLogModel,
+  SystemConfigModel,
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
@@ -1319,6 +1320,63 @@ router.get("/admin/system-health", requireAdmin, async (req, res) => {
 router.post("/admin/freeswitch/push-config", requireAdmin, async (_req, res) => {
   const result = await pushFreeSwitchConfig({ lightReload: false });
   res.status(result.success ? 200 : 500).json(result);
+});
+
+// ── ICE / TURN Server Configuration ───────────────────────────────────────────
+// Stored in MongoDB so they can be changed without restarting the server.
+// Priority at call time: DB > ICE_SERVERS env var > built-in Google STUN defaults.
+
+const DEFAULT_ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+];
+
+router.get("/admin/ice-servers", requireAdmin, async (_req, res) => {
+  await connectDB();
+  const config = await SystemConfigModel.findById("singleton").lean();
+  let envServers: typeof DEFAULT_ICE_SERVERS | null = null;
+  if (process.env.ICE_SERVERS) {
+    try { envServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* ignore */ }
+  }
+  const dbServers = config?.iceServers ?? [];
+  const source: "database" | "env" | "defaults" =
+    dbServers.length > 0 ? "database" : envServers ? "env" : "defaults";
+  const effective = dbServers.length > 0
+    ? dbServers
+    : envServers ?? DEFAULT_ICE_SERVERS;
+  res.json({
+    source,
+    effective,
+    dbServers,
+    envServers,
+    defaultServers: DEFAULT_ICE_SERVERS,
+    updatedAt: config?.updatedAt ?? null,
+  });
+});
+
+router.put("/admin/ice-servers", requireAdmin, async (req: any, res) => {
+  await connectDB();
+  const { iceServers } = req.body as { iceServers?: unknown };
+  if (!Array.isArray(iceServers)) {
+    res.status(400).json({ error: "iceServers must be an array" });
+    return;
+  }
+  for (const s of iceServers) {
+    if (typeof (s as any)?.urls !== "string" || !(s as any).urls.trim()) {
+      res.status(400).json({ error: "Each ICE server must have a non-empty 'urls' string" });
+      return;
+    }
+  }
+  await SystemConfigModel.findByIdAndUpdate(
+    "singleton",
+    { $set: { iceServers, updatedAt: new Date(), updatedBy: req.user?.email ?? req.user?.id } },
+    { upsert: true, new: true },
+  );
+  await logAdminAction(req, "system.ice-servers.update", "system", "ICE servers", { count: iceServers.length });
+  res.json({ ok: true, count: iceServers.length });
 });
 
 router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {

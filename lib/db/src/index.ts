@@ -98,3 +98,4 @@ export * from "./models/Announcement";
 export * from "./models/AnnouncementView";
 export * from "./models/AbuseFlag";
 export * from "./models/AuditLog";
+export * from "./models/SystemConfig";

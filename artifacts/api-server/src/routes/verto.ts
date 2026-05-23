@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { connectDB, UserModel } from "@workspace/db";
+import { connectDB, UserModel, SystemConfigModel } from "@workspace/db";
 import { assignExtensionIfNeeded } from "../lib/extension";
 import { getBaseUrl } from "../lib/appUrl";
 
@@ -46,13 +46,20 @@ router.get("/verto/config", async (req: Request, res: Response) => {
     { urls: "stun:stun3.l.google.com:19302" },
     { urls: "stun:stun4.l.google.com:19302" },
   ];
+
+  // ICE server priority: DB (admin-configurable) → ICE_SERVERS env var → built-in STUN defaults.
+  // The DB path is best for production because it takes effect immediately without a server restart.
   let iceServers = defaultIceServers;
-  if (process.env.ICE_SERVERS) {
-    try {
+  try {
+    const sysConfig = await SystemConfigModel.findById("singleton").lean();
+    if (sysConfig?.iceServers?.length) {
+      iceServers = sysConfig.iceServers as typeof defaultIceServers;
+    } else if (process.env.ICE_SERVERS) {
       iceServers = JSON.parse(process.env.ICE_SERVERS);
-    } catch {
-      const { logger } = await import("../lib/logger");
-      logger.warn("[verto/config] ICE_SERVERS env var contains invalid JSON — using defaults");
+    }
+  } catch {
+    if (process.env.ICE_SERVERS) {
+      try { iceServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* use defaults */ }
     }
   }
 

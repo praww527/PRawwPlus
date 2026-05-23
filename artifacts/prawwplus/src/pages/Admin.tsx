@@ -2097,6 +2097,18 @@ function SystemTab() {
   const [sshTesting, setSshTesting] = useState(false);
   const [expanded,  setExpanded]  = useState<string | null>(null);
 
+  // ICE / TURN server state
+  const [iceData,    setIceData]    = useState<{ source: string; effective: any[]; dbServers: any[]; updatedAt: string | null } | null>(null);
+  const [iceLoading, setIceLoading] = useState(false);
+  const [iceSaving,  setIceSaving]  = useState(false);
+  const [iceEditing, setIceEditing] = useState(false);
+  const [iceList,    setIceList]    = useState<Array<{ urls: string; username: string; credential: string }>>([]);
+  const [newIce,     setNewIce]     = useState({ urls: "", username: "", credential: "" });
+
+  // Directory / call-path test state
+  const [dirResult,  setDirResult]  = useState<any>(null);
+  const [dirTesting, setDirTesting] = useState(false);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -2109,9 +2121,10 @@ function SystemTab() {
 
   useEffect(() => {
     load();
+    loadIce();
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pushConfig = async () => {
     setPushing(true);
@@ -2138,6 +2151,45 @@ function SystemTab() {
     } catch (e: any) {
       setSshResult({ ok: false, error: e.message });
     } finally { setSshTesting(false); }
+  };
+
+  const loadIce = async () => {
+    setIceLoading(true);
+    try {
+      const data = await adminFetch("/admin/ice-servers");
+      setIceData(data);
+      setIceList((data.dbServers ?? []).map((s: any) => ({ urls: s.urls ?? "", username: s.username ?? "", credential: s.credential ?? "" })));
+    } catch (e: any) {
+      toast({ title: "Failed to load ICE servers", description: e.message, variant: "destructive" });
+    } finally { setIceLoading(false); }
+  };
+
+  const saveIce = async () => {
+    setIceSaving(true);
+    try {
+      const servers = iceList.filter((s) => s.urls.trim()).map((s) => ({
+        urls: s.urls.trim(),
+        ...(s.username.trim() ? { username: s.username.trim() } : {}),
+        ...(s.credential.trim() ? { credential: s.credential.trim() } : {}),
+      }));
+      await adminFetch("/admin/ice-servers", { method: "PUT", body: JSON.stringify({ iceServers: servers }) });
+      toast({ title: "ICE servers saved", description: `${servers.length} server(s) saved to database.` });
+      setIceEditing(false);
+      await loadIce();
+    } catch (e: any) {
+      toast({ title: "Save failed", description: e.message, variant: "destructive" });
+    } finally { setIceSaving(false); }
+  };
+
+  const testDirectory = async () => {
+    setDirTesting(true);
+    setDirResult(null);
+    try {
+      const data = await adminFetch("/freeswitch/status");
+      setDirResult(data);
+    } catch (e: any) {
+      setDirResult({ ok: false, reason: e.message });
+    } finally { setDirTesting(false); }
   };
 
   const ts = (ms: number | null | undefined) =>
@@ -2304,7 +2356,7 @@ function SystemTab() {
           </div>
 
           {/* Test SSH */}
-          <div style={{ padding: "14px 16px" }}>
+          <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <div>
                 <p style={{ fontSize: 13, fontWeight: 600, color: "#fff", margin: 0 }}>Test SSH Connection</p>
@@ -2339,6 +2391,196 @@ function SystemTab() {
               </div>
             )}
           </div>
+
+          {/* Test Call Path / Directory */}
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#fff", margin: 0 }}>Test Call Path (Directory)</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Verifies extension lookup, FreeSWITCH domain, and directory XML chain</p>
+              </div>
+              <button
+                onClick={testDirectory}
+                disabled={dirTesting}
+                style={{
+                  flexShrink: 0, padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+                  border: "none", cursor: dirTesting ? "not-allowed" : "pointer",
+                  background: dirTesting ? "rgba(255,255,255,0.06)" : "rgba(48,209,88,0.18)",
+                  color: dirTesting ? "rgba(255,255,255,0.3)" : "#30d158",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {dirTesting ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <PhoneCall style={{ width: 12, height: 12 }} />}
+                {dirTesting ? "Testing…" : "Test"}
+              </button>
+            </div>
+            {dirResult && (
+              <div style={{
+                marginTop: 10, padding: "10px 12px", borderRadius: 8,
+                background: dirResult.ok ? "rgba(48,209,88,0.08)" : "rgba(255,69,58,0.08)",
+                border: `1px solid ${dirResult.ok ? "rgba(48,209,88,0.2)" : "rgba(255,69,58,0.2)"}`,
+                fontSize: 11, color: dirResult.ok ? "#30d158" : "#ff453a",
+                fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-all",
+              }}>
+                {dirResult.ok
+                  ? `✓ Directory OK\nextension=${dirResult.extension}  domain=${dirResult.domain}`
+                  : `✗ Directory Failed\n${dirResult.reason ?? "Unknown error"}`}
+              </div>
+            )}
+          </div>
+        </SysSection>
+
+        {/* ── ICE / TURN Servers ── */}
+        <SysSection title="ICE / TURN Servers" icon={<Wifi style={{ width: 12, height: 12 }} />}>
+          {/* Header row with source badge + edit/save buttons */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", margin: 0 }}>
+                Effective ICE servers used for WebRTC calls
+              </p>
+              {iceData && (
+                <span style={{
+                  padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                  background: iceData.source === "database" ? "rgba(26,140,255,0.18)" : iceData.source === "env" ? "rgba(255,159,10,0.18)" : "rgba(255,255,255,0.07)",
+                  color: iceData.source === "database" ? "#1a8cff" : iceData.source === "env" ? "#ff9f0a" : "rgba(255,255,255,0.4)",
+                  border: `1px solid ${iceData.source === "database" ? "rgba(26,140,255,0.3)" : iceData.source === "env" ? "rgba(255,159,10,0.3)" : "rgba(255,255,255,0.1)"}`,
+                }}>
+                  {iceData.source === "database" ? "From DB" : iceData.source === "env" ? "From env var" : "Defaults (STUN only)"}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              {!iceEditing ? (
+                <>
+                  <button onClick={loadIce} disabled={iceLoading} style={{ padding: "6px 12px", borderRadius: 16, fontSize: 11, fontWeight: 600, border: "none", cursor: iceLoading ? "not-allowed" : "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", display: "flex", alignItems: "center", gap: 5 }}>
+                    <RefreshCw style={{ width: 10, height: 10, animation: iceLoading ? "spin 1s linear infinite" : "none" }} />
+                    Refresh
+                  </button>
+                  <button onClick={() => { setIceEditing(true); setNewIce({ urls: "", username: "", credential: "" }); }} style={{ padding: "6px 12px", borderRadius: 16, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: "rgba(26,140,255,0.18)", color: "#1a8cff", display: "flex", alignItems: "center", gap: 5 }}>
+                    <Settings style={{ width: 10, height: 10 }} />
+                    Configure
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setIceEditing(false)} disabled={iceSaving} style={{ padding: "6px 12px", borderRadius: 16, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}>
+                    Cancel
+                  </button>
+                  <button onClick={saveIce} disabled={iceSaving} style={{ padding: "6px 12px", borderRadius: 16, fontSize: 11, fontWeight: 700, border: "none", cursor: iceSaving ? "not-allowed" : "pointer", background: iceSaving ? "rgba(255,255,255,0.06)" : "rgba(48,209,88,0.2)", color: iceSaving ? "rgba(255,255,255,0.3)" : "#30d158", display: "flex", alignItems: "center", gap: 5 }}>
+                    {iceSaving ? <Loader2 style={{ width: 10, height: 10, animation: "spin 1s linear infinite" }} /> : null}
+                    {iceSaving ? "Saving…" : "Save"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Effective server list (read mode) */}
+          {!iceEditing && (
+            <>
+              {iceLoading && !iceData && (
+                <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.25)" }}>Loading…</div>
+              )}
+              {iceData && iceData.effective.map((s: any, i: number) => {
+                const isTurn = s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:");
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    <span style={{
+                      padding: "1px 7px", borderRadius: 8, fontSize: 10, fontWeight: 700, flexShrink: 0,
+                      background: isTurn ? "rgba(48,209,88,0.12)" : "rgba(255,255,255,0.06)",
+                      color: isTurn ? "#30d158" : "rgba(255,255,255,0.4)",
+                    }}>
+                      {isTurn ? "TURN" : "STUN"}
+                    </span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.urls}</span>
+                    {s.username && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontFamily: "monospace" }}>🔑 {s.username}</span>}
+                  </div>
+                );
+              })}
+              {iceData && !iceData.effective.length && (
+                <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.25)" }}>No ICE servers configured</div>
+              )}
+              {iceData?.source === "defaults" && (
+                <div style={{ padding: "10px 16px", background: "rgba(255,159,10,0.06)", borderTop: "1px solid rgba(255,159,10,0.15)" }}>
+                  <p style={{ margin: 0, fontSize: 11, color: "#ff9f0a" }}>
+                    ⚠ Only STUN servers are active. Calls will fail behind symmetric NAT (most mobile networks, corporate firewalls). Add a TURN server above for reliable production calls.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Edit mode */}
+          {iceEditing && (
+            <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <p style={{ margin: "0 0 4px", fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+                Saved servers override the ICE_SERVERS env var and take effect immediately — no restart needed.
+              </p>
+
+              {/* Existing servers */}
+              {iceList.map((s, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <input
+                    value={s.urls}
+                    onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, urls: e.target.value } : x))}
+                    placeholder="turn:host:3478 or stun:host:3478"
+                    style={{ flex: 2, minWidth: 160, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", fontFamily: "monospace", outline: "none" }}
+                  />
+                  <input
+                    value={s.username}
+                    onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, username: e.target.value } : x))}
+                    placeholder="username"
+                    style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
+                  />
+                  <input
+                    value={s.credential}
+                    onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, credential: e.target.value } : x))}
+                    placeholder="password"
+                    type="password"
+                    style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
+                  />
+                  <button onClick={() => setIceList(iceList.filter((_, j) => j !== i))} style={{ flexShrink: 0, padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: "rgba(255,69,58,0.15)", color: "#ff453a" }}>✕</button>
+                </div>
+              ))}
+
+              {/* Add new row */}
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", paddingTop: 4, borderTop: "1px dashed rgba(255,255,255,0.08)" }}>
+                <input
+                  value={newIce.urls}
+                  onChange={(e) => setNewIce({ ...newIce, urls: e.target.value })}
+                  placeholder="turn:your-turn-server.com:3478"
+                  style={{ flex: 2, minWidth: 160, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.15)", color: "#fff", fontFamily: "monospace", outline: "none" }}
+                />
+                <input
+                  value={newIce.username}
+                  onChange={(e) => setNewIce({ ...newIce, username: e.target.value })}
+                  placeholder="username"
+                  style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.15)", color: "#fff", outline: "none" }}
+                />
+                <input
+                  value={newIce.credential}
+                  onChange={(e) => setNewIce({ ...newIce, credential: e.target.value })}
+                  placeholder="password"
+                  type="password"
+                  style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.15)", color: "#fff", outline: "none" }}
+                />
+                <button
+                  onClick={() => {
+                    if (!newIce.urls.trim()) return;
+                    setIceList([...iceList, { ...newIce }]);
+                    setNewIce({ urls: "", username: "", credential: "" });
+                  }}
+                  style={{ flexShrink: 0, padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: "rgba(26,140,255,0.18)", color: "#1a8cff" }}
+                >
+                  + Add
+                </button>
+              </div>
+
+              <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
+                Leave username &amp; password blank for STUN servers. Saving an empty list restores env-var or default fallback.
+              </p>
+            </div>
+          )}
         </SysSection>
 
         {/* ── Production checklist ── */}
@@ -2353,6 +2595,16 @@ function SystemTab() {
             { label: "App URL set (HTTPS)",         ok: health.envVars.find((v) => v.key === "APP_URL")?.set ?? false },
             { label: "Session secret set",          ok: health.envVars.find((v) => v.key === "SESSION_SECRET")?.set ?? false },
             { label: "Webhook secret set",          ok: health.envVars.find((v) => v.key === "FREESWITCH_WEBHOOK_SECRET")?.set ?? false },
+            {
+              label: "TURN server configured (required for mobile/NAT)",
+              ok: Boolean(iceData && (
+                iceData.source === "database"
+                  ? iceData.dbServers.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:"))
+                  : iceData.source === "env"
+                    ? iceData.effective.some((s: any) => s.urls?.startsWith("turn:") || s.urls?.startsWith("turns:"))
+                    : false
+              )),
+            },
           ].map(({ label, ok }) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
               {ok
