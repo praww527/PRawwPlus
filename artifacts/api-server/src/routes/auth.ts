@@ -18,10 +18,13 @@ import { getBaseUrl } from "../lib/appUrl";
 
 const router: IRouter = Router();
 
-function setSessionCookie(res: Response, sid: string) {
+function setSessionCookie(req: Request, res: Response, sid: string) {
+  // Use secure cookies only over HTTPS. In dev (HTTP via Vite proxy) we must
+  // set secure:false so the browser actually stores and sends the cookie.
+  const isSecure = req.secure || req.headers["x-forwarded-proto"] === "https";
   res.cookie(SESSION_COOKIE, sid, {
     httpOnly: true,
-    secure: true,
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL,
@@ -34,6 +37,20 @@ function generateToken(): string {
 
 router.get("/auth/user", (req: Request, res: Response) => {
   res.json({ user: req.isAuthenticated() ? req.user : null });
+});
+
+/**
+ * GET /api/auth/csrf-token
+ *
+ * Returns the current CSRF token so the client can prime the double-submit
+ * cookie before the first mutating request.  The csrfMiddleware already sets
+ * the csrf_token cookie (httpOnly=false) on every response, so the browser
+ * can also read it directly from document.cookie without hitting this endpoint.
+ * This endpoint exists as an explicit fetch-point for clients that prefer it.
+ */
+router.get("/auth/csrf-token", (req: Request, res: Response) => {
+  const token = req.cookies?.["csrf_token"] as string | undefined;
+  res.json({ token: token ?? null });
 });
 
 function isSmtpConfigured(): boolean {
@@ -157,7 +174,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
         access_token: generateToken(),
       };
       const sid = await createSession(sessionData);
-      setSessionCookie(res, sid);
+      setSessionCookie(req, res, sid);
       res.status(201).json({
         message: "Account created. You are now logged in.",
         user: sessionData.user,
@@ -233,7 +250,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     };
 
     const sid = await createSession(sessionData);
-    setSessionCookie(res, sid);
+    setSessionCookie(req, res, sid);
     // Include `token` so mobile apps can use Authorization: Bearer <token>
     res.json({ user: sessionData.user, token: sid });
   } catch (err) {
@@ -283,7 +300,7 @@ router.post("/auth/verify-email", async (req: Request, res: Response) => {
     };
 
     const sid = await createSession(sessionData);
-    setSessionCookie(res, sid);
+    setSessionCookie(req, res, sid);
     res.json({ message: "Email verified successfully", user: sessionData.user });
   } catch (err) {
     res.status(500).json({ error: "Verification failed" });

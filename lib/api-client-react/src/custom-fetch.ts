@@ -355,9 +355,32 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  // For mutating requests in a browser context, read the csrf_token cookie
+  // (set by the server, httpOnly=false) and echo it as x-csrf-token so the
+  // server's double-submit CSRF check passes in production.
+  const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+  if (
+    MUTATING_METHODS.has(method) &&
+    !headers.has("x-csrf-token") &&
+    !headers.has("authorization") &&
+    typeof document !== "undefined"
+  ) {
+    const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+    if (match) {
+      headers.set("x-csrf-token", decodeURIComponent(match[1]));
+    }
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // Always send cookies (session sid) and accept cookies (Set-Cookie) so that
+  // cookie-based auth works in browser contexts.  Mobile callers that use a
+  // bearer token are unaffected — the Authorization header is still sent and
+  // the server ignores the (absent) cookie.
+  const credentials: RequestCredentials =
+    (init as RequestInit & { credentials?: RequestCredentials }).credentials ?? "include";
+
+  const response = await fetch(input, { ...init, method, headers, credentials });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
