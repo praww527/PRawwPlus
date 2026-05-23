@@ -20,6 +20,14 @@ function generateRequestId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+function getCsrfToken(): string {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+const CSRF_MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export function apiFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -27,5 +35,12 @@ export function apiFetch(
   const headers = new Headers(init?.headers);
   headers.set("X-Session-ID", sessionId);
   headers.set("X-Request-ID", generateRequestId());
+
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (CSRF_MUTATING.has(method) && !headers.has("x-csrf-token") && !headers.has("authorization")) {
+    const token = getCsrfToken();
+    if (token) headers.set("X-CSRF-Token", token);
+  }
+
   return fetch(input, { ...init, headers });
 }

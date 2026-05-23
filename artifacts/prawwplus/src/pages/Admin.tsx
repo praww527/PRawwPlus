@@ -40,10 +40,25 @@ const TABS = [
 
 type TabId = typeof TABS[number]["id"];
 
+function getCsrfToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+const CSRF_MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 async function adminFetch(path: string, opts?: RequestInit) {
+  const method = (opts?.method ?? "GET").toUpperCase();
+  const csrfHeaders: Record<string, string> =
+    CSRF_MUTATING.has(method) ? { "X-CSRF-Token": getCsrfToken() } : {};
+
   const res = await fetch(`/api${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...csrfHeaders,
+      ...(opts?.headers ?? {}),
+    },
     ...opts,
   });
   const data = await res.json();
