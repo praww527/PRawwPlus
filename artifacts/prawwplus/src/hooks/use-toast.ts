@@ -140,6 +140,21 @@ function dispatch(action: Action) {
 type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
+  // Deduplication: if an identical (same title + variant) toast is already open,
+  // return the existing handle instead of stacking a duplicate.
+  if (props.title !== undefined) {
+    const existing = memoryState.toasts.find(
+      (t) => t.open && t.title === props.title && t.variant === props.variant,
+    )
+    if (existing) {
+      return {
+        id:      existing.id,
+        dismiss: () => dispatch({ type: "DISMISS_TOAST", toastId: existing.id }),
+        update:  (p: ToasterToast) => dispatch({ type: "UPDATE_TOAST", toast: { ...p, id: existing.id } }),
+      }
+    }
+  }
+
   const id = genId()
 
   const update = (props: ToasterToast) =>

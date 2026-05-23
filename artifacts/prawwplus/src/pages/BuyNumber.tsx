@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useSearchNumbers, useBuyNumber, useChangeNumber, getSearchNumbersQueryKey } from "@workspace/api-client-react";
 import type { AvailableNumber } from "@workspace/api-client-react";
@@ -155,6 +155,19 @@ export default function BuyNumber({ mode = "buy", oldNumberId, oldNumber }: BuyN
   const { mutateAsync: changeNumber, isPending: changing } = useChangeNumber();
 
   const isPending = buying || changing;
+
+  // Auto-search whenever the country or number type changes so the user
+  // doesn't have to manually click "Search Numbers" after adjusting filters.
+  // mountedRef prevents firing on the initial render.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    setHasSearched(true);
+    refetch();
+  }, [countryCode, numberType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearch = async () => {
     setHasSearched(true);

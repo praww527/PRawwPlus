@@ -106,12 +106,27 @@ function ReferralCard({ code }: { code: string | null }) {
           <div style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "8px 12px", overflow: "hidden" }}>
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{referralLink}</p>
           </div>
-          <button
-            onClick={() => copy(referralLink, "Link")}
-            style={{ padding: "7px 14px", borderRadius: 10, background: "rgba(129,140,248,0.12)", border: "none", fontSize: 12, fontWeight: 600, color: "#818cf8", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}
-          >
-            Copy Link
-          </button>
+          {typeof navigator !== "undefined" && "share" in navigator ? (
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.share({ title: "Join PRaww+", text: "Sign up with my referral link:", url: referralLink });
+                } catch {
+                  copy(referralLink, "Link");
+                }
+              }}
+              style={{ padding: "7px 14px", borderRadius: 10, background: "rgba(129,140,248,0.12)", border: "none", fontSize: 12, fontWeight: 600, color: "#818cf8", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}
+            >
+              Share
+            </button>
+          ) : (
+            <button
+              onClick={() => copy(referralLink, "Link")}
+              style={{ padding: "7px 14px", borderRadius: 10, background: "rgba(129,140,248,0.12)", border: "none", fontSize: 12, fontWeight: 600, color: "#818cf8", cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }}
+            >
+              Copy Link
+            </button>
+          )}
         </div>
       )}
     </div>

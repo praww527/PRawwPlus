@@ -141,7 +141,11 @@ function OverviewTab({ onSwitchTab }: { onSwitchTab: (tab: TabId) => void }) {
       .finally(() => setLoading(false));
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
 
   if (loading) return (
     <div className="space-y-3">
@@ -238,12 +242,18 @@ function OverviewTab({ onSwitchTab }: { onSwitchTab: (tab: TabId) => void }) {
       <div className="rounded-2xl bg-white/[0.04] p-4 space-y-4">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest" style={{ margin: 0 }}>Financial Overview</p>
-          <button
-            onClick={load}
-            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "rgba(255,255,255,0.25)", background: "none", border: "none", cursor: "pointer" }}
-          >
-            <RefreshCw style={{ width: 10, height: 10 }} /> Refresh
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#34d399" }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#34d399", display: "inline-block", animation: "pulse 2s ease-in-out infinite" }} />
+              LIVE
+            </span>
+            <button
+              onClick={load}
+              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "rgba(255,255,255,0.25)", background: "none", border: "none", cursor: "pointer" }}
+            >
+              <RefreshCw style={{ width: 10, height: 10 }} /> Refresh
+            </button>
+          </div>
         </div>
         <ResponsiveContainer width="100%" height={150}>
           <BarChart data={chartData} margin={{ top: 4, right: 4, left: -22, bottom: 0 }} barSize={32}>

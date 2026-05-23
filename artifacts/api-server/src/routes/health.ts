@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import mongoose from "mongoose";
 import { eslStatus } from "../lib/freeswitchESL";
 import { eslBufferDepth } from "../lib/eslEventBuffer";
 import { countPendingEslEvents } from "../lib/reconciliationWorker";
@@ -29,19 +30,37 @@ router.get("/healthz-lite", async (_req, res) => {
   });
 });
 
+async function dbPing(): Promise<{ ok: boolean; latencyMs: number }> {
+  const start = Date.now();
+  try {
+    const state = mongoose.connection.readyState;
+    if (state !== 1) return { ok: false, latencyMs: Date.now() - start };
+    await mongoose.connection.db?.admin().ping();
+    return { ok: true, latencyMs: Date.now() - start };
+  } catch {
+    return { ok: false, latencyMs: Date.now() - start };
+  }
+}
+
 router.get("/healthz", async (_req, res) => {
   const esl = eslStatus();
-  let pendingEslEvents = 0;
-  try {
-    pendingEslEvents = await Promise.race([
+  const [db, pendingEslEvents] = await Promise.all([
+    dbPing(),
+    Promise.race([
       countPendingEslEvents(),
       new Promise<number>((resolve) => setTimeout(() => resolve(0), 750)),
-    ]);
-  } catch {
-    /* DB optional on health scrape */
-  }
-  res.json({
-    status:         "ok",
+    ]).catch(() => 0),
+  ]);
+
+  const overallStatus = db.ok ? "ok" : "degraded";
+
+  res.status(db.ok ? 200 : 503).json({
+    status: overallStatus,
+    db: {
+      ok:        db.ok,
+      latencyMs: db.latencyMs,
+      state:     mongoose.connection.readyState,
+    },
     voice: {
       configured: missingVoiceConfig().length === 0,
       missing:    missingVoiceConfig(),
@@ -49,12 +68,12 @@ router.get("/healthz", async (_req, res) => {
       sipProxy:   Boolean(process.env.FREESWITCH_SSH_KEY || process.env.FREESWITCH_SIP_WS_URL),
     },
     esl: {
-      enabled:          esl.enabled,
-      connected:        esl.connected,
-      host:             esl.host,
-      port:             esl.port,
-      bufferedEvents:   eslBufferDepth(),
-      pendingDbEvents:  pendingEslEvents,
+      enabled:         esl.enabled,
+      connected:       esl.connected,
+      host:            esl.host,
+      port:            esl.port,
+      bufferedEvents:  eslBufferDepth(),
+      pendingDbEvents: pendingEslEvents,
     },
   });
 });

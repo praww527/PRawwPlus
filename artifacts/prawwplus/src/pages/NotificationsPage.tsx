@@ -243,11 +243,45 @@ export default function NotificationsPage() {
           </button>
         )}
         {pushPermission === "denied" && (
-          <span style={{ fontSize: 11, color: "#ff453a", fontWeight: 600, flexShrink: 0 }}>
-            Blocked by browser
-          </span>
+          <div style={{ flexShrink: 0, textAlign: "right" }}>
+            <span style={{ fontSize: 11, color: "#ff453a", fontWeight: 600, display: "block" }}>
+              Blocked
+            </span>
+            <span style={{ fontSize: 10, color: "rgba(255,69,58,0.6)", display: "block", marginTop: 2 }}>
+              See instructions below
+            </span>
+          </div>
         )}
       </div>
+
+      {/* Browser-blocked instructions — shown only when the user has denied permission */}
+      {pushPermission === "denied" && (
+        <div style={{
+          padding: "14px 16px",
+          borderRadius: 14,
+          background: "rgba(255,69,58,0.07)",
+          border: "1px solid rgba(255,69,58,0.18)",
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#ff453a", margin: "0 0 8px" }}>
+            How to unblock notifications
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[
+              { label: "Chrome / Android", steps: 'Tap the lock icon in the address bar → Site settings → Notifications → Allow' },
+              { label: "Safari / iOS",     steps: 'Settings → Safari → [this site] → Notifications → Allow' },
+              { label: "Firefox",          steps: 'Tap the lock icon → Connection Secure → More information → Permissions → Notifications → Allow' },
+            ].map(({ label, steps }) => (
+              <div key={label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "9px 12px" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.55)", margin: "0 0 3px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: 0, lineHeight: 1.4 }}>{steps}</p>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 11, color: "rgba(255,69,58,0.55)", margin: "10px 0 0", lineHeight: 1.4 }}>
+            After allowing, reload this page and tap "Enable" again.
+          </p>
+        </div>
+      )}
 
       <Section title="Calls">
         <ToggleRow

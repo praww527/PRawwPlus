@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@workspace/auth-web";
 import { initTheme } from "@/hooks/useTheme";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { Layout } from "@/components/Layout";
 import { LoadingScreen } from "@/components/ui/spinner";
@@ -158,17 +159,19 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <CallProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-            <CallOverlays />
-          </WouterRouter>
-          <Toaster />
-        </CallProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <CallProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+              <CallOverlays />
+            </WouterRouter>
+            <Toaster />
+          </CallProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -7,6 +7,7 @@ import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { requestIdMiddleware } from "./middlewares/requestId";
 import { getTrustedClientIp } from "./lib/clientIp";
 
 const app: Express = express();
@@ -88,21 +89,26 @@ if (appUrlRaw) {
 }
 const fsWsOrigin = fsWsOrigins.join(" ");
 
+// Assign a unique requestId to every request — must be FIRST middleware so
+// all downstream code (pino-http, route handlers, error handler) can reference it.
+app.use(requestIdMiddleware);
+
 app.use(
   pinoHttp({
     logger,
+    // Use our UUID (which also honours the incoming X-Request-Id header)
+    // so log entries and HTTP responses share the same correlation ID.
+    genReqId: (req) => (req as any).requestId as string,
     serializers: {
       req(req) {
         return {
-          id: req.id,
+          id:     req.id,
           method: req.method,
-          url: req.url?.split("?")[0],
+          url:    req.url?.split("?")[0],
         };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
@@ -121,7 +127,9 @@ app.use(
   }),
 );
 
-app.use((_req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Echo the correlation ID so clients can match log entries to responses.
+  res.setHeader("X-Request-Id", req.requestId);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
