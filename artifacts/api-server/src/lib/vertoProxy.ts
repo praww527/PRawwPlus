@@ -97,6 +97,9 @@ async function getInternalWsUrl(): Promise<string> {
 
 const PENDING_BUFFER_LIMIT = 50;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+// If the callee's socket receives a verto.invite but we see no JSON-RPC ACK
+// back within this window, log a warning so the issue is visible in server logs.
+const INVITE_ACK_TIMEOUT_MS = 8_000;
 
 export function createVertoProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -128,7 +131,17 @@ export function createVertoProxy(): WebSocketServer {
       if (client.readyState === WebSocket.OPEN) client.ping();
     }, HEARTBEAT_INTERVAL_MS);
     client.on("pong", () => { /* connection is alive — no-op */ });
-    const cleanup = () => clearInterval(heartbeat);
+
+    // Track pending verto.invite requests sent from FS → client so we can
+    // detect when the client fails to send the JSON-RPC ACK within the timeout.
+    // Map: numeric RPC id → { callID, sentAt, ackTimer }
+    const pendingInviteAcks = new Map<number, { callID: string; timer: ReturnType<typeof setTimeout> }>();
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      for (const { timer } of pendingInviteAcks.values()) clearTimeout(timer);
+      pendingInviteAcks.clear();
+    };
 
     // ── upstream → client ────────────────────────────────────────────────────
     upstream.on("open", () => {
@@ -156,7 +169,25 @@ export function createVertoProxy(): WebSocketServer {
             if (method === "verto.invite") {
               metrics.callsInitiated++;
               metrics.activeCalls++;
-              logger.info({ method, callID }, "Verto ← FS [inbound call]");
+              const rpcId = typeof msg.id === "number" ? msg.id : null;
+              const clientOpen = client.readyState === WebSocket.OPEN;
+              logger.info(
+                { method, callID, rpcId, CALLEE_SOCKET_FOUND: clientOpen },
+                "Verto ← FS [INVITE_SENT to callee socket]",
+              );
+              // Start ACK timeout — if the callee socket doesn't respond within
+              // INVITE_ACK_TIMEOUT_MS the client is likely reconnecting/frozen.
+              if (rpcId !== null && callID) {
+                const timer = setTimeout(() => {
+                  pendingInviteAcks.delete(rpcId);
+                  logger.warn(
+                    { callID, rpcId, timeoutMs: INVITE_ACK_TIMEOUT_MS },
+                    "Verto proxy: [INVITE_ACK_TIMEOUT] callee socket did not ACK verto.invite — " +
+                    "client may be reconnecting, frozen, or the invite was silently dropped",
+                  );
+                }, INVITE_ACK_TIMEOUT_MS);
+                pendingInviteAcks.set(rpcId, { callID, timer });
+              }
             } else if (method === "verto.answer") {
               metrics.callsAnswered++;
               logger.info({ method, callID }, "Verto ← FS [answered]");
@@ -212,7 +243,8 @@ export function createVertoProxy(): WebSocketServer {
         if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
         pendingToUpstream.push({ data, isBinary });
       }
-      // Log what the browser is sending (method names, not SDPs)
+      // Log what the browser is sending (method names, not SDPs).
+      // Also detect JSON-RPC ACKs from the client for pending verto.invite requests.
       if (!isBinary) {
         try {
           const msg = JSON.parse(data.toString()) as Record<string, unknown>;
@@ -226,6 +258,19 @@ export function createVertoProxy(): WebSocketServer {
               metrics.activeCalls++;
             }
             logger.info({ method, callID, to }, "Verto → FS");
+          } else if (!method && typeof msg.id === "number") {
+            // This is a JSON-RPC response from the client — it could be the ACK
+            // for a previously forwarded verto.invite. Resolve the pending ACK
+            // timer so we don't false-alarm on a healthy invite delivery.
+            const pending = pendingInviteAcks.get(msg.id);
+            if (pending) {
+              clearTimeout(pending.timer);
+              pendingInviteAcks.delete(msg.id);
+              logger.info(
+                { id: msg.id, callID: pending.callID },
+                "Verto proxy: [RPC_ACK] callee socket acknowledged verto.invite",
+              );
+            }
           }
         } catch { /* not JSON — ignore */ }
       }

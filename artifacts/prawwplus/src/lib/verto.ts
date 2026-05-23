@@ -107,8 +107,7 @@ export class VertoClient {
   private remoteStream:   MediaStream | null = null;
   private remoteAudio:    HTMLAudioElement | null = null;
   private sessId:         string;
-  private msgId =         1;
-  private pending =       new Map<number, Pending>();
+  private pending =       new Map<string, Pending>();
   private currentCallId:  string | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed =     false;
@@ -350,8 +349,11 @@ export class VertoClient {
     let msg: Record<string, unknown>;
     try { msg = JSON.parse(e.data as string); } catch { return; }
 
-    // JSON-RPC response (has numeric id AND we are waiting for it)
-    if (typeof msg.id === "number" && this.pending.has(msg.id)) {
+    // JSON-RPC response to a client-originated request.
+    // Our client IDs are always "client_<UUID>" strings — a string ID in the
+    // pending map is unambiguously a response to one of our own requests and
+    // can NEVER collide with FreeSWITCH server-push IDs (which are numeric).
+    if (typeof msg.id === "string" && this.pending.has(msg.id)) {
       const p = this.pending.get(msg.id)!;
       this.pending.delete(msg.id);
       clearTimeout(p.timeout);
@@ -360,13 +362,12 @@ export class VertoClient {
       return;
     }
 
-    // Server-initiated JSON-RPC request (has id but we did NOT send it).
-    // FreeSWITCH sends verto.invite / verto.bye / verto.info as requests
-    // expecting a JSON-RPC 2.0 acknowledgment. Without the ack FreeSWITCH
-    // considers delivery failed and the callee never rings.
-    const serverRequestId = (typeof msg.id === "number" && !this.pending.has(msg.id))
-      ? msg.id as number
-      : null;
+    // Server-initiated JSON-RPC request (FreeSWITCH → client).
+    // FreeSWITCH always uses numeric IDs for its server-push requests
+    // (verto.invite, verto.bye, verto.info etc.). Since our client IDs are
+    // "client_<UUID>" strings, numeric IDs can NEVER be confused with a
+    // pending client request — they are always server-originated.
+    const serverRequestId = typeof msg.id === "number" ? msg.id : null;
 
     const method = (msg.method as string) ?? "";
     const params  = (msg.params as Record<string, unknown>) ?? {};
@@ -381,13 +382,31 @@ export class VertoClient {
         const sdp       = (params.sdp as string) ?? "";
         const dp        = (params.dialogParams as Record<string, string>) ?? {};
         const callerNum = dp.caller_id_number ?? dp.from ?? "Unknown";
+
+        console.info("[Verto] INVITE_RECEIVED", {
+          callId, callerNum,
+          serverRequestId,
+          hasSdp: Boolean(sdp),
+          ts: Date.now(),
+        });
+
         this.currentCallId = callId;
         this.remoteSdpSet  = false;
-        // Acknowledge the invite so FreeSWITCH knows we received it.
+
+        // Acknowledge the invite immediately so FreeSWITCH knows we received it.
+        // Without this ACK FreeSWITCH considers delivery failed and the callee
+        // never sees the incoming call. The ACK must be sent BEFORE onIncoming
+        // so any reconnect/race between ACK and UI render cannot cause a missed ACK.
         if (serverRequestId !== null) {
           this.sendRaw(JSON.stringify({ jsonrpc: "2.0", id: serverRequestId, result: { method } }));
+          console.info("[Verto] INVITE_ACK_SENT", { callId, serverRequestId, ts: Date.now() });
+        } else {
+          console.warn("[Verto] INVITE_RECEIVED with no numeric serverRequestId — FreeSWITCH may not receive ACK", { callId });
         }
+
+        console.info("[Verto] INVITE_DELIVERING_TO_APP", { callId, callerNum, ts: Date.now() });
         this.callbacks.onIncoming(callId, callerNum, sdp);
+        console.info("[Verto] INVITE_DELIVERED_TO_APP", { callId, ts: Date.now() });
         break;
       }
 
@@ -475,7 +494,12 @@ export class VertoClient {
         reject(new Error("WebSocket not open"));
         return;
       }
-      const id = this.msgId++;
+      // Prefix client IDs with "client_" so they occupy a completely separate
+      // ID space from FreeSWITCH server-push request IDs (which are numeric).
+      // This eliminates the class of bug where FS sends verto.invite with id=1
+      // while the client has a pending login/verto.invite with id=1, causing the
+      // server's invite to be silently consumed as the response to our request.
+      const id = `client_${crypto.randomUUID()}`;
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`RPC timeout for method "${method}"`));

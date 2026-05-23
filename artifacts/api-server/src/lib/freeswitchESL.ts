@@ -713,13 +713,42 @@ class FreeSwitchESL {
             hangupCause === "UNREGISTERED" ||
             hangupCause === "USER_NOT_REGISTERED" ||
             hangupCause === "SUBSCRIBER_ABSENT" ||
-            hangupCause === "DESTINATION_OUT_OF_ORDER"
+            hangupCause === "DESTINATION_OUT_OF_ORDER" ||
+            hangupCause === "NO_ROUTE_DESTINATION" ||
+            hangupCause === "NORMAL_TEMPORARY_FAILURE"
           );
-          if (origEntry && isMissedForCallee) {
-            const { destExt, callerExt } = origEntry;
+
+          // Prefer originateDestMap (populated by CHANNEL_ORIGINATE).
+          // Fall back to HANGUP event body fields for calls where FreeSWITCH
+          // rejected at dialplan level and CHANNEL_ORIGINATE never fired
+          // (e.g. callee offline → USER_NOT_REGISTERED / NO_ROUTE_DESTINATION).
+          let missedCallEntry = origEntry;
+          if (!missedCallEntry && isMissedForCallee) {
+            const fallbackDest   = body["Caller-Destination-Number"]           ?? body["Channel-Destination-Number"] ?? "";
+            const fallbackCaller = body["variable_effective_caller_id_number"]  ?? body["Caller-Caller-ID-Number"]    ?? body["Channel-Caller-ID-Number"] ?? "";
+            if (/^[1-9]\d{3}$/.test(fallbackDest) && fallbackCaller) {
+              missedCallEntry = { destExt: fallbackDest, callerExt: fallbackCaller };
+              logger.info(
+                { uuid, fallbackDest, fallbackCaller, hangupCause },
+                "[ESL] CHANNEL_HANGUP_COMPLETE: CHANNEL_ORIGINATE never fired — " +
+                "using fallback dest/caller from event body for missed-call record",
+              );
+            } else {
+              logger.warn(
+                { uuid, hangupCause, fallbackDest, fallbackCaller },
+                "[ESL] CHANNEL_HANGUP_COMPLETE: isMissedForCallee but cannot resolve " +
+                "dest/caller — no originateDestMap entry and no usable body fields",
+              );
+            }
+          }
+
+          if (missedCallEntry && isMissedForCallee) {
+            const { destExt, callerExt } = missedCallEntry;
+            recordEslTrace(uuid, "MISSED_CALL_PENDING");
             this.sendMissedCallPush(uuid, destExt, callerExt)
               .catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
             this.createMissedCallRecordForCallee(uuid, destExt, callerExt, hangupCause)
+              .then(() => recordEslTrace(uuid, "MISSED_CALL_CREATED"))
               .catch((e) => logger.error({ err: e }, "[ESL] Missed call record error"));
           }
 
@@ -727,16 +756,18 @@ class FreeSwitchESL {
           // The Verto bye covers the case where the tab is in focus; this push
           // covers the case where the caller backgrounded their app after dialling.
           const shouldNotifyCaller = (
-            hangupCause === "UNREGISTERED"            ||
-            hangupCause === "USER_NOT_REGISTERED"     ||
-            hangupCause === "SUBSCRIBER_ABSENT"       ||
-            hangupCause === "DESTINATION_OUT_OF_ORDER"||
-            hangupCause === "NO_ANSWER"               ||
-            hangupCause === "RECOVERY_ON_TIMER_EXPIRE"||
+            hangupCause === "UNREGISTERED"             ||
+            hangupCause === "USER_NOT_REGISTERED"      ||
+            hangupCause === "SUBSCRIBER_ABSENT"        ||
+            hangupCause === "DESTINATION_OUT_OF_ORDER" ||
+            hangupCause === "NO_ROUTE_DESTINATION"     ||
+            hangupCause === "NORMAL_TEMPORARY_FAILURE" ||
+            hangupCause === "NO_ANSWER"                ||
+            hangupCause === "RECOVERY_ON_TIMER_EXPIRE" ||
             hangupCause === "CALL_REJECTED"
           );
-          if (origEntry && shouldNotifyCaller) {
-            const { destExt, callerExt } = origEntry;
+          if (missedCallEntry && shouldNotifyCaller) {
+            const { destExt, callerExt } = missedCallEntry;
             this.sendCallerCallFailedPush(callerExt, destExt, hangupCause)
               .catch((e) => logger.error({ err: e }, "[Push] Caller call-failed push error"));
           }
@@ -1011,7 +1042,9 @@ class FreeSwitchESL {
       hangupCause === "UNREGISTERED" ||
       hangupCause === "USER_NOT_REGISTERED" ||
       hangupCause === "SUBSCRIBER_ABSENT" ||
-      hangupCause === "DESTINATION_OUT_OF_ORDER"
+      hangupCause === "DESTINATION_OUT_OF_ORDER" ||
+      hangupCause === "NO_ROUTE_DESTINATION" ||
+      hangupCause === "NORMAL_TEMPORARY_FAILURE"
     ) {
       title = "Call Not Connected";
       body  = `${destDisplay} is not available right now.`;
