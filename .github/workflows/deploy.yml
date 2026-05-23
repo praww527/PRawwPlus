@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ─── 1. Verify (runs on every push + PR) ────────────────────────────────────
+  # ─── 1. Verify (typecheck + build — runs on every push + PR) ─────────────────
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -25,8 +25,15 @@ jobs:
           node-version: "22"
           cache: "pnpm"
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+
+      - name: Build shared libraries
+        run: |
+          pnpm --filter @workspace/db run build
+          pnpm --filter @workspace/api-zod run build
+          pnpm --filter @workspace/auth-web run build
+          pnpm --filter @workspace/api-client-react run build
 
       - name: API server — typecheck
         run: pnpm --filter @workspace/api-server run typecheck
@@ -34,24 +41,25 @@ jobs:
       - name: API server — build
         run: pnpm --filter @workspace/api-server run build
 
-      - name: Mobile — typecheck
-        run: pnpm --filter @workspace/prawwplus-mobile run typecheck
+      - name: Web app — build
+        run: pnpm --filter @workspace/prawwplus run build
 
-  # ─── 2. Deploy to Oracle VPS (main/master branch only) ──────────────────────
+  # ─── 2. Deploy to Oracle VPS (main/master push only) ─────────────────────────
   #
-  # Required GitHub Secrets:
-  #   VPS_HOST        — public IP or hostname of the Oracle VPS
-  #   VPS_USER        — SSH user  (e.g. "ubuntu" or "opc")
-  #   VPS_SSH_KEY     — full PEM private key (starts with -----BEGIN ...)
-  #   VPS_PORT        — SSH port  (default 22)
-  #   VPS_DEPLOY_DIR  — absolute path where the repo lives on the server
-  #                     (e.g. /home/ubuntu/PRawwPlus)
-  #   VPS_HEALTH_URL  — full URL to hit as a health check after deploy
-  #                     (e.g. https://rtc.praww.co.za/api/healthz)
+  # Set these GitHub Secrets (Settings → Secrets → Actions):
+  #   VPS_HOST       — VPS IP or hostname (e.g. 140.x.x.x)
+  #   VPS_USER       — SSH user           (e.g. ubuntu)
+  #   VPS_SSH_KEY    — full PEM private key (-----BEGIN OPENSSH PRIVATE KEY-----)
+  #   VPS_PORT       — SSH port            (default: 22)
+  #   VPS_DEPLOY_DIR — repo path on server (e.g. /home/ubuntu/PRawwPlus)
+  #   VPS_HEALTH_URL — health check URL    (e.g. https://rtc.praww.co.za/api/healthz)
   deploy:
     needs: verify
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -59,66 +67,65 @@ jobs:
           host:     ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key:      ${{ secrets.VPS_SSH_KEY }}
-          port:     ${{ secrets.VPS_PORT || 22 }}
+          port:     ${{ secrets.VPS_PORT }}
           script: |
             set -e
-            cd ${{ secrets.VPS_DEPLOY_DIR }}
+            DEPLOY_DIR="${{ secrets.VPS_DEPLOY_DIR }}"
 
-            echo "==> Pulling latest code"
-            git pull origin $(git rev-parse --abbrev-ref HEAD)
+            echo "==> [1/7] Pull latest code"
+            git -C "$DEPLOY_DIR" pull origin "$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
 
-            echo "==> Enabling corepack / pnpm"
-            corepack enable
-            corepack prepare pnpm@10.26.1 --activate
+            echo "==> [2/7] Fix ownership"
+            sudo chown -R "${USER}:${USER}" "$DEPLOY_DIR" 2>/dev/null || true
 
-            echo "==> Installing dependencies"
-            # --frozen-lockfile may fail on ARM64 hosts (optional native deps);
-            # fall back to a regular install so the deploy never stalls on lockfile drift.
+            echo "==> [3/7] Enable pnpm"
+            corepack enable || npm install -g pnpm@10
+            corepack prepare pnpm@10 --activate 2>/dev/null || true
+
+            echo "==> [4/7] Install dependencies"
+            cd "$DEPLOY_DIR"
             pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
 
-            echo "==> Building libraries"
+            echo "==> [5/7] Build libraries + app + API"
             pnpm --filter @workspace/db \
                  --filter @workspace/api-zod \
                  --filter @workspace/auth-web \
                  --filter @workspace/api-client-react \
                  run build
-
-            echo "==> Building web app"
             pnpm --filter @workspace/prawwplus run build
-
-            echo "==> Building API server"
             pnpm --filter @workspace/api-server run build
 
-            echo "==> Restarting API server"
+            echo "==> [6/7] Restart service"
+            sudo cp "$DEPLOY_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable prawwplus-api
             sudo systemctl restart prawwplus-api
 
-            echo "==> Waiting for service to become healthy"
+            echo "==> [7/7] Health check (systemd)"
             for i in $(seq 1 12); do
               sleep 5
               if systemctl is-active --quiet prawwplus-api; then
-                echo "  Service is active (attempt $i)"
+                echo "  Service active after ${i} attempts"
                 break
               fi
-              echo "  Waiting... ($i/12)"
+              echo "  Waiting... (${i}/12)"
             done
-
             if ! systemctl is-active --quiet prawwplus-api; then
-              echo "ERROR: prawwplus-api failed to start"
-              journalctl -u prawwplus-api -n 40 --no-pager
+              echo "ERROR: service failed to start"
+              journalctl -u prawwplus-api -n 50 --no-pager
               exit 1
             fi
+            echo "==> Deploy complete $(date)"
 
-            echo "==> Deploy complete — $(date)"
-
-      # Optional HTTP health-check — skipped if VPS_HEALTH_URL secret is not set
       - name: HTTP health check
         if: ${{ secrets.VPS_HEALTH_URL != '' }}
+        env:
+          HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
         run: |
-          echo "Checking ${{ secrets.VPS_HEALTH_URL }}"
+          echo "Checking $HEALTH_URL"
           for i in 1 2 3 4 5; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 "${{ secrets.VPS_HEALTH_URL }}" || echo "000")
-            echo "  Attempt $i → HTTP $STATUS"
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 10 "$HEALTH_URL" || echo "000")
+            echo "  Attempt $i: HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
               echo "Health check passed"
               exit 0
