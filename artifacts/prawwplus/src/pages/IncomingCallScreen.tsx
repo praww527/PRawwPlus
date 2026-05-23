@@ -22,12 +22,14 @@ export default function IncomingCallScreen() {
   }, []);
 
   const handleAccept = () => {
-    phoneAudio.stopAll();
+    // Don't call stopAll() here — let the unmount cleanup handle it.
+    // Stopping immediately sets cadenceStopped=true, which prevents the
+    // ringtone from ever starting if the AudioContext was still resuming
+    // from a suspended state at the moment the call arrived.
     acceptCall();
   };
 
   const handleDecline = () => {
-    phoneAudio.stopAll();
     declineCall();
   };
 

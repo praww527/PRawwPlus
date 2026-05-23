@@ -84,8 +84,9 @@ fi
 rm -f pnpm-lock.yaml
 CI=true pnpm install --no-frozen-lockfile
 
-# Build shared library packages first
+# Build shared library packages first (order matters: db → api-zod → auth-web → api-client-react)
 pnpm --filter @workspace/db \
+     --filter @workspace/api-zod \
      --filter @workspace/auth-web \
      --filter @workspace/api-client-react \
      run build
