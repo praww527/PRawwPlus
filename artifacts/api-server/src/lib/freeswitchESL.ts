@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
 import { ringingCall, answerCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
+import { pushFreeSwitchConfig } from "./freeswitchSSH";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -46,6 +47,13 @@ function bareHost(raw: string): string {
 
 const RECONNECT_BASE_MS = parseInt(process.env.ESL_RECONNECT_BASE_MS ?? "2000", 10);
 const RECONNECT_MAX_MS  = parseInt(process.env.ESL_RECONNECT_MAX_MS  ?? "60000", 10);
+
+// ── Auto-recovery debounce for USER_NOT_REGISTERED ───────────────────────────
+// Limits how often the expensive operations fire across all concurrent calls.
+const AUTO_RESCAN_DEBOUNCE_MS   = 60_000;        // sofia rescan — at most once/min
+const AUTO_SSH_PUSH_DEBOUNCE_MS = 5 * 60_000;    // full SSH config push — at most once/5 min
+let lastAutoRescanAt  = 0;
+let lastAutoSshPushAt = 0;
 
 let eslClient: FreeSwitchESL | null = null;
 let eslEnabled = false;
@@ -772,6 +780,18 @@ class FreeSwitchESL {
               .catch((e) => logger.error({ err: e }, "[Push] Caller call-failed push error"));
           }
 
+          // Auto-recover when the callee's extension was not registered.
+          // Fires a lightweight sofia rescan (no SSH), sends the callee a
+          // "please reopen the app" push, and — if the problem persists —
+          // falls back to a full SSH config push (debounced to 5 min).
+          if (
+            (hangupCause === "USER_NOT_REGISTERED" || hangupCause === "UNREGISTERED") &&
+            missedCallEntry
+          ) {
+            this.autoRecoverUnregistered(missedCallEntry.destExt)
+              .catch((e) => logger.error({ err: e }, "[ESL] AUTO_RECOVERY error"));
+          }
+
           enqueueEslEvent(
             uuid,
             "CHANNEL_HANGUP_COMPLETE",
@@ -1075,6 +1095,67 @@ class FreeSwitchESL {
     }
     if (callerUser.expoPushToken) {
       await sendExpoPush(callerUser.expoPushToken, title, body, pushData);
+    }
+  }
+
+  /**
+   * Auto-recovery triggered when a call fails with USER_NOT_REGISTERED or
+   * UNREGISTERED.  Three actions, all debounced to prevent storms:
+   *
+   *  1. `sofia profile prawwplus_mobile rescan` via ESL — instant, no SSH,
+   *     tells FreeSWITCH to re-check gateway/directory config.
+   *  2. Push notification to the callee — tells them to reopen the app so
+   *     their Verto WebSocket reconnects and the extension re-registers.
+   *  3. Full SSH config push (lightReload) — heavy fallback that re-deploys
+   *     xml_curl config; only fires when the rescan isn't enough.
+   */
+  private async autoRecoverUnregistered(destExt: string): Promise<void> {
+    const now = Date.now();
+
+    // 1. Lightweight sofia rescan (debounced to once per minute)
+    if (now - lastAutoRescanAt >= AUTO_RESCAN_DEBOUNCE_MS) {
+      lastAutoRescanAt = now;
+      const sent = this.sendApiCommand("sofia profile prawwplus_mobile rescan");
+      logger.info({ destExt, sent }, "[ESL] AUTO_RECOVERY: sofia profile rescan triggered");
+    }
+
+    // 2. Push notification to callee: "please reopen the app"
+    try {
+      await connectDB();
+      const user = await UserModel.findOne({ extension: parseInt(destExt, 10) })
+        .select("expoPushToken fcmToken webPushSubscription")
+        .lean();
+      if (user && (user.expoPushToken || user.fcmToken || user.webPushSubscription)) {
+        const pushData = { type: "reopen_required", extension: destExt };
+        const title = "Action Required";
+        const body  = "Please reopen PRaww+ to receive calls.";
+        if (user.fcmToken) {
+          await sendFcmDataMessage(user.fcmToken, pushData, { title, body });
+        }
+        if (user.expoPushToken) {
+          await sendExpoPush(user.expoPushToken, title, body, pushData);
+        }
+        if (user.webPushSubscription) {
+          await sendWebPush(
+            user.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+            { ...pushData, title, body },
+            "",
+          );
+        }
+        logger.info({ destExt }, "[ESL] AUTO_RECOVERY: reopen push sent to callee");
+      }
+    } catch (e) {
+      logger.warn({ err: (e as Error).message, destExt }, "[ESL] AUTO_RECOVERY: reopen push failed");
+    }
+
+    // 3. Full SSH config push — lightReload only (no mod_verto/sofia restart)
+    //    so active calls are not disrupted. Debounced to once per 5 minutes.
+    if (now - lastAutoSshPushAt >= AUTO_SSH_PUSH_DEBOUNCE_MS) {
+      lastAutoSshPushAt = now;
+      logger.info({ destExt }, "[ESL] AUTO_RECOVERY: triggering SSH config push (lightReload, debounced 5 min)");
+      pushFreeSwitchConfig({ lightReload: true })
+        .then((r) => logger.info({ steps: r.steps, ok: r.success }, "[ESL] AUTO_RECOVERY: SSH config push done"))
+        .catch((e) => logger.warn({ err: (e as Error).message }, "[ESL] AUTO_RECOVERY: SSH config push failed"));
     }
   }
 
