@@ -321,17 +321,30 @@ export function dialplanXml(fsDomain: string): string {
           voicemail / unavailable forwarding logic can still run after it.
         -->
         <action application="set" data="hangup_after_bridge=true"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
+        <!--
+          Always-forward ext bridge — pre-compute the Verto contact so we never
+          produce a leading comma when verto_contact() returns empty (browser closed).
+          Leading comma = empty first endpoint → instant USER_NOT_REGISTERED failure.
+        -->
+        <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}strlen(${FS_VAR}fwd_verto_ep})} > 0?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:)}"/>
         <action application="set" data="hangup_after_bridge=false"/>
 
         <!--
           Main bridge: ring both Verto (web/WebRTC) and SIP/WS (mobile) contacts
           for the extension simultaneously.  First to answer wins; the other leg
           is cleanly released.
+
+          FIX: pre-compute verto_ep and build the bridge string conditionally.
+          When verto_contact() returns empty (browser tab backgrounded/closed),
+          the naive FS{verto_contact($1@domain)},user/$1@domain becomes
+          ,user/$1@domain — the leading comma creates a phantom empty endpoint
+          that fails instantly with USER_NOT_REGISTERED, masking the real SIP leg.
         -->
-        <action application="bridge" data="${FS_VAR}verto_contact(\$1@${fsDomain})},user/\$1@${fsDomain}"/>
+        <action application="set" data="verto_ep=${FS_VAR}verto_contact(\$1@${fsDomain})}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}strlen(${FS_VAR}verto_ep})} > 0?${FS_VAR}verto_ep},user/\$1@${fsDomain}:user/\$1@${fsDomain})}"/>
 
         <!--
           CRITICAL — save bridge_hangup_cause immediately after the main bridge.
@@ -355,9 +368,10 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
+        <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}strlen(${FS_VAR}fwd_verto_ep})} > 0?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:)}"/>
       </condition>
 
       <!-- Callee is busy (cause 17).
@@ -383,9 +397,10 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
+        <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}strlen(${FS_VAR}fwd_verto_ep})} > 0?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:)}"/>
       </condition>
 
       <!-- NO_ANSWER terminal: voicemail plays greeting then records message.
@@ -413,9 +428,10 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
         <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})},user/${FS_VAR}forward_target}@${fsDomain}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:"/>
-        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:"/>
+        <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}strlen(${FS_VAR}fwd_verto_ep})} > 0?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>
+        <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:)}"/>
       </condition>
 
       <!-- UNREGISTERED terminal: SIT tone (913→1370→1776 Hz) + announcement.  -->

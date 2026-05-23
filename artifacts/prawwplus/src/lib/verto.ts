@@ -100,6 +100,8 @@ function preferOpusCodec(sdp: string): string {
   return sdp;
 }
 
+const PING_INTERVAL_MS = 25_000; // 25 s — keeps WS alive through most browser/network idle timeouts
+
 export class VertoClient {
   private ws:             WebSocket | null = null;
   private pc:             RTCPeerConnection | null = null;
@@ -110,6 +112,7 @@ export class VertoClient {
   private pending =       new Map<string, Pending>();
   private currentCallId:  string | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer:      ReturnType<typeof setInterval> | null = null;
   private destroyed =     false;
   private reconnectAttempt = 0;          // for exponential backoff
   private permDeniedCount  = 0;         // consecutive -32601 failures
@@ -150,6 +153,7 @@ export class VertoClient {
 
   disconnect() {
     this.destroyed = true;
+    this.stopPing();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.clearAllPending(new Error("Client disconnected"));
     if (this.currentCallId) {
@@ -158,6 +162,26 @@ export class VertoClient {
     this.cleanupMedia();
     this.ws?.close();
     this.ws = null;
+  }
+
+  // ─── Keepalive ping ───────────────────────────────────────────────────────
+
+  private startPing() {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      // Send a fire-and-forget verto.info notification with just the sessid.
+      // FreeSWITCH handles it silently; the real purpose is to send a WebSocket
+      // data frame so browsers and intermediary proxies don't close the idle
+      // connection — which would make the callee appear unregistered.
+      this.sendNotify("verto.info", { sessid: this.sessId });
+    }, PING_INTERVAL_MS);
+  }
+
+  private stopPing() {
+    if (this.pingTimer !== null) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   async makeCall(to: string, presetCallId?: string): Promise<string> {
@@ -281,6 +305,7 @@ export class VertoClient {
       console.info("[Verto] Login OK — sending verto.clientReady");
       this.sendNotify("verto.clientReady", { sessid: this.sessId });
       console.info("[Verto] verto.clientReady sent — marking connected");
+      this.startPing();
       this.callbacks.onConnected();
     } catch (err: unknown) {
       const rpcErr = err as Record<string, unknown> | null;
@@ -309,6 +334,7 @@ export class VertoClient {
 
   private handleClose(ev: CloseEvent) {
     console.info("[Verto] WebSocket closed", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
+    this.stopPing();
     this.callbacks.onDisconnected();
     this.clearAllPending(new Error("WebSocket closed"));
     // Reset call state so stale IDs don't block new incoming calls after reconnect
