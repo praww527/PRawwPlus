@@ -1606,6 +1606,11 @@ function PushTab() {
 
 // ─── Live Calls Tab ────────────────────────────────────────────────────────────
 
+interface EslTraceEntry {
+  event: string;
+  ts:    string; // ISO
+}
+
 interface LiveCall {
   id:              string;
   fsCallId:        string | null;
@@ -1617,6 +1622,12 @@ interface LiveCall {
   createdAt:       string;
   startedAt:       string | null;
   updatedAt:       string;
+  ageMs:           number;
+  // ESL diagnostics
+  lastEslEvent:       string | null;
+  lastEslEventAt:     string | null;
+  lastEslEventAgeMs:  number | null;
+  eslTrace:           EslTraceEntry[];
   user: {
     id:        string;
     username:  string;
@@ -1803,6 +1814,78 @@ function CallTraceCard({ call, onForceHangup }: { call: LiveCall; onForceHangup:
 
       {/* FSM timeline */}
       <FsmTimeline status={call.status} />
+
+      {/* ── ESL diagnostics panel ── */}
+      {(() => {
+        const noEslActivity  = !call.lastEslEvent;
+        const ageS           = Math.round((call.ageMs ?? 0) / 1000);
+        const isStuck        = call.status === "initiated" && ageS > 20 && noEslActivity;
+        const eslAgeS        = call.lastEslEventAgeMs != null ? Math.round(call.lastEslEventAgeMs / 1000) : null;
+
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+
+            {/* Stuck-call warning banner */}
+            {isStuck && (
+              <div style={{
+                display: "flex", alignItems: "flex-start", gap: 7,
+                background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)",
+                borderRadius: 8, padding: "7px 10px",
+              }}>
+                <AlertTriangle style={{ width: 12, height: 12, color: "#f87171", flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 11, color: "#f87171", lineHeight: 1.4 }}>
+                  Call has been in INITIATED state for <strong>{ageS} s</strong> with no FreeSWITCH
+                  activity — likely a SIP registration failure or dialplan misconfiguration.
+                  The auto-recovery timer will mark it failed at 20 s.
+                </span>
+              </div>
+            )}
+
+            {/* ESL event row */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)" }}>
+                ESL
+              </span>
+              {noEslActivity ? (
+                <span style={{ fontSize: 10, color: "rgba(255,159,10,0.7)", display: "flex", alignItems: "center", gap: 4 }}>
+                  <WifiOff style={{ width: 9, height: 9 }} /> No FreeSWITCH events received
+                </span>
+              ) : (
+                <span style={{ fontSize: 10, color: "rgba(96,165,250,0.85)", fontFamily: "monospace" }}>
+                  {call.lastEslEvent}
+                  {eslAgeS != null && (
+                    <span style={{ marginLeft: 6, color: "rgba(255,255,255,0.3)", fontFamily: "inherit" }}>
+                      {eslAgeS < 60 ? `${eslAgeS} s ago` : `${Math.round(eslAgeS / 60)} min ago`}
+                    </span>
+                  )}
+                </span>
+              )}
+
+              {/* ESL trace chips */}
+              {call.eslTrace.length > 0 && (
+                <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginLeft: 4 }}>
+                  {call.eslTrace.map((entry, i) => (
+                    <span
+                      key={i}
+                      title={new Date(entry.ts).toLocaleTimeString()}
+                      style={{
+                        fontSize: 8, fontWeight: 700, letterSpacing: "0.04em",
+                        padding: "1px 6px", borderRadius: 6,
+                        background: "rgba(96,165,250,0.1)",
+                        border: "1px solid rgba(96,165,250,0.2)",
+                        color: "rgba(96,165,250,0.7)",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      {entry.event.replace("CHANNEL_", "")}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Footer: fsCallId + age + force-hangup */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>

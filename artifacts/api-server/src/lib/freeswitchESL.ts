@@ -55,6 +55,38 @@ let lastDisconnectedAt: number | null = null;
 let lastEventAt: number | null = null;
 let lastDisconnectReason: string | null = null;
 
+// ── In-memory ESL event trace ─────────────────────────────────────────────────
+// Keyed by FreeSWITCH channel UUID. Entries are capped and purged on CHANNEL_DESTROY.
+const MAX_TRACE_ENTRIES = 30;
+
+export interface EslTraceEntry {
+  event: string;
+  ts:    number; // Unix ms
+}
+
+const eslTraceMap = new Map<string, EslTraceEntry[]>();
+
+function recordEslTrace(uuid: string, event: string): void {
+  if (!uuid) return;
+  const entries = eslTraceMap.get(uuid) ?? [];
+  entries.push({ event, ts: Date.now() });
+  if (entries.length > MAX_TRACE_ENTRIES) entries.shift();
+  eslTraceMap.set(uuid, entries);
+}
+
+/** Returns the full ESL event trace for a channel UUID (A-leg or B-leg). */
+export function getEslTrace(uuid: string): EslTraceEntry[] {
+  return uuid ? (eslTraceMap.get(uuid) ?? []) : [];
+}
+
+/** Returns the last ESL event seen for a channel UUID, or null if none. */
+export function getLastEslEvent(uuid: string): EslTraceEntry | null {
+  if (!uuid) return null;
+  const entries = eslTraceMap.get(uuid);
+  if (!entries || entries.length === 0) return null;
+  return entries[entries.length - 1];
+}
+
 function cleanKey(raw: string): string {
   let s = raw.trim();
 
@@ -500,7 +532,7 @@ class FreeSwitchESL {
         lastConnectedAt = Date.now();
         // Wire the orchestrator's ESL command function now that we are authenticated
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));
-        this.sendLine("event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE MESSAGE_WAITING");
+        this.sendLine("event plain CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_DESTROY MESSAGE_WAITING");
       } else if (reply.startsWith("+OK")) {
         // Subscription/command ACK — ignore
       } else if (reply.startsWith("-ERR")) {
@@ -513,8 +545,26 @@ class FreeSwitchESL {
       lastEventAt = Date.now();
       const body    = this.parseHeaders(event.body);
       const evtName = body["Event-Name"] ?? "";
+      const uuid    = body["Unique-ID"] ?? "";
 
-      if (evtName === "CHANNEL_ORIGINATE") {
+      // Always record every channel event to the in-memory trace so the admin
+      // diagnostics panel can show exactly where the call flow stopped.
+      if (uuid) recordEslTrace(uuid, evtName);
+
+      if (evtName === "CHANNEL_CREATE") {
+        logger.debug({ uuid, callerDest: body["Caller-Destination-Number"] ?? "" }, "[ESL] CHANNEL_CREATE");
+
+      } else if (evtName === "CHANNEL_PROGRESS" || evtName === "CHANNEL_PROGRESS_MEDIA") {
+        // FreeSWITCH fires CHANNEL_PROGRESS when the B-leg starts ringing (early media / 183).
+        // Receiving this means the dial-string resolved and a SIP response was received.
+        logger.debug({ uuid, evtName }, "[ESL] Channel progress — call is being attempted");
+
+      } else if (evtName === "CHANNEL_DESTROY") {
+        logger.debug({ uuid }, "[ESL] CHANNEL_DESTROY — scheduling trace cleanup in 60 s");
+        // Keep trace available briefly for the admin panel after the channel is gone.
+        if (uuid) setTimeout(() => eslTraceMap.delete(uuid), 60_000);
+
+      } else if (evtName === "CHANNEL_ORIGINATE") {
         this.handleOriginate(body).catch((e) =>
           logger.error({ err: e }, "[ESL] handleOriginate error"));
 

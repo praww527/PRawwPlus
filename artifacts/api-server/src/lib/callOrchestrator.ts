@@ -104,6 +104,86 @@ export function clearAllHangupTimers() {
   hangupTimers.clear();
 }
 
+// ─── INITIATED state auto-recovery ───────────────────────────────────────────
+// If FreeSWITCH never fires CHANNEL_ORIGINATE or CHANNEL_HANGUP_COMPLETE within
+// the grace period, the call is almost certainly dead (SIP registration failure,
+// dialplan misconfiguration, ESL connectivity loss, etc.).  We mark it failed so
+// the DB record and UI don't stay stuck indefinitely.
+//
+// The timer is cancelled as soon as any ESL event (CHANNEL_ORIGINATE →
+// ringingCall, CHANNEL_HANGUP_COMPLETE → finalizeCall) arrives.
+
+const INITIATED_TIMEOUT_MS = 20_000; // 20 s matches task requirement
+
+/** Timer handles keyed by fsCallId */
+const initiatedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Start the INITIATED-state watchdog for a newly-created call.
+ * Must be called immediately after the DB record is written with status "initiated".
+ * Idempotent — re-registering the same fsCallId resets the timer.
+ */
+export function registerInitiatedCall(
+  fsCallId: string,
+  callId:   string,
+  delayMs   = INITIATED_TIMEOUT_MS,
+): void {
+  // Clear any previous timer for this UUID (idempotent re-registration)
+  const existing = initiatedTimers.get(fsCallId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(async () => {
+    initiatedTimers.delete(fsCallId);
+    try {
+      await connectDB();
+      const call = await CallModel.findOne({ fsCallId, status: "initiated" })
+        .select("_id userId")
+        .lean();
+      if (!call) return; // Already transitioned — nothing to do
+
+      logger.warn(
+        { fsCallId, callId },
+        "[Orchestrator] INITIATED timeout — no FreeSWITCH activity in 20 s; marking failed. " +
+        "Likely cause: SIP/Verto registration missing, dialplan misconfiguration, or ESL disconnected.",
+      );
+
+      await CallModel.findOneAndUpdate(
+        { _id: call._id, status: "initiated" },
+        {
+          $set: {
+            status:     "failed",
+            endedAt:    new Date(),
+            failReason: "No FreeSWITCH activity within 20 s — possible SIP registration failure",
+            hangupCause: "USER_NOT_REGISTERED",
+            duration:   0,
+            cost:       0,
+          },
+        },
+      );
+
+      appendCallEvent({
+        callId:   String(call._id),
+        fsCallId,
+        userId:   String(call.userId),
+        event:    "failed",
+        metadata: { reason: "initiated_timeout", delayMs },
+      }).catch(() => {});
+    } catch (err) {
+      logger.error({ err, fsCallId, callId }, "[Orchestrator] initiatedTimeout handler error");
+    }
+  }, delayMs);
+
+  initiatedTimers.set(fsCallId, timer);
+}
+
+function cancelInitiatedTimer(fsCallId: string) {
+  const t = initiatedTimers.get(fsCallId);
+  if (t) {
+    clearTimeout(t);
+    initiatedTimers.delete(fsCallId);
+  }
+}
+
 // ─── Billing helpers ───────────────────────────────────────────────────────
 
 function clampBillsec(raw: number): number {
@@ -235,6 +315,10 @@ export async function ringingCall(
   aLegUuid: string,
   bLegUuid: string,
 ): Promise<EventResult> {
+  // Cancel the INITIATED watchdog — FS acknowledged the call
+  cancelInitiatedTimer(aLegUuid);
+  if (bLegUuid && bLegUuid !== aLegUuid) cancelInitiatedTimer(bLegUuid);
+
   await connectDB();
 
   // Try to find by A-leg UUID first (this is what's stored as fsCallId)
@@ -402,6 +486,10 @@ export async function finalizeCall(
 ): Promise<EventResult> {
   cancelHangupTimer(fsCallId);
   if (otherLegId) cancelHangupTimer(otherLegId);
+
+  // Cancel INITIATED watchdog — call is being finalized by FS regardless of state
+  cancelInitiatedTimer(fsCallId);
+  if (otherLegId && otherLegId !== fsCallId) cancelInitiatedTimer(otherLegId);
 
   await connectDB();
 

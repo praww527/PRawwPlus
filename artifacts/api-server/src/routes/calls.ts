@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { resolvePhoneToExtension } from "../lib/phoneResolver";
-import { endCallById, webhookUpdate } from "../lib/callOrchestrator";
+import { endCallById, webhookUpdate, registerInitiatedCall } from "../lib/callOrchestrator";
 import {
   isValidFsCallId,
   countActiveCallsForUser,
@@ -165,6 +165,13 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     notes:           notes ?? undefined,
     startedAt:       new Date(),
   });
+
+  // Start the INITIATED-state watchdog so calls that never receive a
+  // FreeSWITCH CHANNEL_ORIGINATE or CHANNEL_HANGUP_COMPLETE event are
+  // automatically marked failed after 20 s instead of hanging indefinitely.
+  if (fsCallId && typeof fsCallId === "string" && fsCallId.trim()) {
+    registerInitiatedCall(fsCallId.trim(), callId);
+  }
 
   res.json({
     ...callRecord.toJSON(),

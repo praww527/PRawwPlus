@@ -18,7 +18,7 @@ import {
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
-import { eslStatus, sendEslApiCommand } from "../lib/freeswitchESL";
+import { eslStatus, sendEslApiCommand, getLastEslEvent, getEslTrace } from "../lib/freeswitchESL";
 import { sendAdminPush, sendWebPushToSubscription } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
@@ -608,11 +608,19 @@ router.get("/admin/calls/live", requireAdmin, async (_req, res) => {
     .lean();
   const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
 
+  const now = Date.now();
+
   const calls = activeCalls.map((c: any) => {
-    const user = userMap[String(c.userId)] ?? null;
+    const user         = userMap[String(c.userId)] ?? null;
+    const fsCallId     = c.fsCallId ?? null;
+    const lastEslEntry = fsCallId ? getLastEslEvent(String(fsCallId)) : null;
+    const eslTrace     = fsCallId ? getEslTrace(String(fsCallId))     : [];
+    const ageMs        = now - new Date(c.createdAt).getTime();
+    const lastEslEventAgeMs = lastEslEntry ? now - lastEslEntry.ts : null;
+
     return {
       id:              String(c._id),
-      fsCallId:        c.fsCallId ?? null,
+      fsCallId,
       status:          c.status,
       callType:        c.callType ?? "external",
       direction:       (c as any).direction ?? "outbound",
@@ -621,6 +629,12 @@ router.get("/admin/calls/live", requireAdmin, async (_req, res) => {
       createdAt:       c.createdAt,
       startedAt:       (c as any).startedAt ?? null,
       updatedAt:       c.updatedAt,
+      ageMs,
+      // ESL diagnostics — populated from in-memory trace, empty if ESL never saw the channel
+      lastEslEvent:       lastEslEntry?.event    ?? null,
+      lastEslEventAt:     lastEslEntry ? new Date(lastEslEntry.ts).toISOString() : null,
+      lastEslEventAgeMs,
+      eslTrace:           eslTrace.map((e) => ({ event: e.event, ts: new Date(e.ts).toISOString() })),
       user: user
         ? {
             id:        String(user._id),
@@ -671,15 +685,31 @@ router.post("/admin/calls/:id/hangup", requireAdmin, async (req, res) => {
   let eslSent = false;
   let eslWarning: string | null = null;
 
+  // Grace-period check: warn the admin if the call is very young and has had
+  // no ESL activity — it may be a legitimately-connecting call rather than a
+  // stuck record.  We still proceed with the hangup (admin intent is honoured)
+  // but surface the warning so they know.
+  const callAgeMs       = Date.now() - new Date(call.createdAt).getTime();
+  const lastEslEntry    = call.fsCallId ? getLastEslEvent(String(call.fsCallId)) : null;
+  const hasNoEslActivity = lastEslEntry === null;
+
+  if (callAgeMs < 60_000 && hasNoEslActivity && call.status === "initiated") {
+    eslWarning =
+      `Call is only ${Math.round(callAgeMs / 1000)} s old and has received no FreeSWITCH events yet. ` +
+      "It may still be connecting. DB record has been marked failed anyway.";
+  }
+
   if (call.fsCallId) {
     const ok = sendEslApiCommand(`uuid_kill ${call.fsCallId} NORMAL_CLEARING`);
     if (ok) {
       eslSent = true;
     } else {
-      eslWarning = "ESL not connected — FreeSWITCH leg may still be active. DB record updated.";
+      const noEslMsg = "ESL not connected — FreeSWITCH leg may still be active. DB record updated.";
+      eslWarning = eslWarning ? `${eslWarning} Also: ${noEslMsg}` : noEslMsg;
     }
   } else {
-    eslWarning = "No fsCallId on record — could not send uuid_kill. DB record updated.";
+    const noFsMsg = "No fsCallId on record — could not send uuid_kill. DB record updated.";
+    eslWarning = eslWarning ? `${eslWarning} Also: ${noFsMsg}` : noFsMsg;
   }
 
   call.status      = "failed";
