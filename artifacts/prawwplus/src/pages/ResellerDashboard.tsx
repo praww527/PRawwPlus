@@ -24,9 +24,12 @@ type TabId = typeof TABS[number]["id"];
 
 async function resellerFetch(path: string) {
   const res = await fetch(`/api${path}`, { credentials: "include" });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Request failed");
-  return data;
+  if (!res.ok) {
+    let errMsg = "Request failed";
+    try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+    throw new Error(errMsg);
+  }
+  return res.json();
 }
 
 function Skel({ rows = 5, h = 52 }: { rows?: number; h?: number }) {

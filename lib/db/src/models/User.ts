@@ -174,5 +174,8 @@ const UserSchema = new Schema<IUser>(
   { timestamps: true, _id: false }
 );
 
+UserSchema.index({ verificationToken: 1 }, { sparse: true });
+UserSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+
 export const UserModel: Model<IUser> =
   mongoose.models.User || mongoose.model<IUser>("User", UserSchema);

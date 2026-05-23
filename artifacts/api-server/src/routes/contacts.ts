@@ -37,23 +37,13 @@ router.post("/contacts", async (req, res) => {
     return;
   }
 
-  const existing = await ContactModel.findOne({ userId, number: trimmedNumber });
-  if (existing) {
-    await ContactModel.updateOne({ _id: existing._id }, { name: trimmedName });
-    const updated = await ContactModel.findById(existing._id).lean();
-    res.json({ ...updated, id: String(updated?._id) });
-    return;
-  }
+  const contact = await ContactModel.findOneAndUpdate(
+    { userId, number: trimmedNumber },
+    { $set: { name: trimmedName }, $setOnInsert: { _id: randomUUID(), userId, number: trimmedNumber, fromPhone: !!fromPhone } },
+    { upsert: true, returnDocument: "after", lean: true },
+  );
 
-  const contact = await ContactModel.create({
-    _id: randomUUID(),
-    userId,
-    name: trimmedName,
-    number: trimmedNumber,
-    fromPhone: !!fromPhone,
-  });
-
-  res.status(201).json({ ...contact.toObject(), id: String(contact._id) });
+  res.status(201).json({ ...contact, id: String(contact?._id) });
 });
 
 router.post("/contacts/bulk", async (req, res) => {

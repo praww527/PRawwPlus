@@ -30,5 +30,9 @@ const PaymentSchema = new Schema<IPayment>(
   { timestamps: true, _id: false }
 );
 
+PaymentSchema.index({ status: 1 });
+PaymentSchema.index({ payfastPaymentId: 1 }, { sparse: true });
+PaymentSchema.index({ userId: 1, createdAt: -1 });
+
 export const PaymentModel: Model<IPayment> =
   mongoose.models.Payment || mongoose.model<IPayment>("Payment", PaymentSchema);

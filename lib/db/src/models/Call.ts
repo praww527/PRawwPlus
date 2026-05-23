@@ -41,5 +41,9 @@ const CallSchema = new Schema<ICall>(
   { timestamps: true, _id: false }
 );
 
+CallSchema.index({ userId: 1, createdAt: -1 });
+CallSchema.index({ userId: 1, callType: 1, status: 1, endedAt: 1 });
+CallSchema.index({ status: 1 });
+
 export const CallModel: Model<ICall> =
   mongoose.models.Call || mongoose.model<ICall>("Call", CallSchema);

@@ -39,20 +39,18 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ component: Component, componentProps }: { component: React.ComponentType<any>; componentProps?: Record<string, any> }) {
   const { isAuthenticated, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
-  if (!isAuthenticated) { setLocation("/login"); return null; }
+  if (!isAuthenticated) return <Redirect to="/login" />;
 
   return <Layout><Component {...(componentProps ?? {})} /></Layout>;
 }
 
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
-  if (!isAuthenticated) { setLocation("/login"); return null; }
+  if (!isAuthenticated) return <Redirect to="/login" />;
 
   if (!user?.isAdmin) {
     return (
@@ -70,10 +68,9 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
 
 function ResellerRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
-  if (!isAuthenticated) { setLocation("/login"); return null; }
+  if (!isAuthenticated) return <Redirect to="/login" />;
 
   if (user?.isAdmin) return <Layout><Component /></Layout>;
 
@@ -104,10 +101,9 @@ function ResellerRoute({ component: Component }: { component: React.ComponentTyp
 
 function PublicRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
 
   if (isLoading) return <LoadingScreen />;
-  if (isAuthenticated) { setLocation("/dashboard"); return null; }
+  if (isAuthenticated) return <Redirect to="/dashboard" />;
 
   return <Component />;
 }

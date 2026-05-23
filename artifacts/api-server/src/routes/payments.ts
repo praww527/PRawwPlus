@@ -180,6 +180,12 @@ router.post("/payments/webhook", async (req, res) => {
 
   const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
 
+  if (isSandbox && process.env.NODE_ENV === "production") {
+    logger.error("[PayFast] Webhook received in production but PAYFAST_MERCHANT_ID is not set — rejecting to prevent spoofed payments.");
+    res.status(500).send("Server misconfiguration");
+    return;
+  }
+
   if (!isSandbox) {
     const clientIp = getTrustedClientIp(req);
     if (!PAYFAST_VALID_IPS.includes(clientIp)) {

@@ -138,6 +138,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const vertoConfigRef    = useRef<VertoConfig | null>(null);
   const pollIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollAttemptsRef   = useRef(0);
+  const hangupTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { mutateAsync: createCallRecord } = useMakeCall();
 
@@ -166,6 +167,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       },
 
       onIncoming: (callId, callerNumber, sdp) => {
+        if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
         incomingSdpRef.current = sdp;
         // Always store the raw Verto caller ID (extension or phone) in the ref
         // so acceptCall() can use it for the inbound call record.
@@ -270,7 +272,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const info = resolveHangupInfo(hc);
         setHangupInfo(info);
         setCallPhase("ended");
-        setTimeout(() => {
+        if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+        hangupTimerRef.current = setTimeout(() => {
+          hangupTimerRef.current = null;
           setCallState("idle");
           setCallInfo(null);
         }, 3000);
@@ -321,7 +325,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         clientRef.current?.hangup(undefined, "NO_ANSWER", 19);
         setHangupInfo({ cause: "NO_ANSWER", causeCode: 19, message: "No answer", icon: "no-answer" });
         setCallPhase("ended");
-        setTimeout(() => {
+        if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+        hangupTimerRef.current = setTimeout(() => {
+          hangupTimerRef.current = null;
           setCallState("idle");
           setCallInfo(null);
         }, 3000);
@@ -353,6 +359,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [callState, callPhase, callInfo?.callId]);
 
   const startOutgoing = useCallback((info: CallInfo) => {
+    if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
     setHangupInfo(null);
     setCallInfo(info);
     setCallPhase("calling");
@@ -460,7 +467,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         console.warn("[Verto] answerCall error", e);
         setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "error" });
         setCallPhase("ended");
-        setTimeout(() => {
+        if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+        hangupTimerRef.current = setTimeout(() => {
+          hangupTimerRef.current = null;
           setCallState("idle");
           setCallInfo(null);
         }, 1500);
@@ -483,7 +492,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     setHangupInfo({ cause: "CALL_REJECTED", causeCode: 21, message: "Declined", icon: "ended" });
     setCallPhase("ended");
-    setTimeout(() => {
+    if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+    hangupTimerRef.current = setTimeout(() => {
+      hangupTimerRef.current = null;
       setCallState("idle");
       setCallInfo(null);
     }, 800);
@@ -500,7 +511,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     setHangupInfo((prev) => prev ?? { cause: "NORMAL_CLEARING", causeCode: 16, message: "Call ended", icon: "ended" });
     setCallPhase("ended");
-    setTimeout(() => {
+    if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+    hangupTimerRef.current = setTimeout(() => {
+      hangupTimerRef.current = null;
       setCallState("idle");
       setCallInfo(null);
     }, 1500);
