@@ -1545,20 +1545,6 @@ router.delete("/admin/app-errors", requireAdmin, (_req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/admin/freeswitch/config-preview", requireAdmin, async (req, res) => {
-  const appUrl = getAppUrl();
-  const fsDomain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
-  const fsHost = fsDomain.split(":")[0].replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "");
-
-  res.json({
-    xmlCurl:    xmlCurlConf(appUrl ?? "", process.env.FREESWITCH_WEBHOOK_SECRET),
-    verto:      vertoConf(fsHost),
-    eventSocket: eventSocketConf(),
-    dialplan:   dialplanXml(fsHost),
-    sipProfile: sipProfileXml(fsHost, appUrl ?? ""),
-  });
-});
-
 // ── ESL Diagnostics ─────────────────────────────────────────────────────────────
 
 /**
