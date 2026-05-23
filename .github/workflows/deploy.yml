@@ -1,8 +1,138 @@
-name: Test
+name: CI / Deploy
+
 on:
   push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  hello:
+  # ─── 1. Verify (typecheck + build — runs on every push + PR) ─────────────────
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - run: echo hello
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+
+      - name: Build shared libraries
+        run: |
+          pnpm --filter @workspace/db run build
+          pnpm --filter @workspace/api-zod run build
+          pnpm --filter @workspace/auth-web run build
+          pnpm --filter @workspace/api-client-react run build
+
+      - name: API server — typecheck
+        run: pnpm --filter @workspace/api-server run typecheck
+
+      - name: API server — build
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Web app — build
+        run: pnpm --filter @workspace/prawwplus run build
+
+  # ─── 2. Deploy to VPS (main/master push only) ────────────────────────────────
+  #
+  # Required GitHub Secrets (Settings → Secrets and variables → Actions):
+  #   VPS_HOST       — VPS IP or hostname   (e.g. 140.x.x.x)
+  #   VPS_USER       — SSH user             (e.g. ubuntu)
+  #   VPS_SSH_KEY    — full PEM private key (-----BEGIN OPENSSH PRIVATE KEY-----)
+  #   VPS_PORT       — SSH port             (default: 22)
+  #   VPS_DEPLOY_DIR — repo path on server  (e.g. /home/ubuntu/PRawwPlus)
+  #
+  # Optional:
+  #   VPS_HEALTH_URL — health endpoint      (e.g. https://rtc.praww.co.za/api/healthz)
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+            DEPLOY_DIR="${{ secrets.VPS_DEPLOY_DIR }}"
+
+            echo "==> [1/7] Pull latest code"
+            git -C "$DEPLOY_DIR" pull origin "$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
+
+            echo "==> [2/7] Fix ownership"
+            sudo chown -R "${USER}:${USER}" "$DEPLOY_DIR" 2>/dev/null || true
+
+            echo "==> [3/7] Enable pnpm"
+            corepack enable || npm install -g pnpm@10
+            corepack prepare pnpm@10 --activate 2>/dev/null || true
+
+            echo "==> [4/7] Install dependencies"
+            cd "$DEPLOY_DIR"
+            pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+
+            echo "==> [5/7] Build libraries + web + API"
+            pnpm --filter @workspace/db \
+                 --filter @workspace/api-zod \
+                 --filter @workspace/auth-web \
+                 --filter @workspace/api-client-react \
+                 run build
+            pnpm --filter @workspace/prawwplus run build
+            pnpm --filter @workspace/api-server run build
+
+            echo "==> [6/7] Restart service"
+            sudo cp "$DEPLOY_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable prawwplus-api
+            sudo systemctl restart prawwplus-api
+
+            echo "==> [7/7] Health check (systemd)"
+            for i in $(seq 1 12); do
+              sleep 5
+              if systemctl is-active --quiet prawwplus-api; then
+                echo "  Service active after ${i} attempt(s)"
+                break
+              fi
+              echo "  Waiting... (${i}/12)"
+            done
+            if ! systemctl is-active --quiet prawwplus-api; then
+              echo "ERROR: service failed to start"
+              journalctl -u prawwplus-api -n 50 --no-pager
+              exit 1
+            fi
+            echo "==> Deploy complete $(date)"
+
+      - name: HTTP health check
+        env:
+          HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "VPS_HEALTH_URL not set — skipping HTTP health check"
+            exit 0
+          fi
+          echo "Checking $HEALTH_URL"
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 10 "$HEALTH_URL" || echo "000")
+            echo "  Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts"
+          exit 1
