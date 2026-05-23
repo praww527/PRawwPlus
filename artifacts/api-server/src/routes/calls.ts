@@ -3,7 +3,7 @@ import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { resolvePhoneToExtension } from "../lib/phoneResolver";
 import { endCallById, webhookUpdate, registerInitiatedCall } from "../lib/callOrchestrator";
-import { sendFcmDataMessage } from "../lib/push";
+import { sendFcmDataMessage, sendWebPushToSubscription, sendExpoPush } from "../lib/push";
 import {
   isValidFsCallId,
   countActiveCallsForUser,
@@ -187,32 +187,90 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   // and wakes the Android app / Verto WebSocket before the caller's browser
   // waits its 2.5-second grace period and then sends verto.invite.
   //
-  // The visible "📞 Incoming Call" notification with the answer button still
-  // comes from handleOriginate (CHANNEL_ORIGINATE) — that's the definitive
-  // signal containing the B-leg UUID the callee needs to answer.
-  // We deliberately do NOT send Expo or web-push here to avoid double notifications.
+  // Send push notifications to the callee immediately at call-creation time:
+  //   - FCM data message:  silent wakeup so the Android app/Verto WebSocket
+  //     reconnects before FreeSWITCH attempts verto.invite.
+  //   - Web push + Expo:   visible "Incoming Call" alert with Answer/Decline so
+  //     browser and iOS users are notified even without FreeSWITCH configured.
+  // If FreeSWITCH IS configured, CHANNEL_ORIGINATE fires another push with the
+  // real B-leg UUID; the service worker uses `tag: "incoming-call"` so the
+  // second notification simply replaces the first on the user's device.
   let calleeNotified = false;
   if (callType === "internal" && resolvedExtension) {
     try {
       const calleeUser = await UserModel.findOne({ extension: resolvedExtension })
-        .select("fcmToken dnd notificationPrefs")
+        .select("fcmToken expoPushToken webPushSubscription dnd notificationPrefs")
         .lean();
 
+      const calleeOpts = calleeUser as any;
       if (
-        calleeUser?.fcmToken &&
+        calleeUser &&
         !calleeUser.dnd &&
-        calleeUser.notificationPrefs?.incomingCalls !== false
+        (calleeUser as any).notificationPrefs?.incomingCalls !== false
       ) {
-        const wakeupData: Record<string, string> = {
-          type:          "call_wakeup",
-          fromExtension: String((user as any).extension ?? ""),
+        const callerDisplay = (user as any).name ?? (user as any).phone ?? String((user as any).extension ?? "caller");
+        const callerPhone   = (user as any).phoneVerified ? ((user as any).phone ?? undefined) : undefined;
+
+        // Full incoming-call push payload — same shape the service worker expects.
+        const pushData: Record<string, string> = {
+          type:          "incoming_call",
+          callUuid:      callRecord._id.toString(),
+          ...(callerPhone
+            ? { fromPhone: callerPhone }
+            : { fromExtension: String((user as any).extension ?? "") }),
         };
-        // Fire-and-forget — a push failure must never block call creation.
-        sendFcmDataMessage(calleeUser.fcmToken, wakeupData).catch((err) => {
-          logger.warn({ err, resolvedExtension }, "[calls] callee FCM wakeup failed");
-        });
-        calleeNotified = true;
-        logger.info({ resolvedExtension }, "[calls] Sent early FCM wakeup to callee");
+
+        const notifTitle = "📞 Incoming Call";
+        const notifBody  = `${callerDisplay} is calling you`;
+
+        const tasks: Promise<void>[] = [];
+
+        // FCM — silent wakeup so the Android app/Verto WebSocket reconnects
+        // before FreeSWITCH tries to deliver the verto.invite.
+        if (calleeOpts.fcmToken) {
+          tasks.push(
+            sendFcmDataMessage(calleeOpts.fcmToken, pushData).catch((err) => {
+              logger.warn({ err, resolvedExtension }, "[calls] callee FCM wakeup failed");
+            }),
+          );
+        }
+
+        // Web push — visible incoming-call notification with Answer / Decline
+        // actions for browser users (requires VAPID keys to be configured).
+        if (calleeOpts.webPushSubscription?.endpoint) {
+          tasks.push(
+            sendWebPushToSubscription(
+              calleeOpts.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+              { ...pushData, title: notifTitle, body: notifBody },
+              String((calleeUser as any)._id),
+            ).then((result) => {
+              if (result.error === "expired") {
+                UserModel.updateOne(
+                  { _id: (calleeUser as any)._id },
+                  { $unset: { webPushSubscription: 1 } },
+                ).catch(() => {});
+              }
+            }),
+          );
+        }
+
+        // Expo push — for iOS/React Native users.
+        if (calleeOpts.expoPushToken) {
+          tasks.push(
+            sendExpoPush(calleeOpts.expoPushToken, notifTitle, notifBody, pushData).catch((err) => {
+              logger.warn({ err, resolvedExtension }, "[calls] callee Expo push failed");
+            }),
+          );
+        }
+
+        if (tasks.length > 0) {
+          Promise.all(tasks).catch(() => {});
+          calleeNotified = true;
+          logger.info(
+            { resolvedExtension, fcm: !!calleeOpts.fcmToken, web: !!calleeOpts.webPushSubscription, expo: !!calleeOpts.expoPushToken },
+            "[calls] Sent incoming-call push to callee",
+          );
+        }
       }
     } catch (err) {
       logger.warn({ err, resolvedExtension }, "[calls] callee wakeup lookup failed — continuing");
