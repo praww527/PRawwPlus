@@ -49,10 +49,18 @@ try {
       });
 
       const uuid        = data.callUuid ?? `call-${Date.now()}`;
-      const fromExt     = data.fromExtension ?? "Unknown";
-      const displayName = `Extension ${fromExt}`;
+      // Server sends fromExtension for internal callers and fromPhone for
+      // external/verified-phone callers.  Use extension for the CallKeep
+      // handle (used for SIP from-matching later) and prefer fromPhone for
+      // the human-readable display name shown on the lock screen.
+      const fromExt     = data.fromExtension ?? "";
+      const fromPhone   = data.fromPhone ?? "";
+      const handle      = fromExt || fromPhone || "Unknown";
+      const displayName = fromExt
+        ? `Extension ${fromExt}`
+        : (fromPhone || "Incoming Call");
 
-      RNCallKeep.displayIncomingCall(uuid, fromExt, displayName, "number", false);
+      RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
     } catch (ckErr) {
       console.warn(
         "[index.js] CallKeep background handler error:",

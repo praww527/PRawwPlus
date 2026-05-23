@@ -107,6 +107,13 @@ export const callKeepService = {
         if (event.name === "RNCallKeepPerformAnswerCallAction") {
           const { callUUID } = event.data ?? {};
           if (callUUID) {
+            // Register the pending incoming so the SIP session adopts this
+            // CallKeep UUID (fixes killed-state UUID mismatch: the headless
+            // background handler cannot write to this JS context's voipEngine,
+            // so pendingIncoming is null when the app foregrounds.  Setting it
+            // here — without a from filter — ensures any arriving SIP INVITE
+            // inherits the CallKeep UUID, making pendingAnswerUuid match).
+            voipEngine.setPendingIncomingCall(callUUID);
             voipEngine.queueAnswer(callUUID);
             listeners.forEach((l) => l({ type: "answerCall", uuid: callUUID }));
           }

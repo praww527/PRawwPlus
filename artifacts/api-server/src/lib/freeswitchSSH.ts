@@ -40,6 +40,13 @@ function bareHost(raw: string): string {
 
 const FS_HOST = bareHost(FS_DOMAIN);
 
+// FREESWITCH_EXT_IP: explicit public IP used for ext-rtp-ip / ext-sip-ip in the
+// generated config.  FreeSWITCH does NOT resolve hostnames in ext-rtp-ip on all
+// versions — it may embed the literal string in the SDP, making RTP unreachable
+// from browsers.  Always set this to the bare public IPv4 of the VPS
+// (e.g. "158.180.29.84").  Falls back to FS_HOST for backward compatibility.
+const FS_EXT_IP = process.env.FREESWITCH_EXT_IP ? process.env.FREESWITCH_EXT_IP.trim() : FS_HOST;
+
 function cleanKey(raw: string): string {
   let s = raw.trim();
 
@@ -187,7 +194,7 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
     await writeRemoteFile(
       conn,
       `${confDir}/autoload_configs/verto.conf.xml`,
-      vertoConf(FS_HOST),
+      vertoConf(FS_EXT_IP),
     );
     steps.push("Wrote verto.conf.xml");
 
@@ -211,7 +218,7 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
     await writeRemoteFile(
       conn,
       `${confDir}/sip_profiles/prawwplus_mobile.xml`,
-      sipProfileXml(FS_HOST, appUrl),
+      sipProfileXml(FS_EXT_IP, appUrl),
     );
     steps.push("Wrote prawwplus_mobile SIP profile");
 
