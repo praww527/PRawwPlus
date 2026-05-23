@@ -126,7 +126,12 @@ export const callKeepService = {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
     // Ensure the next SIP INVITE reuses this UUID so UI + CallKeep align.
-    voipEngine.setPendingIncomingCall(uuid, handle);
+    // Only use `handle` for SIP from-matching when it is a 4-digit internal extension.
+    // Phone numbers and "Unknown" must NOT be used — they never match the SIP INVITE
+    // caller-ID (which is always the extension number), causing UUID mismatch and
+    // preventing the call from connecting.
+    const sipFromMatch = /^\d{4}$/.test(handle) ? handle : undefined;
+    voipEngine.setPendingIncomingCall(uuid, sipFromMatch);
     voipEngine.startIncomingGraceTimeout(45_000, (timedOutUuid) => {
       try {
         RNCallKeep.endCall(timedOutUuid);

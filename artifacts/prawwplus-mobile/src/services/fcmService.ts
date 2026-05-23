@@ -101,8 +101,12 @@ export function handleForegroundMessage(message: any): void {
 
   if (data.type === "incoming_call") {
     const uuid = data.callUuid ?? `call-${Date.now()}`;
-    const from = data.fromExtension ?? "Unknown";
-    callKeepService.displayIncomingCall(uuid, from, `Extension ${from}`);
+    // Server sends either fromExtension (internal) or fromPhone (verified external caller).
+    // The extension is needed for SIP INVITE matching; the phone/name is for display.
+    const fromExt = data.fromExtension ?? "";
+    const displayFrom = data.fromPhone ?? data.fromExtension ?? "Unknown";
+    const displayName = fromExt ? `Extension ${fromExt}` : displayFrom;
+    callKeepService.displayIncomingCall(uuid, fromExt || displayFrom, displayName);
     return;
   }
 
@@ -125,8 +129,10 @@ export function handleBackgroundMessage(message: any): Promise<void> {
 
   if (data.type === "incoming_call") {
     const uuid = data.callUuid ?? `call-${Date.now()}`;
-    const from = data.fromExtension ?? "Unknown";
-    callKeepService.displayIncomingCall(uuid, from, `Extension ${from}`);
+    const fromExt = data.fromExtension ?? "";
+    const displayFrom = data.fromPhone ?? data.fromExtension ?? "Unknown";
+    const displayName = fromExt ? `Extension ${fromExt}` : displayFrom;
+    callKeepService.displayIncomingCall(uuid, fromExt || displayFrom, displayName);
   }
 
   if (data.type === "call_terminated") {
