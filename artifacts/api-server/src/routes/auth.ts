@@ -112,7 +112,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     const autoVerify = !smtpReady || !!referredByUserId;
     const verificationToken = !autoVerify ? generateToken() : undefined;
     const verificationTokenExpiry = verificationToken
-      ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+      ? new Date(Date.now() + 3 * 60 * 1000)
       : undefined;
 
     const user = await UserModel.create({
@@ -329,7 +329,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
     }
 
     const verificationToken = generateToken();
-    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const verificationTokenExpiry = new Date(Date.now() + 3 * 60 * 1000);
     user.verificationToken = verificationToken;
     user.verificationTokenExpiry = verificationTokenExpiry;
     await user.save();
