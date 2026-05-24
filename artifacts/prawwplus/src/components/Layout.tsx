@@ -2,6 +2,7 @@ import { useRef, useState, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Phone, Clock, Users, Voicemail } from "lucide-react";
 import { VertoInit } from "@/components/VertoInit";
+import { SipInit } from "@/components/SipInit";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 
@@ -49,6 +50,7 @@ export function Layout({ children }: LayoutProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh", overflow: "hidden", background: "transparent" }}>
       <VertoInit />
+      <SipInit />
       <ConnectionBanner />
 
       <main style={{

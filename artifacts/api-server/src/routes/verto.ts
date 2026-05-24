@@ -146,6 +146,97 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * GET /api/sip/config
+ *
+ * Returns SIP/WS credentials for browser JsSIP clients.
+ * Same underlying credentials as /api/verto/config — extension, password, domain —
+ * but shaped for a standard SIP User Agent rather than the Verto protocol.
+ *
+ * The browser connects to wss://APP/api/sip/ws which the sipProxy tunnels to
+ * ws://freeswitch:5066 (prawwplus_mobile SIP profile, mod_sofia).
+ */
+router.get("/sip/config", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+
+  const ext = await assignExtensionIfNeeded(userId);
+  if (!ext) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const user = await UserModel.findById(userId)
+    .select("coins phone phoneVerified")
+    .lean();
+
+  const domain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
+  const appUrl = getBaseUrl(req);
+  const sipWsUrl = appUrl.replace(/^https?:\/\//, "wss://").replace(/\/$/, "") + "/api/sip/ws";
+
+  const defaultIceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ];
+
+  let iceServers: { urls: string | string[]; username?: string; credential?: string }[] = defaultIceServers;
+
+  const turnSecret = process.env.TURN_SECRET;
+  const turnHost   = process.env.TURN_HOST;
+
+  if (turnSecret && turnHost) {
+    const expires  = Math.floor(Date.now() / 1000) + 86_400;
+    const username = `${expires}:${userId}`;
+    const credential = crypto
+      .createHmac("sha1", turnSecret)
+      .update(username)
+      .digest("base64");
+    iceServers = [
+      { urls: `stun:${turnHost}:3478` },
+      {
+        urls: [
+          `turn:${turnHost}:3478?transport=udp`,
+          `turn:${turnHost}:3478?transport=tcp`,
+          `turns:${turnHost}:5349?transport=tcp`,
+        ],
+        username,
+        credential,
+      },
+    ];
+  } else {
+    try {
+      const sysConfig = await SystemConfigModel.findById("singleton").lean();
+      if (sysConfig?.iceServers?.length) {
+        iceServers = sysConfig.iceServers as typeof iceServers;
+      } else if (process.env.ICE_SERVERS) {
+        iceServers = JSON.parse(process.env.ICE_SERVERS);
+      }
+    } catch {
+      if (process.env.ICE_SERVERS) {
+        try { iceServers = JSON.parse(process.env.ICE_SERVERS); } catch { /* defaults */ }
+      }
+    }
+  }
+
+  const verifiedPhone: string | undefined =
+    user?.phoneVerified && user?.phone ? String(user.phone) : undefined;
+
+  res.json({
+    sipWsUrl,
+    domain,
+    extension: ext.extension,
+    sipUri: `sip:${ext.extension}@${domain}`,
+    password: ext.fsPassword,
+    configured: Boolean(process.env.FREESWITCH_DOMAIN),
+    phone: verifiedPhone,
+    iceServers,
+  });
+});
+
 const FS_NOT_FOUND_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <document type="freeswitch/xml">
   <section name="result">
