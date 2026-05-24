@@ -96,7 +96,7 @@ router.get("/conference/:roomId", async (req: Request, res: Response) => {
   const userId = requireAuth(req, res);
   if (!userId) return;
 
-  const { roomId } = req.params;
+  const roomId = String(req.params.roomId);
   const room = activeRooms.get(roomId);
   if (!room) {
     res.status(404).json({ error: "Conference room not found" });
@@ -120,7 +120,7 @@ router.post("/conference/:roomId/invite", async (req: Request, res: Response) =>
   const userId = requireAuth(req, res);
   if (!userId) return;
 
-  const { roomId } = req.params;
+  const roomId = String(req.params.roomId);
   const { extension, phone } = req.body as { extension?: number; phone?: string };
 
   const room = activeRooms.get(roomId);
@@ -183,7 +183,7 @@ router.delete("/conference/:roomId", async (req: Request, res: Response) => {
   const userId = requireAuth(req, res);
   if (!userId) return;
 
-  const { roomId } = req.params;
+  const roomId = String(req.params.roomId);
   const room = activeRooms.get(roomId);
 
   if (!room) {

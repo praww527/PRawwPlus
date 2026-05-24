@@ -18,6 +18,12 @@ import { userRateLimit } from "../lib/userRateLimit";
 import { logger } from "../lib/logger";
 import { parsePageLimit } from "../lib/pagination";
 import { isExtensionOnline, getTotalSessionCount } from "../lib/callSession";
+import {
+  recordBLegInit,
+  recordWakeupSent,
+  waitForRegistration,
+  getBLegDiagnostics,
+} from "../lib/bLegManager";
 
 const router: IRouter = Router();
 
@@ -243,6 +249,20 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     registerInitiatedCall(fsCallId.trim(), callId);
   }
 
+  // Record B-leg lifecycle state for internal calls so pre-originate validation,
+  // recovery orchestration, and admin observability can track this call.
+  if (callType === "internal" && resolvedExtension) {
+    const calleeUserId = String((await (async () => {
+      try {
+        const { connectDB: cdb, UserModel: UM } = await import("@workspace/db");
+        await cdb();
+        const u = await UM.findOne({ extension: resolvedExtension }).select("_id").lean();
+        return u?._id ?? "";
+      } catch { return ""; }
+    })()));
+    recordBLegInit(callId, resolvedExtension, calleeUserId || undefined);
+  }
+
   // ── Early wakeup push for internal calls ─────────────────────────────────
   //
   // Problem: FreeSWITCH tries to bridge to the callee the moment it receives
@@ -335,6 +355,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
         if (tasks.length > 0) {
           Promise.all(tasks).catch(() => {});
           calleeNotified = true;
+          recordWakeupSent(callId);
           logger.info(
             { resolvedExtension, fcm: !!calleeOpts.fcmToken, web: !!calleeOpts.webPushSubscription, expo: !!calleeOpts.expoPushToken },
             "[calls] Sent incoming-call push to callee",
@@ -365,6 +386,109 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
  * Used by the frontend on reconnect to rehydrate call state without
  * losing an in-progress call when the page refreshes or WebSocket drops.
  */
+/**
+ * GET /api/calls/:callId/callee-ready?extension=NNNN[&timeout=12000]
+ *
+ * Long-poll endpoint the caller client uses after receiving `calleeNotified:true`
+ * from POST /api/calls.  Blocks until the callee's extension appears in the
+ * Verto or SIP session maps, or until the timeout expires.
+ *
+ * The client should call this before sending `verto.invite` to FreeSWITCH so
+ * that the callee's device has had time to wake up and re-register.
+ *
+ * Max timeout: 15 s (enforced server-side).
+ *
+ * Response
+ *   { ready: true,  transport: "verto"|"sip", elapsedMs: N }  — callee registered
+ *   { ready: false, transport: null, elapsedMs: N, reason: "timeout"|"call_terminal" }
+ */
+router.get("/calls/:callId/callee-ready", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { callId } = req.params;
+  const extensionStr = String(req.query.extension ?? "").trim();
+  const rawTimeout   = parseInt(String(req.query.timeout ?? "12000"), 10);
+  const timeoutMs    = Math.min(15_000, Math.max(1_000, Number.isFinite(rawTimeout) ? rawTimeout : 12_000));
+
+  if (!/^[1-9]\d{3}$/.test(extensionStr)) {
+    res.status(400).json({ error: "extension query param required (4-digit extension)" });
+    return;
+  }
+
+  const extension = parseInt(extensionStr, 10);
+  const userId    = (req as any).user.id as string;
+
+  await connectDB();
+
+  // Verify the call belongs to this user and is still active
+  const call = await CallModel.findOne({ _id: callId, userId }).select("status").lean();
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const TERMINAL = ["completed", "failed", "missed", "cancelled"];
+  if (TERMINAL.includes(call.status)) {
+    res.json({ ready: false, transport: null, elapsedMs: 0, reason: "call_terminal", status: call.status });
+    return;
+  }
+
+  logger.info(
+    { callId, extension, timeoutMs, userId },
+    "[calls] callee-ready: waiting for registration",
+  );
+
+  const result = await waitForRegistration(extension, timeoutMs);
+
+  logger.info(
+    { callId, extension, registered: result.registered, transport: result.transport, elapsedMs: result.elapsedMs },
+    "[calls] callee-ready: result",
+  );
+
+  res.json({
+    ready:     result.registered,
+    transport: result.transport,
+    elapsedMs: result.elapsedMs,
+    ...(result.registered ? {} : { reason: "timeout" }),
+  });
+});
+
+/**
+ * GET /api/calls/:callId/bleg-diagnostics
+ *
+ * Returns the in-memory B-leg lifecycle state for a call.
+ * Includes pre-originate validation result, recovery attempt count,
+ * originate confirmation timestamp, and current live session status.
+ * Authenticated to the call owner only (admin uses /admin/calls/:id/bleg).
+ */
+router.get("/calls/:callId/bleg-diagnostics", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  await connectDB();
+  const userId = (req as any).user.id as string;
+  const { callId } = req.params;
+
+  const call = await CallModel.findOne({ _id: callId, userId }).select("status").lean();
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const diag = getBLegDiagnostics(callId);
+  if (!diag) {
+    res.json({ available: false, reason: "State not found — call may have ended or server restarted" });
+    return;
+  }
+
+  res.json({ available: true, ...diag });
+});
+
 router.get("/calls/active", async (req, res) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });

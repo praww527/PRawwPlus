@@ -155,3 +155,94 @@ export function isExtensionOnline(extension: number, maxAgeMs = 45_000): boolean
 
   return false;
 }
+
+/**
+ * Returns true when a SIP registration exists AND is fresher than `maxAgeMs`.
+ * Useful for distinguishing a registration that technically hasn't expired yet
+ * but hasn't sent a re-REGISTER recently (which can indicate a dead socket).
+ */
+export function isSipRegistrationFresh(
+  extension: number,
+  maxAgeMs  = 30 * 60_000,   // default 30 min — SIP re-registers every ~1 h
+): boolean {
+  const sip = sipSessions.get(extension);
+  if (!sip) return false;
+  if (sip.expiresAt <= Date.now()) return false;          // hard-expired
+  return Date.now() - sip.registeredAt < maxAgeMs;
+}
+
+/**
+ * Evicts all SIP sessions whose `expiresAt` timestamp has passed.
+ * Called by the session watchdog (every 5 min) and the admin `kick-session` endpoint.
+ * Returns the number of stale sessions removed.
+ */
+export function cleanExpiredSipSessions(): number {
+  const now     = Date.now();
+  let   removed = 0;
+  for (const [ext, sip] of sipSessions) {
+    if (sip.expiresAt <= now) {
+      sipSessions.delete(ext);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
+ * Force-evict the Verto and SIP sessions for a specific extension.
+ * Used by the admin `kick-session` endpoint so a stale session doesn't
+ * block a fresh login / re-registration from being recognised.
+ * Returns which sessions were removed.
+ */
+export function evictSessionsForExtension(extension: number): {
+  vertoEvicted: boolean;
+  sipEvicted:   boolean;
+} {
+  const vertoEvicted = vertoSessions.has(extension);
+  const sipEvicted   = sipSessions.has(extension);
+  vertoSessions.delete(extension);
+  sipSessions.delete(extension);
+  return { vertoEvicted, sipEvicted };
+}
+
+/**
+ * Returns a rich diagnostics snapshot for a specific extension.
+ * Includes Verto session detail, SIP session detail, and derived liveness flags.
+ * Used by the admin session-status endpoint and the B-leg observability panel.
+ */
+export function getExtensionDiagnostics(extension: number): {
+  extension:     number;
+  online:        boolean;
+  verto:         (VertoSession & { pingAgeMs: number; alive: boolean }) | null;
+  sip:           (SipSession   & { regAgeMs: number; expiresInMs: number; alive: boolean; expired: boolean }) | null;
+  bestTransport: "verto" | "sip" | null;
+  asOf:          string;
+} {
+  const now   = Date.now();
+  const verto = vertoSessions.get(extension) ?? null;
+  const sip   = sipSessions.get(extension)   ?? null;
+
+  const vertoPingAgeMs = verto ? now - verto.lastPingAt   : 0;
+  const vertoAlive     = verto != null && vertoPingAgeMs < 45_000;
+
+  const sipRegAgeMs    = sip ? now - sip.registeredAt     : 0;
+  const sipExpiresInMs = sip ? sip.expiresAt - now        : 0;
+  const sipAlive       = sip != null && sipExpiresInMs > 0;
+  const sipExpired     = sip != null && !sipAlive;
+
+  const online        = vertoAlive || sipAlive;
+  const bestTransport = vertoAlive ? "verto" : sipAlive ? "sip" : null;
+
+  return {
+    extension,
+    online,
+    verto: verto
+      ? { ...verto, pingAgeMs: vertoPingAgeMs, alive: vertoAlive }
+      : null,
+    sip: sip
+      ? { ...sip, regAgeMs: sipRegAgeMs, expiresInMs: sipExpiresInMs, alive: sipAlive, expired: sipExpired }
+      : null,
+    bestTransport,
+    asOf: new Date(now).toISOString(),
+  };
+}

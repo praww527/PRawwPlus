@@ -21,12 +21,24 @@ import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
 import { eslStatus, sendEslApiCommand, sendEslBgapiAwait, getLastEslEvent, getEslTrace } from "../lib/freeswitchESL";
 import { metrics } from "../lib/metrics";
-import { getAllSessions } from "../lib/callSession";
-import { sendAdminPush, sendWebPushToSubscription } from "../lib/push";
+import {
+  getAllSessions,
+  getExtensionDiagnostics,
+  evictSessionsForExtension,
+  cleanExpiredSipSessions,
+  getAllSipSessions,
+} from "../lib/callSession";
+import { sendAdminPush, sendWebPushToSubscription, sendFcmDataMessage, sendExpoPush } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
 import { logger } from "../lib/logger";
 import { logAdminAction } from "../lib/auditLogger";
+import {
+  getBLegDiagnostics,
+  getAllBLegStates,
+  getExtensionSessionDiagnostics,
+  waitForRegistration,
+} from "../lib/bLegManager";
 
 const router: IRouter = Router();
 
@@ -1815,6 +1827,310 @@ router.get("/admin/metrics/sessions", requireAdmin, async (_req, res) => {
     })),
     sessionCount: sessions.length,
     metrics: snap,
+  });
+});
+
+// ── B-leg Recovery & Observability ────────────────────────────────────────────
+//
+// These endpoints expose the B-leg Manager state and allow admins to trigger
+// recovery actions manually when a call fails with USER_NOT_REGISTERED.
+
+/**
+ * GET /api/admin/calls/:callId/bleg
+ * Returns the full B-leg lifecycle state for a specific call.
+ * Includes pre-originate validation, recovery attempt count,
+ * originate confirmation timestamp, and current live session status.
+ */
+router.get("/admin/calls/:callId/bleg", requireAdmin, async (req, res) => {
+  const { callId } = req.params;
+
+  const diag = getBLegDiagnostics(callId);
+  if (!diag) {
+    res.json({
+      available: false,
+      callId,
+      reason: "B-leg state not in memory — call may have ended, not yet started, or server restarted",
+    });
+    return;
+  }
+
+  res.json({ available: true, ...diag });
+});
+
+/**
+ * GET /api/admin/calls/bleg/all
+ * Returns a snapshot of all active B-leg states (live calls only).
+ */
+router.get("/admin/calls/bleg/all", requireAdmin, (_req, res) => {
+  const states = getAllBLegStates();
+  res.json({ count: states.length, states });
+});
+
+/**
+ * GET /api/admin/users/:userId/session-status
+ * Returns the full session diagnostics for a specific user including:
+ *   - Verto WebSocket session (ping age, alive flag)
+ *   - SIP registration (reg age, expiry, stale flag)
+ *   - Active B-leg states for this user's extension
+ */
+router.get("/admin/users/:userId/session-status", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+
+  const user = await UserModel.findById(userId)
+    .select("extension fcmToken expoPushToken webPushSubscription dnd notificationPrefs")
+    .lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const extension = (user as any).extension as number | null | undefined;
+  if (!extension) {
+    res.json({
+      userId,
+      extension:  null,
+      message:    "User has no extension assigned",
+      sessionDiag: null,
+    });
+    return;
+  }
+
+  const sessionDiag = getExtensionDiagnostics(extension);
+  const blegDiag    = getExtensionSessionDiagnostics(extension);
+  const activeBLegs = getAllBLegStates().filter((s) => s.destExtension === extension);
+
+  res.json({
+    userId,
+    extension,
+    sessionDiag,
+    blegDiag,
+    activeBLegs,
+    pushChannels: {
+      hasFcm:     !!(user as any).fcmToken,
+      hasExpo:    !!(user as any).expoPushToken,
+      hasWebPush: !!((user as any).webPushSubscription?.endpoint),
+    },
+    asOf: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /api/admin/users/:userId/force-register
+ *
+ * Triggers the full SIP re-registration pipeline for a user:
+ *   1. sofia profile rescan on both profiles (tells FS to re-check directory)
+ *   2. Wakeup push to the user (FCM + Expo + Web Push)
+ *   3. Optionally waits up to 8 s for the user to re-register
+ *
+ * Returns the outcome including whether re-registration was confirmed.
+ */
+router.post("/admin/users/:userId/force-register", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+  const { wait = true } = req.body;
+
+  const user = await UserModel.findById(userId)
+    .select("extension fcmToken expoPushToken webPushSubscription")
+    .lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const extension = (user as any).extension as number | null | undefined;
+  if (!extension) {
+    res.status(400).json({ error: "User has no extension" });
+    return;
+  }
+
+  // Step 1: sofia profile rescan — both profiles
+  const rescannedMobile = sendEslApiCommand("sofia profile prawwplus_mobile rescan");
+  const rescannedVerto  = sendEslApiCommand("sofia profile prawwplus_verto rescan");
+
+  // Step 2: push wakeup
+  const pushData  = { type: "reopen_required", extension: String(extension) };
+  const pushTitle = "Action Required";
+  const pushBody  = "Please reopen PRaww+ to restore your call connection.";
+  let pushSent = false;
+
+  if ((user as any).fcmToken) {
+    await sendFcmDataMessage((user as any).fcmToken, { ...pushData, title: pushTitle, body: pushBody }).catch(() => {});
+    pushSent = true;
+  }
+  if ((user as any).expoPushToken) {
+    await sendExpoPush((user as any).expoPushToken, pushTitle, pushBody, pushData).catch(() => {});
+    pushSent = true;
+  }
+  if ((user as any).webPushSubscription?.endpoint) {
+    await sendWebPushToSubscription(
+      (user as any).webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+      { ...pushData, title: pushTitle, body: pushBody },
+      userId,
+    ).catch(() => {});
+    pushSent = true;
+  }
+
+  // Step 3: optionally wait for re-registration
+  let regResult: { registered: boolean; transport: string | null; elapsedMs: number } | null = null;
+  if (wait) {
+    regResult = await waitForRegistration(extension, 8_000);
+  }
+
+  logAdminAction(req, {
+    action: "user.force-register",
+    targetType: "user",
+    targetId: userId,
+    targetLabel: String(extension),
+    details: { rescannedMobile, rescannedVerto, pushSent, regResult },
+  });
+
+  res.json({
+    ok:             true,
+    extension,
+    eslRescan:      { mobile: rescannedMobile, verto: rescannedVerto },
+    pushSent,
+    registration:   regResult,
+    sessionAfter:   getExtensionDiagnostics(extension),
+  });
+});
+
+/**
+ * POST /api/admin/users/:userId/kick-session
+ *
+ * Force-evicts the in-memory Verto and SIP sessions for a user's extension.
+ * Use this when a session is stale (e.g. WebSocket dropped but entry persists)
+ * and is preventing a fresh registration from being used.
+ *
+ * Note: this only removes the in-memory tracking entry.  The actual FreeSWITCH
+ * registration is separate and is cleared by FreeSWITCH itself when the SIP
+ * REGISTER expires or is refreshed.
+ */
+router.post("/admin/users/:userId/kick-session", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+
+  const user = await UserModel.findById(userId).select("extension").lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const extension = (user as any).extension as number | null | undefined;
+  if (!extension) {
+    res.status(400).json({ error: "User has no extension" });
+    return;
+  }
+
+  const evicted = evictSessionsForExtension(extension);
+
+  logAdminAction(req, {
+    action: "user.kick-session",
+    targetType: "user",
+    targetId: userId,
+    targetLabel: String(extension),
+    details: evicted,
+  });
+
+  res.json({ ok: true, extension, evicted });
+});
+
+/**
+ * POST /api/admin/users/:userId/wakeup-push
+ *
+ * Sends a silent wakeup push to the user without triggering a sofia rescan.
+ * Useful for waking a mobile app that has been backgrounded.
+ */
+router.post("/admin/users/:userId/wakeup-push", requireAdmin, async (req, res) => {
+  await connectDB();
+  const { userId } = req.params;
+
+  const user = await UserModel.findById(userId)
+    .select("extension fcmToken expoPushToken webPushSubscription")
+    .lean();
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const extension = (user as any).extension as number | null | undefined;
+  const pushData  = { type: "reopen_required", extension: String(extension ?? "") };
+  const pushTitle = "Action Required";
+  const pushBody  = "Please reopen PRaww+ to restore your call connection.";
+
+  let fcmSent = false, expoSent = false, webSent = false;
+
+  if ((user as any).fcmToken) {
+    await sendFcmDataMessage((user as any).fcmToken, { ...pushData, title: pushTitle, body: pushBody }).catch(() => {});
+    fcmSent = true;
+  }
+  if ((user as any).expoPushToken) {
+    await sendExpoPush((user as any).expoPushToken, pushTitle, pushBody, pushData).catch(() => {});
+    expoSent = true;
+  }
+  if ((user as any).webPushSubscription?.endpoint) {
+    await sendWebPushToSubscription(
+      (user as any).webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+      { ...pushData, title: pushTitle, body: pushBody },
+      userId,
+    ).catch(() => {});
+    webSent = true;
+  }
+
+  if (!fcmSent && !expoSent && !webSent) {
+    res.json({ ok: false, message: "User has no push tokens registered", extension });
+    return;
+  }
+
+  logAdminAction(req, {
+    action: "user.wakeup-push",
+    targetType: "user",
+    targetId: userId,
+    targetLabel: String(extension ?? userId),
+    details: { fcmSent, expoSent, webSent },
+  });
+
+  res.json({ ok: true, extension, fcmSent, expoSent, webSent });
+});
+
+/**
+ * POST /api/admin/session/clean-expired
+ *
+ * Evicts all SIP session map entries whose `expiresAt` has passed.
+ * Returns the count of removed entries.
+ */
+router.post("/admin/session/clean-expired", requireAdmin, (_req, res) => {
+  const removed = cleanExpiredSipSessions();
+  res.json({ ok: true, removed });
+});
+
+/**
+ * GET /api/admin/session/all-sip
+ *
+ * Returns all current SIP sessions in the in-memory map with derived freshness flags.
+ * Useful for diagnosing which extensions are registered and how fresh the registrations are.
+ */
+router.get("/admin/session/all-sip", requireAdmin, async (req, res) => {
+  await connectDB();
+  const now      = Date.now();
+  const sessions = getAllSipSessions();
+
+  const extNums  = sessions.map((s) => s.extension).filter(Boolean);
+  const users    = extNums.length
+    ? await UserModel.find({ extension: { $in: extNums } })
+        .select("_id username extension")
+        .lean()
+    : [];
+  const userMap  = Object.fromEntries(users.map((u: any) => [u.extension, u]));
+
+  res.json({
+    count: sessions.length,
+    asOf:  new Date(now).toISOString(),
+    sessions: sessions.map((s) => {
+      const regAgeMs    = now - s.registeredAt;
+      const expiresInMs = s.expiresAt - now;
+      const user        = userMap[s.extension];
+      return {
+        extension:    s.extension,
+        contact:      s.contact      ?? null,
+        networkIp:    s.networkIp    ?? null,
+        registeredAt: new Date(s.registeredAt).toISOString(),
+        expiresAt:    new Date(s.expiresAt).toISOString(),
+        regAgeMs,
+        expiresInMs,
+        alive:        expiresInMs > 0,
+        stale:        expiresInMs <= 0,
+        user: user ? { id: String(user._id), username: user.username } : null,
+      };
+    }),
   });
 });
 

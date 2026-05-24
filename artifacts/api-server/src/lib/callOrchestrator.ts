@@ -32,6 +32,7 @@ import { appendCallEvent } from "./callEventLog";
 import { armMediaWatchdog, cancelMediaWatchdog, clearAllMediaWatchdogs } from "./mediaWatchdog";
 import { metrics } from "./metrics";
 import { randomUUID } from "node:crypto";
+import { cleanupBLeg } from "./bLegManager";
 
 /** Configurable ring timeout — kills stale ringing channels if FS own timer doesn't fire */
 const RING_TIMEOUT_MS = parseInt(process.env.RING_TIMEOUT_MS ?? "45000", 10);
@@ -654,6 +655,11 @@ export async function finalizeCall(
   cancelMediaWatchdog(fsCallId);
   if (otherLegId && otherLegId !== fsCallId) cancelMediaWatchdog(otherLegId);
 
+  // Release B-leg manager state for this call so the in-memory map doesn't
+  // grow unboundedly. We do this by MongoDB _id which we resolve below, so
+  // schedule a deferred cleanup after the DB lookup succeeds.
+  // (cleanupBLeg is a no-op when no state exists — safe to call always.)
+
   await connectDB();
 
   let call = await CallModel.findOne({ fsCallId })
@@ -672,6 +678,9 @@ export async function finalizeCall(
   }
 
   if (!call) return EventResult.RETRY;
+
+  // Release B-leg manager in-memory state now that we have the MongoDB _id
+  cleanupBLeg(String(call._id));
 
   // Already finalised (idempotent)
   if (call.endedAt) {

@@ -17,6 +17,7 @@ import { startReconciliationWorker } from "./reconciliationWorker";
 import { startSessionSweeper, setSweepEslCommandFn } from "./sessionSweeper";
 import { setMediaWatchdogEsl } from "./mediaWatchdog";
 import { setSofiaRescanFn } from "./extension";
+import { cleanExpiredSipSessions } from "./callSession";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -187,6 +188,17 @@ export async function runStartup(): Promise<void> {
   // ── 3b. Start stale session sweeper ─────────────────────────────────────
   setSweepEslCommandFn((cmd: string) => { sendEslApiCommand(cmd); });
   startSessionSweeper();
+
+  // ── 3c. SIP session expiry watchdog ──────────────────────────────────────
+  // Every 5 minutes, evict any SIP registration entries whose expiresAt has
+  // passed. This prevents the in-memory map from serving stale registrations
+  // as "alive" after a device re-registers with a new contact/IP.
+  setInterval(() => {
+    const removed = cleanExpiredSipSessions();
+    if (removed > 0) {
+      logger.info({ removed }, "[SIP-Watchdog] Evicted expired SIP session entries");
+    }
+  }, 5 * 60_000).unref();
 
   // ── 4. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
   // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl

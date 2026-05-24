@@ -27,6 +27,12 @@ import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { appendCallEvent } from "./callEventLog";
 import { setMediaWatchdogEsl } from "./mediaWatchdog";
 import { registerSipSession, unregisterSipSession, buildSipSession } from "./callSession";
+import {
+  notifyRegistration,
+  recordOriginateConfirmed,
+  recordBLegFailed,
+  recordRecoveryAttempt,
+} from "./bLegManager";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -1161,6 +1167,31 @@ class FreeSwitchESL {
               .catch((e) => logger.error({ err: e }, "[ESL] AUTO_RECOVERY error"));
           }
 
+          // Notify B-leg manager about the failure so per-call state stays accurate.
+          // We look up by B-leg UUID first; fall back to other-leg UUID.
+          if (
+            hangupCause === "USER_NOT_REGISTERED" ||
+            hangupCause === "UNREGISTERED"         ||
+            hangupCause === "SUBSCRIBER_ABSENT"    ||
+            hangupCause === "DESTINATION_OUT_OF_ORDER" ||
+            hangupCause === "NO_ROUTE_DESTINATION" ||
+            hangupCause === "NORMAL_TEMPORARY_FAILURE" ||
+            hangupCause === "NO_ANSWER"            ||
+            hangupCause === "CALL_REJECTED"        ||
+            hangupCause === "RECOVERY_ON_TIMER_EXPIRE"
+          ) {
+            // Resolve callId from DB asynchronously — best-effort
+            connectDB().then(async () => {
+              const { CallModel: CM } = await import("@workspace/db");
+              const call = await CM.findOne({
+                $or: [{ fsCallId: uuid }, { fsCallId: otherLegUuid }],
+              }).select("_id").lean();
+              if (call) {
+                recordBLegFailed(String(call._id), hangupCause, uuid);
+              }
+            }).catch(() => {});
+          }
+
           enqueueEslEvent(
             uuid,
             "CHANNEL_HANGUP_COMPLETE",
@@ -1206,6 +1237,10 @@ class FreeSwitchESL {
       { ext, expiresSec, networkIp, contact, subclass: body["Event-Subclass"] },
       "[ESL] SIP registration confirmed via sofia event",
     );
+
+    // Notify any callers blocked in waitForRegistration() so the callee-ready
+    // endpoint can return immediately instead of waiting for the poll interval.
+    notifyRegistration(ext);
   }
 
   private handleSofiaUnregister(body: Record<string, string>): void {
@@ -1307,6 +1342,12 @@ class FreeSwitchESL {
     }
 
     this.originateDestMap.set(bLegUuid, { destExt, callerExt });
+
+    // Notify the B-leg manager that CHANNEL_ORIGINATE fired — B-leg confirmed.
+    // Uses destExt + aLegUuid to find the matching per-call state.
+    if (/^[1-9]\d{3}$/.test(destExt)) {
+      recordOriginateConfirmed(bLegUuid, aLegUuid, parseInt(destExt, 10));
+    }
 
     // ── Full originate diagnostic log ─────────────────────────────────────────
     // Log everything FS tells us when it tries to ring the B-leg.
@@ -1545,6 +1586,13 @@ class FreeSwitchESL {
         { destExt, sentMobile, sentVerto },
         "[ESL] AUTO_RECOVERY: sofia profile rescan triggered for both profiles",
       );
+    }
+
+    // Track the recovery attempt in the B-leg manager so admin diagnostics
+    // can show how many times recovery was triggered for this destination.
+    const destExtNum = parseInt(destExt, 10);
+    if (destExtNum >= 1000 && destExtNum <= 9999) {
+      recordRecoveryAttempt(destExtNum);
     }
 
     // 2. Push notification to callee: "please reopen the app"
