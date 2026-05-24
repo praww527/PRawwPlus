@@ -191,11 +191,14 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
 
   // For inbound records the callee POSTs their own record after answering.
   // The frontend sends the real caller's number as bodyCallerNumber so call
-  // history shows the correct "from" party.  For outbound, use the verified
-  // mobile number only — never fall back to the extension (backend-only field).
-  const callerNumber = direction === "inbound" && bodyCallerNumber
-    ? String(bodyCallerNumber)
-    : (user.phone ?? undefined);
+  // history shows the correct "from" party.  Sanitize to digits, "+", and
+  // basic punctuation only — never trust arbitrary user-supplied strings.
+  // For outbound, use the server-side verified mobile number only.
+  const sanitizedBodyCallerNumber =
+    direction === "inbound" && bodyCallerNumber
+      ? String(bodyCallerNumber).replace(/[^\d+\-() ]/g, "").slice(0, 30) || undefined
+      : undefined;
+  const callerNumber = sanitizedBodyCallerNumber ?? (user.phone ?? undefined);
   const callId = randomUUID();
 
   // Log raw vs normalised destination so outbound SIP failures can be traced

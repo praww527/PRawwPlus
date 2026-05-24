@@ -44,8 +44,10 @@ export async function authMiddleware(
       return;
     }
     req.user = session.user;
-  } catch {
-    // DB unavailable — proceed as unauthenticated
+  } catch (err) {
+    // DB unavailable — proceed as unauthenticated but log the error so it
+    // doesn't silently mask connectivity problems.
+    logger.warn({ err }, "[auth] getSession failed — proceeding as unauthenticated");
   }
 
   next();

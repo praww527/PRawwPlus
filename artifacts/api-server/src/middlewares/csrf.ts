@@ -26,7 +26,8 @@ const EXEMPT_PREFIXES = [
   "/api/auth/verify-email",
   "/api/auth/resend-verification",
   "/api/auth/phone/",
-  "/api/payments/notify",
+  // PayFast server-to-server webhook — cannot carry a CSRF token (server-to-server POST)
+  "/api/payments/webhook",
   "/api/verto/",
   "/api/sip/",
   // FreeSWITCH server-to-server callbacks — already protected by FREESWITCH_WEBHOOK_SECRET
@@ -88,7 +89,17 @@ export function csrfMiddleware(req: Request, res: Response, next: NextFunction):
     (req.headers[CSRF_HEADER] as string | undefined) ??
     (req.body?.[CSRF_BODY_KEY] as string | undefined);
 
-  if (!provided || !crypto.timingSafeEqual(Buffer.from(token, "utf8"), Buffer.from(provided, "utf8"))) {
+  // timingSafeEqual throws if the two buffers are different lengths —
+  // check length equality first to prevent an exception leaking token length.
+  const tokenBuf    = Buffer.from(token,        "utf8");
+  const providedBuf = Buffer.from(provided ?? "", "utf8");
+  const valid =
+    provided !== undefined &&
+    provided !== "" &&
+    tokenBuf.length === providedBuf.length &&
+    crypto.timingSafeEqual(tokenBuf, providedBuf);
+
+  if (!valid) {
     res.status(403).json({ error: "Invalid CSRF token" });
     return;
   }

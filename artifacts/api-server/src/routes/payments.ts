@@ -58,17 +58,22 @@ function buildPayFastData(params: {
 }
 
 function getPayFastCredentials() {
-  const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "10000100";
-  const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "46f0cd694581a";
-  const passphrase = process.env.PAYFAST_PASSPHRASE;
-  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+  // Treat the env var as absent if it is set but empty ("") — an empty string
+  // is falsy in JS but process.env returns "" instead of undefined when the var
+  // exists with no value, so we normalise to undefined for a clean check.
+  const rawMerchantId  = process.env.PAYFAST_MERCHANT_ID?.trim()  || undefined;
+  const rawMerchantKey = process.env.PAYFAST_MERCHANT_KEY?.trim() || undefined;
+  const merchantId  = rawMerchantId  ?? "10000100";
+  const merchantKey = rawMerchantKey ?? "46f0cd694581a";
+  const passphrase  = process.env.PAYFAST_PASSPHRASE?.trim() || undefined;
+  const isSandbox   = !rawMerchantId;
   if (isSandbox) {
     logger.warn("[PayFast] PAYFAST_MERCHANT_ID is not set — using sandbox credentials. Set PAYFAST_MERCHANT_ID in production.");
   }
   const paymentUrl = isSandbox
     ? "https://sandbox.payfast.co.za/eng/process"
     : "https://www.payfast.co.za/eng/process";
-  return { merchantId, merchantKey, passphrase, paymentUrl };
+  return { merchantId, merchantKey, passphrase, paymentUrl, isSandbox };
 }
 
 function verifyPayFastSignature(body: Record<string, string>, passphrase?: string): boolean {
@@ -178,7 +183,10 @@ router.post("/payments/webhook", async (req, res) => {
     return;
   }
 
-  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
+  // Use getPayFastCredentials() for the sandbox check so that an empty-string
+  // PAYFAST_MERCHANT_ID (e.g. set but blank in the environment) is treated
+  // identically to "not set" — both cases activate sandbox mode.
+  const { passphrase, isSandbox } = getPayFastCredentials();
 
   if (isSandbox && process.env.NODE_ENV === "production") {
     logger.error("[PayFast] Webhook received in production but PAYFAST_MERCHANT_ID is not set — rejecting to prevent spoofed payments.");
@@ -193,7 +201,6 @@ router.post("/payments/webhook", async (req, res) => {
       return;
     }
 
-    const { passphrase } = getPayFastCredentials();
     const signatureValid = verifyPayFastSignature(body, passphrase);
     if (!signatureValid) {
       res.status(400).send("Invalid signature");

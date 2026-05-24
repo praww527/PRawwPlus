@@ -150,11 +150,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
+// Safety cap: if the map grows beyond this size (e.g. during a distributed
+// botnet attack), evict the oldest expired entries immediately rather than
+// waiting for the 60-second cleanup cycle, preventing unbounded memory growth.
+const RATE_LIMIT_MAP_MAX_SIZE = 50_000;
+
 function rateLimit(maxRequests: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const ip = getTrustedClientIp(req) || "unknown";
     const now = Date.now();
     const entry = rateLimitMap.get(ip);
+
+    // Proactive eviction when the map is too large — purge expired entries now
+    // instead of waiting for the periodic cleanup.
+    if (rateLimitMap.size >= RATE_LIMIT_MAP_MAX_SIZE) {
+      for (const [k, v] of rateLimitMap) {
+        if (now > v.resetAt) rateLimitMap.delete(k);
+        if (rateLimitMap.size < RATE_LIMIT_MAP_MAX_SIZE) break;
+      }
+    }
 
     if (!entry || now > entry.resetAt) {
       rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });

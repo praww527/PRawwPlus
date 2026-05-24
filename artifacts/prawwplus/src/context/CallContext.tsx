@@ -478,7 +478,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         //                     lookup) so call history always shows a real phone
         //                     number, never a raw 4-digit extension code.
         if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
-          inboundRecordCreatedRef.current = true;
           try {
             const ownExt = vertoConfigRef.current?.extension;
             // By the time the user taps "Accept", the async extension→phone
@@ -496,6 +495,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 direction:       "inbound",
               },
             } as any);
+            // Only mark as created AFTER the server confirms success so that
+            // a transient failure doesn't permanently block future retries.
+            inboundRecordCreatedRef.current = true;
             if (record?.id) {
               // Switch callInfo.callId to the DB record ID so signalEndCall
               // always targets the correct document.
