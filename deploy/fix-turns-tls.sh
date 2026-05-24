@@ -256,20 +256,54 @@ info "fails to bind — 3478 works but 5349 does not."
 echo ""
 
 if [[ "$CERT_OK" == true && -f "$KEY_PATH" ]]; then
-  # Fix directory permissions (coturn needs execute on the live/<domain> dir)
   LIVE_DIR_ACTUAL=$(dirname "$KEY_PATH")
-  chmod 750 "$LIVE_DIR_ACTUAL" 2>/dev/null && \
-    fixed "chmod 750 $LIVE_DIR_ACTUAL (turnserver can traverse)" || \
+  DOMAIN_NAME=$(basename "$LIVE_DIR_ACTUAL")
+  ARCHIVE_DIR="/etc/letsencrypt/archive/${DOMAIN_NAME}"
+
+  # ── Fix the PARENT live/ directory ──────────────────────────────────────────
+  # /etc/letsencrypt/live/ is typically drwx------ root root (700).
+  # The turnserver user cannot traverse into it at all, which means the symlinks
+  # under live/<domain>/ are completely unresolvable — even if the archive files
+  # have correct permissions.  We must group-own + chmod the parent.
+  PARENT_LIVE="/etc/letsencrypt/live"
+  chown root:turnserver "$PARENT_LIVE" 2>/dev/null && chmod 750 "$PARENT_LIVE" 2>/dev/null && \
+    fixed "$PARENT_LIVE → root:turnserver 750 (turnserver can traverse into live/)" || \
+    warn "Could not chown/chmod $PARENT_LIVE"
+
+  # ── Fix the domain live/ subdirectory ─────────────────────────────────────
+  chown root:turnserver "$LIVE_DIR_ACTUAL" 2>/dev/null && chmod 750 "$LIVE_DIR_ACTUAL" 2>/dev/null && \
+    fixed "$LIVE_DIR_ACTUAL → root:turnserver 750" || \
     warn "Could not chmod $LIVE_DIR_ACTUAL"
 
-  # Grant group read on the private key
-  chown root:turnserver "$KEY_PATH" 2>/dev/null && chmod 640 "$KEY_PATH" 2>/dev/null && \
-    fixed "privkey.pem → root:turnserver 640 (turnserver can read)" || \
+  # ── Fix the archive/ parent directory ─────────────────────────────────────
+  PARENT_ARCHIVE="/etc/letsencrypt/archive"
+  chown root:turnserver "$PARENT_ARCHIVE" 2>/dev/null && chmod 750 "$PARENT_ARCHIVE" 2>/dev/null && \
+    fixed "$PARENT_ARCHIVE → root:turnserver 750 (turnserver can traverse into archive/)" || \
+    warn "Could not chown/chmod $PARENT_ARCHIVE"
+
+  # ── Fix the domain archive/ subdirectory ──────────────────────────────────
+  if [[ -d "$ARCHIVE_DIR" ]]; then
+    chown root:turnserver "$ARCHIVE_DIR" 2>/dev/null && chmod 750 "$ARCHIVE_DIR" 2>/dev/null && \
+      fixed "$ARCHIVE_DIR → root:turnserver 750" || \
+      warn "Could not chown/chmod $ARCHIVE_DIR"
+
+    # Fix every versioned key/cert in the archive
+    for f in "$ARCHIVE_DIR"/privkey*.pem; do
+      [[ -f "$f" ]] && chown root:turnserver "$f" && chmod 640 "$f" && fixed "$f → 640" || true
+    done
+    for f in "$ARCHIVE_DIR"/fullchain*.pem "$ARCHIVE_DIR"/cert*.pem "$ARCHIVE_DIR"/chain*.pem; do
+      [[ -f "$f" ]] && chown root:turnserver "$f" && chmod 644 "$f" && fixed "$f → 644" || true
+    done
+  fi
+
+  # ── Fix the symlink targets in the live/ directory ─────────────────────────
+  # The symlinks themselves are owned by root but the targets need correct perms.
+  chown root:turnserver "$KEY_PATH"  2>/dev/null && chmod 640 "$KEY_PATH"  2>/dev/null && \
+    fixed "privkey.pem symlink target → root:turnserver 640" || \
     warn "Could not chown/chmod privkey.pem"
 
-  # Grant group read on the cert chain
   chown root:turnserver "$CERT_PATH" 2>/dev/null && chmod 644 "$CERT_PATH" 2>/dev/null && \
-    fixed "fullchain.pem → root:turnserver 644" || \
+    fixed "fullchain.pem symlink target → root:turnserver 644" || \
     warn "Could not chown/chmod fullchain.pem"
 
   # Add turnserver to ssl-cert group (belt and suspenders)
@@ -286,13 +320,20 @@ if [[ "$CERT_OK" == true && -f "$KEY_PATH" ]]; then
 #!/usr/bin/env bash
 # certbot post-renewal hook — re-applies coturn cert permissions after renewal
 set -euo pipefail
-DOMAIN_DIR="/etc/letsencrypt/live"
-for DIR in "$DOMAIN_DIR"/*/; do
-  KEY="$DIR/privkey.pem"
-  CERT="$DIR/fullchain.pem"
-  [ -f "$KEY"  ] && chown root:turnserver "$KEY"  && chmod 640 "$KEY"  || true
-  [ -f "$CERT" ] && chown root:turnserver "$CERT" && chmod 644 "$CERT" || true
-  chmod 750 "$DIR" || true
+# Fix the parent live/ and archive/ directories so turnserver can traverse them
+chown root:turnserver /etc/letsencrypt/live    2>/dev/null && chmod 750 /etc/letsencrypt/live    || true
+chown root:turnserver /etc/letsencrypt/archive 2>/dev/null && chmod 750 /etc/letsencrypt/archive || true
+# Fix each domain subdirectory and its files
+for DIR in /etc/letsencrypt/live/*/; do
+  DOMAIN=$(basename "$DIR")
+  [[ "$DOMAIN" == "README" ]] && continue
+  ADIR="/etc/letsencrypt/archive/${DOMAIN}"
+  chown root:turnserver "$DIR"  2>/dev/null && chmod 750 "$DIR"  || true
+  chown root:turnserver "$ADIR" 2>/dev/null && chmod 750 "$ADIR" || true
+  for f in "$ADIR"/privkey*.pem;   do [ -f "$f" ] && chown root:turnserver "$f" && chmod 640 "$f" || true; done
+  for f in "$ADIR"/fullchain*.pem "$ADIR"/cert*.pem "$ADIR"/chain*.pem; do
+    [ -f "$f" ] && chown root:turnserver "$f" && chmod 644 "$f" || true
+  done
 done
 mkdir -p /run/coturn
 chown turnserver:turnserver /run/coturn 2>/dev/null || true
@@ -306,22 +347,10 @@ HOOKEOF
   if sudo -u turnserver test -r "$KEY_PATH" 2>/dev/null; then
     pass "turnserver user CAN read privkey.pem ✓"
   else
-    warn "turnserver user still cannot read privkey.pem — checking archive dir..."
-    ARCHIVE_KEY="${KEY_PATH/live/archive}"
-    ARCHIVE_KEY=$(ls -t "/etc/letsencrypt/archive/$(basename "$LIVE_DIR_ACTUAL")"/privkey*.pem 2>/dev/null | head -1 || true)
-    if [[ -n "$ARCHIVE_KEY" ]]; then
-      chown root:turnserver "$ARCHIVE_KEY" 2>/dev/null
-      chmod 640 "$ARCHIVE_KEY" 2>/dev/null
-      fixed "Fixed archive key permissions: $ARCHIVE_KEY"
-      # Fix all archive keys
-      ARCHIVE_DIR="/etc/letsencrypt/archive/$(basename "$LIVE_DIR_ACTUAL")"
-      if [[ -d "$ARCHIVE_DIR" ]]; then
-        chmod 750 "$ARCHIVE_DIR"
-        chown root:turnserver "$ARCHIVE_DIR"/privkey*.pem 2>/dev/null && chmod 640 "$ARCHIVE_DIR"/privkey*.pem 2>/dev/null || true
-        chown root:turnserver "$ARCHIVE_DIR"/fullchain*.pem 2>/dev/null && chmod 644 "$ARCHIVE_DIR"/fullchain*.pem 2>/dev/null || true
-        fixed "Fixed archive directory permissions: $ARCHIVE_DIR"
-      fi
-    fi
+    fail "turnserver still cannot read privkey.pem — check directory permissions manually:"
+    echo "    sudo -u turnserver ls /etc/letsencrypt/live/"
+    echo "    sudo -u turnserver ls /etc/letsencrypt/live/${DOMAIN_NAME}/"
+    echo "    sudo -u turnserver ls /etc/letsencrypt/archive/${DOMAIN_NAME}/"
   fi
 else
   warn "Cert files not found — skipping permission fix"
