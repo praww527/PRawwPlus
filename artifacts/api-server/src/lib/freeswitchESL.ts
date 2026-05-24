@@ -22,7 +22,7 @@ import { metrics } from "./metrics";
 import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
-import { ringingCall, answerCall, bridgeCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
+import { ringingCall, answerCall, bridgeCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers, recoverActiveCallsOnStartup } from "./callOrchestrator";
 import { setALegEslCommandFn } from "./aLegManager";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
@@ -35,6 +35,7 @@ import {
   recordBLegFailed,
   recordRecoveryAttempt,
 } from "./bLegManager";
+import { notifyALegSessionReconnected } from "./aLegManager";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -330,6 +331,13 @@ class FreeSwitchESL {
    * missed cause (e.g. both legs receive USER_NOT_REGISTERED).
    */
   private missedCallProcessed = new Set<string>();
+
+  /**
+   * Tracks in-flight NORMAL_TEMPORARY_FAILURE retry attempts.
+   * Key: A-leg UUID (the still-alive caller channel).
+   * Value: number of retries attempted (capped at 1 to prevent retry storms).
+   */
+  private retryAttempts = new Map<string, number>();
 
   // ── bgapi job tracking ──────────────────────────────────────────────────────
   // FreeSWITCH responds to every bgapi command with:
@@ -1226,6 +1234,55 @@ class FreeSwitchESL {
               .catch((e) => logger.error({ err: e }, "[ESL] AUTO_RECOVERY error"));
           }
 
+          // ── One-time originate retry on NORMAL_TEMPORARY_FAILURE ──────────────
+          //
+          // This cause is a transient glitch (overloaded SIP server, briefly
+          // unavailable endpoint, ICE failure during renegotiation). The A-leg
+          // (caller) is almost certainly still alive — otherLegUuid is the
+          // A-leg channel that is waiting for the bridge.
+          //
+          // Strategy: re-originate to the original B-leg destination and bridge
+          // the result into the still-alive A-leg using &bridge(aLegUuid).
+          // Capped at 1 retry to prevent loops.  A 1.5 s delay gives FreeSWITCH
+          // time to clean up the failed B-leg channel before the new attempt.
+          if (
+            hangupCause === "NORMAL_TEMPORARY_FAILURE" &&
+            otherLegUuid &&
+            missedCallEntry &&
+            (this.retryAttempts.get(otherLegUuid) ?? 0) < 1
+          ) {
+            const retryCount = (this.retryAttempts.get(otherLegUuid) ?? 0) + 1;
+            this.retryAttempts.set(otherLegUuid, retryCount);
+            // Evict retry counter after 30 s so the Map doesn't grow unbounded.
+            setTimeout(() => this.retryAttempts.delete(otherLegUuid), 30_000);
+
+            const { destExt, callerExt } = missedCallEntry;
+            const domain = process.env.FREESWITCH_DOMAIN ?? "localhost";
+            const aLegUuid = otherLegUuid;
+
+            logger.info(
+              { aLegUuid, destExt, callerExt, retryCount },
+              "[ESL] NORMAL_TEMPORARY_FAILURE: scheduling 1-time re-originate after 1.5 s",
+            );
+
+            setTimeout(() => {
+              // Originate a new B-leg and bridge it to the still-alive A-leg.
+              // originate_timeout=25 gives the callee a reasonable ring window
+              // without blocking the A-leg indefinitely.
+              const retryCmd = [
+                `originate`,
+                `{origination_caller_id_number=${callerExt},originate_timeout=25}`,
+                `user/${destExt}@${domain}`,
+                `&bridge(${aLegUuid})`,
+              ].join(" ");
+              logger.info(
+                { aLegUuid, destExt, callerExt, retryCmd },
+                "[ESL] NORMAL_TEMPORARY_FAILURE retry: issuing re-originate",
+              );
+              this.sendApiCommand(retryCmd);
+            }, 1_500);
+          }
+
           // Notify B-leg manager about the failure so per-call state stays accurate.
           // We look up by B-leg UUID first; fall back to other-leg UUID.
           if (
@@ -1770,6 +1827,12 @@ export function startESL() {
   eslEnabled = true;
   eslClient  = new FreeSwitchESL();
   eslClient.connect();
+
+  // Recover any in-flight calls that were active before this process started.
+  // Runs asynchronously so it does not block the ESL connection setup.
+  recoverActiveCallsOnStartup().catch((err) =>
+    logger.warn({ err }, "[ESL] startup: call recovery failed"),
+  );
 }
 
 export function stopESL() {

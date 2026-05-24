@@ -1104,6 +1104,124 @@ export async function endCallById(
 }
 
 /**
+ * Recover in-flight calls after an API server restart.
+ *
+ * On startup the in-memory timer maps (initiatedTimers, ringTimers) are empty.
+ * Any call that was ringing/initiated at restart time has no watchdog, so it
+ * would hang in the DB indefinitely.  This function:
+ *
+ *  1. Marks calls that started >24 h ago and are still non-terminal as "failed"
+ *     (they are certainly dead — any active FS channel long since vanished).
+ *  2. Re-arms ring timers for calls that entered "ringing" state within the last
+ *     RING_TIMEOUT_MS window — they may still be live in FreeSWITCH.
+ *  3. Re-arms initiated timers for "initiated" calls created within the last
+ *     INITIATED_TIMEOUT_MS window.
+ *
+ * This is called once at server startup from the ESL module after authentication.
+ */
+export async function recoverActiveCallsOnStartup(): Promise<void> {
+  const ACTIVE_STATUSES = ["initiated", "ringing", "early_media", "answered", "bridged"];
+  const staleThreshold  = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 h
+
+  try {
+    await connectDB();
+
+    // ── 1. Mark definitely-dead stale calls as failed ─────────────────────
+    const staleResult = await CallModel.updateMany(
+      {
+        status:    { $in: ACTIVE_STATUSES },
+        startedAt: { $lt: staleThreshold },
+        endedAt:   null,
+      },
+      {
+        $set: {
+          status:      "failed",
+          endedAt:     new Date(),
+          failReason:  "Stale: API restarted more than 24 h after call was placed",
+          hangupCause: "SERVICE_UNAVAILABLE",
+        },
+      },
+    );
+
+    if (staleResult.modifiedCount > 0) {
+      logger.warn(
+        { count: staleResult.modifiedCount },
+        "[Orchestrator] startup recovery: marked stale active calls as failed",
+      );
+    }
+
+    // ── 2. Re-arm ring timers for recently-ringing calls ─────────────────
+    if (RING_TIMEOUT_MS > 0) {
+      const ringWindow = new Date(Date.now() - RING_TIMEOUT_MS);
+      const ringingCalls = await CallModel.find({
+        status:    "ringing",
+        startedAt: { $gte: ringWindow },
+        fsCallId:  { $nin: [null, ""] },
+        endedAt:   null,
+      })
+        .select("_id fsCallId startedAt")
+        .lean();
+
+      for (const call of ringingCalls) {
+        if (!call.fsCallId) continue;
+        const elapsed   = Date.now() - new Date(call.startedAt ?? Date.now()).getTime();
+        const remaining = RING_TIMEOUT_MS - elapsed;
+        if (remaining > 500) {
+          // Re-arm with the remaining time so it still fires at the right moment
+          cancelRingTimer(call.fsCallId);
+          const timer = setTimeout(() => {
+            ringTimers.delete(call.fsCallId!);
+            logger.warn(
+              { fsCallId: call.fsCallId, ringTimeoutMs: RING_TIMEOUT_MS },
+              "[Orchestrator] Ring timeout expired after restart — sending uuid_kill",
+            );
+            sendEslCmd(`uuid_kill ${call.fsCallId} RECOVERY_ON_TIMER_EXPIRE`);
+          }, remaining);
+          ringTimers.set(call.fsCallId, timer);
+          logger.info(
+            { fsCallId: call.fsCallId, remainingMs: remaining },
+            "[Orchestrator] startup recovery: re-armed ring timer",
+          );
+        }
+      }
+    }
+
+    // ── 3. Re-arm initiated timers for very-recent initiated calls ────────
+    const initiatedWindow = new Date(Date.now() - INITIATED_TIMEOUT_MS);
+    const initiatedCalls  = await CallModel.find({
+      status:    "initiated",
+      startedAt: { $gte: initiatedWindow },
+      fsCallId:  { $nin: [null, ""] },
+      endedAt:   null,
+    })
+      .select("_id fsCallId startedAt")
+      .lean();
+
+    for (const call of initiatedCalls) {
+      if (!call.fsCallId) continue;
+      const elapsed   = Date.now() - new Date(call.startedAt ?? Date.now()).getTime();
+      const remaining = Math.max(500, INITIATED_TIMEOUT_MS - elapsed);
+      registerInitiatedCall(call.fsCallId, String(call._id), remaining);
+      logger.info(
+        { fsCallId: call.fsCallId, remainingMs: remaining },
+        "[Orchestrator] startup recovery: re-armed initiated timer",
+      );
+    }
+
+    logger.info(
+      {
+        staleMarked:    staleResult.modifiedCount,
+        ringingRearmed: RING_TIMEOUT_MS > 0 ? undefined : 0,
+        initiatedRearm: initiatedCalls.length,
+      },
+      "[Orchestrator] startup recovery complete",
+    );
+  } catch (err) {
+    logger.error({ err }, "[Orchestrator] recoverActiveCallsOnStartup failed");
+  }
+}
+
+/**
  * Handle the legacy FreeSWITCH webhook (POST /calls/webhook/freeswitch).
  * This is a secondary code-path kept for compatibility; the ESL path is authoritative.
  */

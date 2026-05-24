@@ -478,13 +478,21 @@ export function notifyALegSessionDropped(extension: number): void {
       return;
     }
 
-    // Re-check the session — caller may have reconnected.
-    const verto = getVertoSession(extension);
+    // Re-check the session — caller may have reconnected via Verto or SIP.
+    const verto           = getVertoSession(extension);
+    const sip             = getSipSession(extension);
     const vertoReconnected = verto != null && (Date.now() - verto.lastPingAt) < 5_000;
-    if (vertoReconnected) {
+    const sipAlive         = sip  != null && sip.expiresAt > Date.now();
+
+    if (vertoReconnected || sipAlive) {
       logger.info(
-        { callId, extension, pingAgeMs: Date.now() - (verto?.lastPingAt ?? 0) },
-        "[ALeg] Disconnect watchdog: Verto session reconnected — no kill issued",
+        {
+          callId,
+          extension,
+          verto:  vertoReconnected ? { pingAgeMs: Date.now() - (verto?.lastPingAt ?? 0) } : null,
+          sip:    sipAlive         ? { expiresInMs: (sip?.expiresAt ?? 0) - Date.now() }  : null,
+        },
+        "[ALeg] Disconnect watchdog: session reconnected (Verto or SIP) — no kill issued",
       );
       current.disconnectWatchdogActive = false;
       return;
@@ -523,6 +531,32 @@ function cancelDisconnectWatchdog(callId: string): void {
 export function clearAllALegWatchdogs(): void {
   for (const t of disconnectTimers.values()) clearTimeout(t);
   disconnectTimers.clear();
+}
+
+/**
+ * Called when the caller's session explicitly reconnects — either via a new
+ * Verto WebSocket handshake or a fresh SIP REGISTER.
+ *
+ * Cancels any in-flight disconnect watchdog so the call is not killed after
+ * the grace period expires.  This is a complement to notifyALegSessionDropped:
+ * the caller dropped → watchdog armed → caller reconnected → watchdog cancelled.
+ *
+ * Safe to call multiple times (idempotent).
+ */
+export function notifyALegSessionReconnected(extension: number): void {
+  const callId = extensionToCallId.get(extension);
+  if (!callId) return;
+
+  const state = aLegStore.get(callId);
+  if (!state) return;
+
+  if (!disconnectTimers.has(callId)) return; // No watchdog in flight — nothing to cancel
+
+  cancelDisconnectWatchdog(callId);
+  logger.info(
+    { callId, extension, status: state.status },
+    "[ALeg] Session reconnected — disconnect watchdog cancelled",
+  );
 }
 
 // ── Diagnostics ───────────────────────────────────────────────────────────────

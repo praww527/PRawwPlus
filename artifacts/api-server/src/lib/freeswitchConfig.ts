@@ -153,6 +153,37 @@ export function vertoConf(fsIp: string): string {
         available in virtualised/cloud environments (Oracle VM).
       -->
       <param name="timer-name" value="soft"/>
+
+      <!--
+        ICE gathering timeout (milliseconds).
+        Prevents calls from hanging when the STUN server is unreachable or
+        the network is slow to resolve external candidates.  5 s is generous
+        enough for most networks while still bounding startup latency.
+      -->
+      <param name="ice-gathering-timeout" value="5000"/>
+
+      <!--
+        ICE restart on bridge failure.
+        When an ICE negotiation fails after the call is bridged (e.g. network
+        change), attempt ICE restart before tearing down the call.
+      -->
+      <param name="ice-restart-on-failure" value="true"/>
+${
+  (process.env.TURN_SERVER ?? "").trim()
+    ? `
+      <!--
+        TURN relay server — populated from environment when configured.
+        Required for calls behind symmetric NAT (e.g. carrier-grade NAT,
+        corporate firewalls) where STUN peer-reflexive candidates fail.
+        Set TURN_SERVER, TURN_USERNAME, TURN_PASSWORD in your environment.
+      -->
+      <param name="turn-type" value="channel"/>
+      <param name="turn-server" value="${(process.env.TURN_SERVER ?? "").trim()}"/>
+      <param name="turn-username" value="${(process.env.TURN_USERNAME ?? "").trim()}"/>
+      <param name="turn-password" value="${(process.env.TURN_PASSWORD ?? "").trim()}"/>
+`
+    : `      <!-- TURN not configured (set TURN_SERVER env var to enable) -->`
+}
     </profile>
   </profiles>
 </configuration>`;
@@ -268,6 +299,26 @@ export function dialplanXml(fsDomain: string): string {
       <condition field="destination_number" expression="^(conf\d{4})$">
         <action application="answer"/>
         <action application="conference" data="$1@default+flags{mute}"/>
+      </condition>
+    </extension>
+
+    <!--
+      Self-call prevention: immediately reject calls where the caller is
+      attempting to dial their own extension.  FreeSWITCH expands
+      the destination_number channel variable at call-time so the second
+      condition matches when caller_id_number equals destination_number.
+
+      continue="false" + break="on-true" ensures we exit immediately on match.
+    -->
+    <extension name="self_call_prevention" continue="false">
+      <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="never">
+        <action application="noop"/>
+      </condition>
+      <condition field="${FS_VAR}caller_id_number}" expression="^${FS_VAR}destination_number}$" break="on-true">
+        <action application="answer"/>
+        <action application="speak" data="flite|kal|You cannot call your own extension."/>
+        <action application="sleep" data="300"/>
+        <action application="hangup" data="CALL_REJECTED"/>
       </condition>
     </extension>
 

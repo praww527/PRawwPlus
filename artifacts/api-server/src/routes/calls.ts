@@ -29,7 +29,7 @@ import {
   validateALegSource,
   getALegDiagnostics,
 } from "../lib/aLegManager";
-import { eslStatus } from "../lib/freeswitchESL";
+import { eslStatus, sendEslBgapiAwait } from "../lib/freeswitchESL";
 
 const router: IRouter = Router();
 
@@ -640,6 +640,230 @@ router.delete("/calls/:callId", async (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+/**
+ * POST /api/calls/:callId/transfer
+ *
+ * Transfer an active call to another extension or bridge two calls together.
+ *
+ * Blind transfer  (type="blind", target="NNNN" or "+27xxx"):
+ *   FreeSWITCH uuid_transfer moves the A-leg to a new dialplan destination.
+ *   Loop guard: target cannot equal the caller's own extension.
+ *
+ * Attended transfer (type="attended", targetCallId="<uuid>"):
+ *   FreeSWITCH uuid_bridge connects two existing active channels directly.
+ *   Both calls must belong to the authenticated user.
+ */
+router.post("/calls/:callId/transfer", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const userId = (req as any).user.id as string;
+  const { callId } = req.params;
+  const {
+    type         = "blind",
+    target,
+    targetCallId,
+  } = req.body as { type?: string; target?: string; targetCallId?: string };
+
+  if (!["blind", "attended"].includes(String(type))) {
+    res.status(400).json({ error: "type must be 'blind' or 'attended'" });
+    return;
+  }
+
+  await connectDB();
+  const call = await CallModel.findOne({ _id: callId, userId })
+    .select("fsCallId status")
+    .lean();
+
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const ACTIVE_STATUSES = ["ringing", "early_media", "answered", "bridged"];
+  if (!ACTIVE_STATUSES.includes(call.status)) {
+    res.status(400).json({ error: `Call is in '${call.status}' state — must be active to transfer` });
+    return;
+  }
+
+  if (!call.fsCallId) {
+    res.status(400).json({ error: "Call has no FreeSWITCH UUID yet — cannot transfer" });
+    return;
+  }
+
+  if (type === "blind") {
+    const rawTarget = String(target ?? "").trim();
+    if (!rawTarget) {
+      res.status(400).json({ error: "target is required for blind transfer" });
+      return;
+    }
+
+    // Loop guard: prevent transferring the call back to the caller's own extension
+    const callerUser = await UserModel.findById(userId).select("extension").lean();
+    const callerExt  = String((callerUser as any)?.extension ?? "");
+    if (callerExt && rawTarget === callerExt) {
+      res.status(400).json({ error: "Cannot transfer a call to your own extension" });
+      return;
+    }
+
+    const isExt   = /^[1-9]\d{3}$/.test(rawTarget);
+    const isPhone = /^\+?[1-9]\d{6,14}$/.test(rawTarget);
+    if (!isExt && !isPhone) {
+      res.status(400).json({
+        error: "target must be a 4-digit internal extension or a valid phone number",
+      });
+      return;
+    }
+
+    const result  = await sendEslBgapiAwait(
+      `uuid_transfer ${call.fsCallId} ${rawTarget} XML prawwplus`,
+      8_000,
+    );
+    const success = result.startsWith("+OK");
+
+    logger.info(
+      { callId, fsCallId: call.fsCallId, target: rawTarget, result },
+      "[Calls] Blind transfer",
+    );
+
+    if (!success) {
+      res.status(502).json({ error: "Transfer failed", detail: result });
+      return;
+    }
+    res.json({ success: true, type: "blind", target: rawTarget });
+    return;
+  }
+
+  // Attended transfer: bridge two active legs via uuid_bridge
+  if (!targetCallId) {
+    res.status(400).json({ error: "targetCallId is required for attended transfer" });
+    return;
+  }
+
+  if (targetCallId === callId) {
+    res.status(400).json({ error: "Cannot bridge a call to itself" });
+    return;
+  }
+
+  const targetCall = await CallModel.findOne({ _id: targetCallId, userId })
+    .select("fsCallId status")
+    .lean();
+
+  if (!targetCall) {
+    res.status(404).json({ error: "Target call not found" });
+    return;
+  }
+
+  if (!ACTIVE_STATUSES.includes(targetCall.status)) {
+    res.status(400).json({ error: "Target call is not active" });
+    return;
+  }
+
+  if (!targetCall.fsCallId) {
+    res.status(400).json({ error: "Target call has no FreeSWITCH UUID yet" });
+    return;
+  }
+
+  const result  = await sendEslBgapiAwait(
+    `uuid_bridge ${call.fsCallId} ${targetCall.fsCallId}`,
+    8_000,
+  );
+  const success = result.startsWith("+OK");
+
+  logger.info({ callId, targetCallId, result }, "[Calls] Attended transfer (uuid_bridge)");
+
+  if (!success) {
+    res.status(502).json({ error: "Attended transfer failed", detail: result });
+    return;
+  }
+  res.json({ success: true, type: "attended" });
+});
+
+/**
+ * POST /api/calls/:callId/hold
+ *
+ * Place an active call on hold via FreeSWITCH uuid_hold.
+ * The caller hears hold music; media from the bridged party is suspended.
+ * Only valid for calls in answered/bridged/early_media state.
+ */
+router.post("/calls/:callId/hold", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const userId  = (req as any).user.id as string;
+  const { callId } = req.params;
+
+  await connectDB();
+  const call = await CallModel.findOne({ _id: callId, userId })
+    .select("fsCallId status")
+    .lean();
+
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const HOLDABLE = ["early_media", "answered", "bridged"];
+  if (!HOLDABLE.includes(call.status)) {
+    res.status(400).json({
+      error: `Call is in '${call.status}' state — must be answered or bridged to hold`,
+    });
+    return;
+  }
+
+  if (!call.fsCallId) {
+    res.status(400).json({ error: "Call has no FreeSWITCH UUID yet" });
+    return;
+  }
+
+  const result  = await sendEslBgapiAwait(`uuid_hold ${call.fsCallId}`, 5_000);
+  const success = !result.startsWith("-ERR");
+
+  logger.info({ callId, fsCallId: call.fsCallId, result }, "[Calls] Hold applied");
+  res.json({ success, held: true });
+});
+
+/**
+ * POST /api/calls/:callId/unhold
+ *
+ * Resume a held call via FreeSWITCH uuid_hold off.
+ * Works regardless of current call status — safe to call even if not currently held.
+ */
+router.post("/calls/:callId/unhold", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const userId  = (req as any).user.id as string;
+  const { callId } = req.params;
+
+  await connectDB();
+  const call = await CallModel.findOne({ _id: callId, userId })
+    .select("fsCallId status")
+    .lean();
+
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  if (!call.fsCallId) {
+    res.status(400).json({ error: "Call has no FreeSWITCH UUID yet" });
+    return;
+  }
+
+  const result  = await sendEslBgapiAwait(`uuid_hold off ${call.fsCallId}`, 5_000);
+  const success = !result.startsWith("-ERR");
+
+  logger.info({ callId, fsCallId: call.fsCallId, result }, "[Calls] Unhold applied");
+  res.json({ success, held: false });
 });
 
 router.post("/calls/webhook/freeswitch", async (req, res) => {
