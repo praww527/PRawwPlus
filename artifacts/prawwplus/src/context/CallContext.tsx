@@ -452,7 +452,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       incomingNotificationRef.current = null;
     }
 
-    if (clientRef.current && callInfo?.callId && incomingSdpRef.current) {
+    if (clientRef.current && callInfo?.callId && incomingSdpRef.current != null) {
       // Capture the Verto UUID now — answerCall() needs it, but we may
       // overwrite callInfo.callId below with the MongoDB record ID.
       const vertoCallId = callInfo.callId;

@@ -306,6 +306,13 @@ class FreeSwitchESL {
   private reconnectAttempt = 0;
   /** Maps B-leg UUID → { destExt, callerExt } for missed-call push + DB record */
   private originateDestMap = new Map<string, { destExt: string; callerExt: string }>();
+  /**
+   * Tracks call-pair keys (sorted [uuid, otherLegUuid] joined with ':') for which
+   * a missed-call record has already been created in this process lifetime.
+   * Prevents double-creation when BOTH legs fire CHANNEL_HANGUP_COMPLETE with a
+   * missed cause (e.g. both legs receive USER_NOT_REGISTERED).
+   */
+  private missedCallProcessed = new Set<string>();
 
   // ── bgapi job tracking ──────────────────────────────────────────────────────
   // FreeSWITCH responds to every bgapi command with:
@@ -1003,24 +1010,28 @@ class FreeSwitchESL {
         if (hangupCause) augmentLastEslTrace(uuid, hangupCause);
 
         if (uuid) {
-          // Send missed-call push + create callee DB record before handing off to orchestrator
-          const origEntry = this.originateDestMap.get(uuid) ?? this.originateDestMap.get(otherLegUuid);
-          if (origEntry) {
-            this.originateDestMap.delete(uuid);
-            this.originateDestMap.delete(otherLegUuid);
-          }
-          // Treat the following as "missed" for the callee:
-          //   NO_ANSWER / RECOVERY_ON_TIMER_EXPIRE — callee didn't pick up in time
-          //   ORIGINATOR_CANCEL — caller hung up before callee answered
-          //   ATTENDED_TRANSFER — went to voicemail (counted as missed for callee)
+          // ── Missed-call detection ────────────────────────────────────────────
+          //
+          // Treat the following as "missed" for the callee. Comments explain why
+          // each cause is included:
+          //   NO_ANSWER / ALLOTTED_TIMEOUT — callee didn't pick up in time.
+          //     NO_ANSWER is the SIP/Q.850 standard; ALLOTTED_TIMEOUT is what
+          //     FreeSWITCH fires when its own originate_timeout variable fires
+          //     before the SIP layer sends a 408 — both mean the same thing.
+          //   RECOVERY_ON_TIMER_EXPIRE — generic timer expiry (e.g. T1/B timer).
+          //   ORIGINATOR_CANCEL — caller hung up before callee answered.
+          //   ATTENDED_TRANSFER — went to voicemail (counted as missed for callee).
+          //   USER_BUSY — callee was already on another call.
           //   UNREGISTERED / USER_NOT_REGISTERED / SUBSCRIBER_ABSENT /
-          //   DESTINATION_OUT_OF_ORDER — callee was offline / not registered
-          //   These are all situations where the callee should see a missed call entry.
+          //   DESTINATION_OUT_OF_ORDER / NO_ROUTE_DESTINATION /
+          //   NORMAL_TEMPORARY_FAILURE — callee was offline / not reachable.
           const isMissedForCallee = (
             hangupCause === "NO_ANSWER" ||
+            hangupCause === "ALLOTTED_TIMEOUT" ||
             hangupCause === "ORIGINATOR_CANCEL" ||
             hangupCause === "ATTENDED_TRANSFER" ||
             hangupCause === "RECOVERY_ON_TIMER_EXPIRE" ||
+            hangupCause === "USER_BUSY" ||
             hangupCause === "UNREGISTERED" ||
             hangupCause === "USER_NOT_REGISTERED" ||
             hangupCause === "SUBSCRIBER_ABSENT" ||
@@ -1029,38 +1040,93 @@ class FreeSwitchESL {
             hangupCause === "NORMAL_TEMPORARY_FAILURE"
           );
 
-          // Prefer originateDestMap (populated by CHANNEL_ORIGINATE).
-          // Fall back to HANGUP event body fields for calls where FreeSWITCH
-          // rejected at dialplan level and CHANNEL_ORIGINATE never fired
-          // (e.g. callee offline → USER_NOT_REGISTERED / NO_ROUTE_DESTINATION).
-          let missedCallEntry = origEntry;
+          // ── originateDestMap lookup & conditional cleanup ─────────────────────
+          //
+          // The map is keyed by the B-leg UUID (set in handleOriginate).
+          // CHANNEL_HANGUP_COMPLETE fires for BOTH legs; we receive whichever
+          // arrives first — it could be the A-leg (uuid=A, otherLegUuid=B) or
+          // the B-leg (uuid=B, otherLegUuid=A).
+          //
+          // Deletion strategy:
+          //   • If this leg's cause IS missed  → consume the entry now and delete.
+          //   • If this leg's cause is NOT missed (e.g. A-leg NORMAL_CLEARING) →
+          //     leave the entry so the B-leg's event (ORIGINATOR_CANCEL etc.) can
+          //     still find and consume it. Schedule a 2-minute TTL as a safety net.
+          const origEntry = this.originateDestMap.get(uuid) ?? this.originateDestMap.get(otherLegUuid);
+          if (origEntry) {
+            if (isMissedForCallee) {
+              // Consuming for missed-call — remove immediately.
+              this.originateDestMap.delete(uuid);
+              this.originateDestMap.delete(otherLegUuid);
+            } else {
+              // Non-missed leg (e.g. A-leg NORMAL_CLEARING).  Keep the entry so
+              // the B-leg's missed-cause event can use it.  TTL prevents leaks.
+              const bLegKey = this.originateDestMap.has(uuid) ? uuid : otherLegUuid;
+              setTimeout(() => {
+                this.originateDestMap.delete(bLegKey);
+              }, 120_000);
+            }
+          }
+
+          // ── Resolve dest/caller for missed-call record ────────────────────────
+          //
+          // Primary source: originateDestMap (most reliable; set by handleOriginate).
+          // Fallback: HANGUP event body fields — used when CHANNEL_ORIGINATE never
+          // fired (callee offline → FreeSWITCH rejected at dialplan level before
+          // even ringing the B-leg) OR when the origEntry was already consumed by
+          // the other leg's event.
+          //
+          // FreeSWITCH sometimes appends "@domain" to Caller-Destination-Number
+          // (e.g. "1002@internal").  Strip that suffix before the regex test.
+          let missedCallEntry = origEntry ?? null;
           if (!missedCallEntry && isMissedForCallee) {
-            const fallbackDest   = body["Caller-Destination-Number"]           ?? body["Channel-Destination-Number"] ?? "";
-            const fallbackCaller = body["variable_effective_caller_id_number"]  ?? body["Caller-Caller-ID-Number"]    ?? body["Channel-Caller-ID-Number"] ?? "";
-            if (/^[1-9]\d{3}$/.test(fallbackDest) && fallbackCaller) {
-              missedCallEntry = { destExt: fallbackDest, callerExt: fallbackCaller };
+            const rawDest      = body["Caller-Destination-Number"] ?? body["Channel-Destination-Number"] ?? "";
+            const fallbackDest = rawDest.replace(/@.*$/, "").trim();
+            const fallbackCaller =
+              body["variable_effective_caller_id_number"] ??
+              body["Caller-Caller-ID-Number"] ??
+              body["Channel-Caller-ID-Number"] ??
+              "";
+            if (/^[1-9]\d{3}$/.test(fallbackDest)) {
+              missedCallEntry = { destExt: fallbackDest, callerExt: fallbackCaller || "Unknown" };
               logger.info(
                 { uuid, fallbackDest, fallbackCaller, hangupCause },
-                "[ESL] CHANNEL_HANGUP_COMPLETE: CHANNEL_ORIGINATE never fired — " +
-                "using fallback dest/caller from event body for missed-call record",
+                "[ESL] CHANNEL_HANGUP_COMPLETE: using fallback dest/caller from event body for missed-call record",
               );
             } else {
               logger.warn(
-                { uuid, hangupCause, fallbackDest, fallbackCaller },
+                { uuid, hangupCause, rawDest, fallbackDest, fallbackCaller },
                 "[ESL] CHANNEL_HANGUP_COMPLETE: isMissedForCallee but cannot resolve " +
                 "dest/caller — no originateDestMap entry and no usable body fields",
               );
             }
           }
 
+          // ── Create missed-call record (exactly once per call pair) ────────────
+          //
+          // Both A-leg and B-leg events may satisfy isMissedForCallee. Guard with
+          // a per-call-pair key so we only create one DB record even if both legs
+          // carry a missed cause (e.g. both get USER_NOT_REGISTERED).
           if (missedCallEntry && isMissedForCallee) {
-            const { destExt, callerExt } = missedCallEntry;
-            recordEslTrace(uuid, "MISSED_CALL_PENDING");
-            this.sendMissedCallPush(uuid, destExt, callerExt)
-              .catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
-            this.createMissedCallRecordForCallee(uuid, destExt, callerExt, hangupCause)
-              .then(() => recordEslTrace(uuid, "MISSED_CALL_CREATED"))
-              .catch((e) => logger.error({ err: e }, "[ESL] Missed call record error"));
+            const callPairKey = [uuid, otherLegUuid].filter(Boolean).sort().join(":");
+            if (!this.missedCallProcessed.has(callPairKey)) {
+              this.missedCallProcessed.add(callPairKey);
+              // Evict the key after 5 minutes to prevent unbounded Set growth.
+              setTimeout(() => this.missedCallProcessed.delete(callPairKey), 300_000);
+
+              const { destExt, callerExt } = missedCallEntry;
+              recordEslTrace(uuid, "MISSED_CALL_PENDING");
+              this.sendMissedCallPush(uuid, destExt, callerExt)
+                .catch((e) => logger.error({ err: e }, "[Push] Missed call push error"));
+              this.createMissedCallRecordForCallee(uuid, destExt, callerExt, hangupCause)
+                .then(() => recordEslTrace(uuid, "MISSED_CALL_CREATED"))
+                .catch((e) => logger.error({ err: e }, "[ESL] Missed call record error"));
+            } else {
+              logger.debug(
+                { uuid, otherLegUuid, callPairKey },
+                "[ESL] CHANNEL_HANGUP_COMPLETE: missed-call record already created for this call pair — skipping duplicate",
+              );
+            }
           }
 
           // Also notify the CALLER when the call could not be connected.
@@ -1203,7 +1269,10 @@ class FreeSwitchESL {
   private async handleOriginate(h: Record<string, string>) {
     const bLegUuid  = h["Unique-ID"] ?? "";
     const aLegUuid  = h["Other-Leg-Unique-ID"] ?? h["variable_origination_uuid"] ?? "";
-    const destExt   = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
+    // FreeSWITCH sometimes includes "@domain" in the destination field
+    // (e.g. "1002@internal.domain").  Strip it before the extension regex test.
+    const rawDestExt = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
+    const destExt    = rawDestExt.replace(/@.*$/, "").trim();
     const callerExt = h["Caller-Caller-ID-Number"] ?? h["Channel-Caller-ID-Number"] ?? "Unknown";
 
     // Mobile JsSIP: align Mongo fsCallId with FS A-leg UUID before orchestration.
