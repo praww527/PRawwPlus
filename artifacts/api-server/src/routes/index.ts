@@ -26,9 +26,11 @@ import auditSearchRouter from "./auditSearch";
 import logLevelRouter from "./logLevel";
 import tenantsRouter from "./tenants";
 import conferenceRouter from "./conference";
+import setupRouter from "./setup";
 
 const router: IRouter = Router();
 
+router.use(setupRouter);
 router.use(healthRouter);
 router.use(metricsRouter);
 router.use(authRouter);
