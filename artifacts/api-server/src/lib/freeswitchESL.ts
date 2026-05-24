@@ -24,6 +24,8 @@ import { enqueueEslEvent } from "./eslEventBuffer";
 import { ringingCall, answerCall, bridgeCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
+import { appendCallEvent } from "./callEventLog";
+import { setMediaWatchdogEsl } from "./mediaWatchdog";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -742,6 +744,24 @@ class FreeSwitchESL {
           callDirection: body["Call-Direction"]            ?? "",
         }, "[ESL] Channel progress — SIP 180/183 received; callee UA is reachable");
 
+        // Persist progress/early_media event to DB call timeline
+        if (uuid) {
+          const isEarlyMedia = evtName === "CHANNEL_PROGRESS_MEDIA";
+          connectDB().then(async () => {
+            const { CallModel: CM } = await import("@workspace/db");
+            const call = await CM.findOne({ fsCallId: uuid }).select("_id userId").lean();
+            if (call) {
+              appendCallEvent({
+                callId:  String(call._id),
+                fsCallId: uuid,
+                userId:  String(call.userId),
+                event:   isEarlyMedia ? "early_media" : "progress",
+                metadata: { sipStatus: body["variable_sip_term_status"] ?? "" },
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+
       } else if (evtName === "CHANNEL_DESTROY") {
         // CHANNEL_DESTROY fires immediately after CHANNEL_HANGUP_COMPLETE.
         // If it fires right after CREATE with no PROGRESS: dialplan rejected or
@@ -757,6 +777,24 @@ class FreeSwitchESL {
           billsec:       body["variable_billsec"] ?? "0",
         }, "[ESL] CHANNEL_DESTROY");
         if (destroyHangupCause) augmentLastEslTrace(uuid, destroyHangupCause);
+
+        // Persist destroy event to DB call timeline
+        if (uuid) {
+          connectDB().then(async () => {
+            const { CallModel: CM } = await import("@workspace/db");
+            const call = await CM.findOne({ fsCallId: uuid }).select("_id userId").lean();
+            if (call) {
+              appendCallEvent({
+                callId:  String(call._id),
+                fsCallId: uuid,
+                userId:  String(call.userId),
+                event:   "destroyed",
+                metadata: { hangupCause: destroyHangupCause, answerState: destroyAnswerState },
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+
         // Keep trace available briefly for the admin panel after the channel is gone.
         if (uuid) setTimeout(() => eslTraceMap.delete(uuid), 60_000);
 

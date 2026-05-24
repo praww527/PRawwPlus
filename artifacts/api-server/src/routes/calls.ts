@@ -350,6 +350,35 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   });
 });
 
+/**
+ * GET /api/calls/active
+ * Returns all non-terminal calls for the authenticated user.
+ * Used by the frontend on reconnect to rehydrate call state without
+ * losing an in-progress call when the page refreshes or WebSocket drops.
+ */
+router.get("/calls/active", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  await connectDB();
+  const userId = (req as any).user.id;
+
+  const ACTIVE_STATUSES = ["initiated", "ringing", "answered", "bridged", "early_media"];
+  const activeCalls = await CallModel.find({
+    userId,
+    status: { $in: ACTIVE_STATUSES },
+    endedAt: null,
+  })
+    .sort({ startedAt: -1 })
+    .lean();
+
+  res.json({
+    calls: activeCalls.map((c: any) => ({ ...c, id: c._id })),
+    count: activeCalls.length,
+  });
+});
+
 router.get("/calls/:callId", async (req, res) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });

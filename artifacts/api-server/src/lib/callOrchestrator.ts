@@ -15,7 +15,7 @@
  */
 
 import mongoose, { type ClientSession } from "mongoose";
-import { connectDB, CallModel, UserModel } from "@workspace/db";
+import { connectDB, CallModel, UserModel, VoicemailModel } from "@workspace/db";
 import { BillingLedgerModel, CdrModel } from "@workspace/db";
 import { logger } from "./logger";
 import {
@@ -29,6 +29,9 @@ import { EventResult } from "./eslEventBuffer";
 import { resolveCoinsPerMinuteForUser, calcCoinsFromBillsec } from "./rating";
 import { sendExpoPush, sendFcmDataMessage } from "./push";
 import { appendCallEvent } from "./callEventLog";
+import { armMediaWatchdog, cancelMediaWatchdog, clearAllMediaWatchdogs } from "./mediaWatchdog";
+import { metrics } from "./metrics";
+import { randomUUID } from "node:crypto";
 
 /** Configurable ring timeout — kills stale ringing channels if FS own timer doesn't fire */
 const RING_TIMEOUT_MS = parseInt(process.env.RING_TIMEOUT_MS ?? "45000", 10);
@@ -144,6 +147,7 @@ export function clearAllHangupTimers() {
   hangupTimers.clear();
   for (const t of ringTimers.values()) clearTimeout(t);
   ringTimers.clear();
+  clearAllMediaWatchdogs();
 }
 
 // ─── INITIATED state auto-recovery ───────────────────────────────────────────
@@ -446,11 +450,22 @@ export async function bridgeCall(
 
   logger.info({ fsCallId, otherLegId, applied: result.applied }, "[Orchestrator] bridgeCall done");
   if (result.applied) {
+    // Record bridge time in metrics (startedAt → bridge)
+    try {
+      const callDoc = await CallModel.findById(result.callId).select("startedAt").lean();
+      if (callDoc?.startedAt) {
+        metrics.recordBridgeSetupLatency(Date.now() - callDoc.startedAt.getTime());
+      }
+    } catch { /* non-critical */ }
+
     appendCallEvent({
       callId: result.callId, fsCallId,
-      userId: result.userId, event: "custom",
-      metadata: { type: "bridged", otherLegId },
+      userId: result.userId, event: "bridged",
+      metadata: { otherLegId },
     }).catch(() => {});
+
+    // Arm the RTP/media health watchdog
+    armMediaWatchdog(fsCallId, otherLegId, result.callId, result.userId);
   }
   return EventResult.DONE;
 }
@@ -610,6 +625,8 @@ export async function finalizeCall(
   if (otherLegId && otherLegId !== fsCallId) cancelInitiatedTimer(otherLegId);
   cancelRingTimer(fsCallId);
   if (otherLegId && otherLegId !== fsCallId) cancelRingTimer(otherLegId);
+  cancelMediaWatchdog(fsCallId);
+  if (otherLegId && otherLegId !== fsCallId) cancelMediaWatchdog(otherLegId);
 
   await connectDB();
 
@@ -849,7 +866,79 @@ export async function finalizeCall(
     userId: String(resDoc.userId), event: "hangup",
     metadata: { hangupCause, billsec: safeBillsec, coinsUsed, finalStatus },
   }).catch(() => {});
+
+  // ── Voicemail record creation ───────────────────────────────────────────────
+  // When a call ends with ATTENDED_TRANSFER (routed to voicemail), create a
+  // Voicemail document so the callee's inbox shows the new message.
+  if (finalStatus === "voicemail") {
+    metrics.voicemailFallbacks++;
+    createVoicemailRecord(resDoc, fsCallId).catch((err) =>
+      logger.warn({ err, callId: resDoc._id }, "[Orchestrator] Voicemail record creation failed"),
+    );
+  }
+
   return EventResult.DONE;
+}
+
+async function createVoicemailRecord(
+  call: Record<string, any>,
+  fsCallId: string,
+): Promise<void> {
+  try {
+    await connectDB();
+
+    // Resolve the callee userId from the recipientNumber/extension
+    const recipientExt = call.recipientNumber
+      ? parseInt(String(call.recipientNumber), 10)
+      : null;
+    const calleeUser = recipientExt
+      ? await UserModel.findOne({ extension: recipientExt }).select("_id extension fcmToken expoPushToken").lean()
+      : null;
+
+    const vmId = randomUUID();
+    await VoicemailModel.create({
+      _id:           vmId,
+      callId:        String(call._id),
+      userId:        String(calleeUser?._id ?? call.userId),
+      fromNumber:    call.callerNumber,
+      fromExtension: call.callerNumber ? parseInt(String(call.callerNumber), 10) : undefined,
+      extension:     recipientExt ?? undefined,
+      duration:      0,      // populated when recording is retrieved
+      read:          false,
+    });
+
+    logger.info({ vmId, callId: call._id, fsCallId }, "[Orchestrator] Voicemail record created");
+
+    appendCallEvent({
+      callId:  String(call._id),
+      fsCallId,
+      userId:  String(calleeUser?._id ?? call.userId),
+      event:   "voicemail",
+      metadata: { vmId, fromNumber: call.callerNumber },
+    }).catch(() => {});
+
+    // Push notification to the callee
+    if (calleeUser) {
+      const data = {
+        type:   "voicemail",
+        vmId,
+        callId: String(call._id),
+      };
+      if ((calleeUser as any).fcmToken) {
+        sendFcmDataMessage((calleeUser as any).fcmToken, data).catch(() => {});
+      }
+      if ((calleeUser as any).expoPushToken) {
+        sendExpoPush(
+          (calleeUser as any).expoPushToken,
+          "📬 New Voicemail",
+          "You have a new voicemail message",
+          data,
+        ).catch(() => {});
+      }
+    }
+  } catch (err) {
+    logger.error({ err, callId: call._id }, "[Orchestrator] createVoicemailRecord error");
+  }
 }
 
 /**

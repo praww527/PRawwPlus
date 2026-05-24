@@ -11,9 +11,11 @@
 import crypto from "crypto";
 import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { logger } from "./logger";
-import { startESL } from "./freeswitchESL";
+import { startESL, sendEslBgapiAwait, sendEslApiCommand } from "./freeswitchESL";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { startReconciliationWorker } from "./reconciliationWorker";
+import { startSessionSweeper, setSweepEslCommandFn } from "./sessionSweeper";
+import { setMediaWatchdogEsl } from "./mediaWatchdog";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -164,6 +166,17 @@ export async function runStartup(): Promise<void> {
     startESL();
     logger.info("FreeSWITCH ESL listener started");
   }
+
+  // ── 3a. Wire up media watchdog ESL injection ─────────────────────────────
+  // Must be called after startESL() so the bgapi/command functions are ready.
+  setMediaWatchdogEsl(
+    (cmd: string) => sendEslBgapiAwait(cmd, 12_000),
+    (cmd: string) => { sendEslApiCommand(cmd); },
+  );
+
+  // ── 3b. Start stale session sweeper ─────────────────────────────────────
+  setSweepEslCommandFn((cmd: string) => { sendEslApiCommand(cmd); });
+  startSessionSweeper();
 
   // ── 4. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
   // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl

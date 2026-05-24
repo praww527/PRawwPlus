@@ -102,3 +102,4 @@ export * from "./models/SystemConfig";
 export * from "./models/CallEvent";
 export * from "./models/AlertRule";
 export * from "./models/AlertEvent";
+export * from "./models/Voicemail";

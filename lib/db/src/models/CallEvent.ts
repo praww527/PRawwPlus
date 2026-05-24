@@ -17,8 +17,13 @@ export type CallEventType =
   | "initiated"
   | "ringing"
   | "answered"
+  | "bridged"
+  | "early_media"
+  | "progress"
   | "failed"
   | "hangup"
+  | "destroyed"
+  | "bridge_timeout"
   | "disconnect"
   | "ice_failure"
   | "ice_success"
@@ -28,6 +33,7 @@ export type CallEventType =
   | "quality_sample"
   | "media_timeout"
   | "registration_failure"
+  | "voicemail"
   | "custom";
 
 export interface ICallEvent extends Document<string> {
@@ -56,10 +62,11 @@ const CallEventSchema = new Schema<ICallEvent>(
       type: String,
       required: true,
       enum: [
-        "initiated", "ringing", "answered", "failed", "hangup",
+        "initiated", "ringing", "answered", "bridged", "early_media", "progress",
+        "failed", "hangup", "destroyed", "bridge_timeout",
         "disconnect", "ice_failure", "ice_success", "reconnect_attempt",
         "reconnect_success", "reconnect_failed", "quality_sample",
-        "media_timeout", "registration_failure", "custom",
+        "media_timeout", "registration_failure", "voicemail", "custom",
       ],
       index: true,
     },

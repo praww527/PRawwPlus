@@ -15,10 +15,13 @@ import {
   SessionModel,
   AuditLogModel,
   SystemConfigModel,
+  CallEventModel,
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
 import { eslStatus, sendEslApiCommand, sendEslBgapiAwait, getLastEslEvent, getEslTrace } from "../lib/freeswitchESL";
+import { metrics } from "../lib/metrics";
+import { getAllSessions } from "../lib/callSession";
 import { sendAdminPush, sendWebPushToSubscription } from "../lib/push";
 import { getAppUrl } from "../lib/appUrl";
 import { parsePageLimit } from "../lib/pagination";
@@ -1666,6 +1669,152 @@ router.post("/admin/diagnostics/esl-sync", requireAdmin, async (req, res) => {
     command: cmd,
     result,
     ts:      new Date().toISOString(),
+  });
+});
+
+// ── Call Trace (per-UUID debug timeline) ──────────────────────────────────────
+
+/**
+ * GET /api/admin/call-trace/:fsCallId
+ *
+ * Returns a merged, time-sorted debug timeline for a call UUID:
+ *   - In-memory ESL event trace (CHANNEL_CREATE → CHANNEL_DESTROY)
+ *   - Persisted CallEvent documents (initiated, ringing, answered, bridged, …)
+ *
+ * Also accepts a MongoDB callId in the fallback so admins can look up by
+ * either the FS UUID or the internal call record _id.
+ */
+router.get("/admin/call-trace/:fsCallId", requireAdmin, async (req, res) => {
+  const { fsCallId } = req.params;
+  if (!fsCallId || fsCallId.trim().length < 8) {
+    res.status(400).json({ error: "Invalid fsCallId" });
+    return;
+  }
+
+  await connectDB();
+
+  // 1. In-memory ESL trace (may be empty if the channel was destroyed > 60 s ago)
+  const eslTrace = getEslTrace(fsCallId);
+
+  // 2. Persisted DB events — search by fsCallId first, then fall back to callId
+  const [byFsCallId, callDoc] = await Promise.all([
+    CallEventModel.find({ fsCallId }).sort({ ts: 1 }).limit(200).lean(),
+    CallModel.findOne({ $or: [{ fsCallId }, { _id: fsCallId }] })
+      .select("_id status hangupCause duration cost startedAt endedAt callerNumber recipientNumber callType direction")
+      .lean(),
+  ]);
+
+  // If we found a Call record, also pull its events by callId (catches events
+  // that may have been stored before we knew the fsCallId)
+  let byCallId: typeof byFsCallId = [];
+  if (callDoc) {
+    byCallId = await CallEventModel.find({
+      callId: String(callDoc._id),
+      fsCallId: { $ne: fsCallId },   // avoid duplicates with byFsCallId
+    }).sort({ ts: 1 }).limit(200).lean();
+  }
+
+  // 3. Merge and sort all DB events
+  const allDbEvents = [...byFsCallId, ...byCallId].sort(
+    (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime(),
+  );
+
+  // 4. Build unified timeline — ESL entries first (they have raw FS timestamps)
+  const eslEntries = eslTrace.map((e) => ({
+    source:  "esl_trace",
+    event:   e.event,
+    ts:      new Date(e.ts).toISOString(),
+    cause:   e.cause ?? null,
+    metadata: null,
+  }));
+
+  const dbEntries = allDbEvents.map((e) => ({
+    source:   "db",
+    event:    e.event,
+    ts:       new Date(e.ts).toISOString(),
+    cause:    null,
+    metadata: e.metadata ?? null,
+    callId:   e.callId,
+    id:       e._id,
+  }));
+
+  // Merge by timestamp
+  const timeline = [...eslEntries, ...dbEntries].sort(
+    (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime(),
+  );
+
+  res.json({
+    fsCallId,
+    call:    callDoc ? { ...callDoc, id: callDoc._id } : null,
+    eslTraceLength: eslTrace.length,
+    dbEventsLength: allDbEvents.length,
+    timeline,
+  });
+});
+
+/**
+ * GET /api/admin/call-trace/by-callid/:callId
+ *
+ * Same as above but accepts a MongoDB callId directly.
+ */
+router.get("/admin/call-trace/by-callid/:callId", requireAdmin, async (req, res) => {
+  const { callId } = req.params;
+  await connectDB();
+
+  const callDoc = await CallModel.findById(callId)
+    .select("_id fsCallId status hangupCause duration cost startedAt endedAt callerNumber recipientNumber callType direction")
+    .lean();
+
+  if (!callDoc) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const fsCallId = (callDoc as any).fsCallId ?? "";
+  const eslTrace = fsCallId ? getEslTrace(fsCallId) : [];
+
+  const dbEvents = await CallEventModel.find({ callId }).sort({ ts: 1 }).limit(200).lean();
+
+  const timeline = [
+    ...eslTrace.map((e) => ({
+      source: "esl_trace", event: e.event,
+      ts: new Date(e.ts).toISOString(), cause: e.cause ?? null, metadata: null,
+    })),
+    ...dbEvents.map((e) => ({
+      source: "db", event: e.event,
+      ts: new Date(e.ts).toISOString(), cause: null, metadata: e.metadata ?? null,
+      id: e._id,
+    })),
+  ].sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+
+  res.json({
+    callId,
+    fsCallId: fsCallId || null,
+    call: { ...callDoc, id: callDoc._id },
+    eslTraceLength: eslTrace.length,
+    dbEventsLength: dbEvents.length,
+    timeline,
+  });
+});
+
+/**
+ * GET /api/admin/metrics/sessions
+ * Returns active Verto session details + metrics snapshot.
+ */
+router.get("/admin/metrics/sessions", requireAdmin, async (_req, res) => {
+  const sessions = getAllSessions();
+  const snap = metrics.snapshot();
+  res.json({
+    sessions: sessions.map((s) => ({
+      extension:      s.extension,
+      sessId:         s.sessId,
+      connectedAt:    new Date(s.connectedAt).toISOString(),
+      lastPingAt:     new Date(s.lastPingAt).toISOString(),
+      pingAgeMs:      Date.now() - s.lastPingAt,
+      reconnectCount: s.reconnectCount,
+    })),
+    sessionCount: sessions.length,
+    metrics: snap,
   });
 });
 
