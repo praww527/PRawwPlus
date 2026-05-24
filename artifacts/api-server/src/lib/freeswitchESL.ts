@@ -1588,17 +1588,17 @@ class FreeSwitchESL {
   private async autoRecoverUnregistered(destExt: string): Promise<void> {
     const now = Date.now();
 
-    // 1. Lightweight sofia rescan — rescans BOTH profiles:
+    // 1. Lightweight sofia rescan — rescans the SIP/WS profile:
     //    prawwplus_mobile: JsSIP / SIP-over-WS registrations
-    //    prawwplus_verto:  mod_verto / WebRTC registrations
+    //    (mod_verto does not use sofia profile commands; its directory
+    //    is refreshed automatically via xml_curl on each auth request)
     //    Debounced to once per minute to prevent rescan storms on repeated failures.
     if (now - lastAutoRescanAt >= AUTO_RESCAN_DEBOUNCE_MS) {
       lastAutoRescanAt = now;
-      const sentMobile = this.sendApiCommand("sofia profile prawwplus_mobile rescan");
-      const sentVerto  = this.sendApiCommand("sofia profile prawwplus_verto rescan");
+      this.sendApiCommand("sofia profile prawwplus_mobile rescan");
       logger.info(
-        { destExt, sentMobile, sentVerto },
-        "[ESL] AUTO_RECOVERY: sofia profile rescan triggered for both profiles",
+        { destExt },
+        "[ESL] AUTO_RECOVERY: sofia profile prawwplus_mobile rescan triggered",
       );
     }
 

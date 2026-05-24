@@ -174,7 +174,6 @@ export async function runStartup(): Promise<void> {
     // USER_NOT_REGISTERED until the next scheduled rescan.
     setSofiaRescanFn(() => {
       sendEslApiCommand("sofia profile prawwplus_mobile rescan");
-      sendEslApiCommand("sofia profile prawwplus_verto rescan");
     });
   }
 
