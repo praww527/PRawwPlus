@@ -304,6 +304,14 @@ async function sendWebPush(
 
 // ─── FreeSwitchESL class ───────────────────────────────────────────────────
 
+// How long to wait for FreeSWITCH to send the auth/request banner after the
+// TCP/SSH channel opens.  If it doesn't arrive in this window the connection
+// is silently dead (ACL drop, wrong port, or FS not running) — treat it as a
+// disconnect and reconnect with backoff.
+const AUTH_BANNER_TIMEOUT_MS = parseInt(
+  process.env.ESL_AUTH_BANNER_TIMEOUT_MS ?? "12000", 10,
+);
+
 class FreeSwitchESL {
   private socket:          net.Socket | null = null;
   private sshConn:         SSHClient | null  = null;
@@ -312,6 +320,7 @@ class FreeSwitchESL {
   private destroyed =      false;
   private reconnectTimer:  ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
+  private authBannerTimer: ReturnType<typeof setTimeout> | null = null;
   /** Maps B-leg UUID → { destExt, callerExt } for missed-call push + DB record */
   private originateDestMap = new Map<string, { destExt: string; callerExt: string }>();
   /**
@@ -421,9 +430,37 @@ class FreeSwitchESL {
     }
   }
 
+  /** Start the auth-banner watchdog. If FreeSWITCH doesn't send auth/request
+   *  within AUTH_BANNER_TIMEOUT_MS we treat it as a silent ACL drop or dead
+   *  connection and schedule a reconnect.  Common cause: SSH forwardOut arrives
+   *  on ::1 (IPv6 loopback) but event_socket.conf only allows 127.0.0.1. */
+  private startAuthBannerTimer() {
+    if (this.authBannerTimer) clearTimeout(this.authBannerTimer);
+    this.authBannerTimer = setTimeout(() => {
+      if (!this.authenticated) {
+        logger.error(
+          { timeoutMs: AUTH_BANNER_TIMEOUT_MS },
+          "[ESL] Auth banner timeout — FreeSWITCH never sent auth/request. " +
+          "Likely cause: event_socket.conf ACL dropped the connection (SSH forwardOut " +
+          "may arrive as ::1; ensure apply-inbound-acl=loopback is set), or FreeSWITCH " +
+          "is not running. Pushing updated config and reconnecting.",
+        );
+        this.scheduleReconnect("auth_banner_timeout");
+      }
+    }, AUTH_BANNER_TIMEOUT_MS);
+  }
+
+  private clearAuthBannerTimer() {
+    if (this.authBannerTimer) {
+      clearTimeout(this.authBannerTimer);
+      this.authBannerTimer = null;
+    }
+  }
+
   private attachChannel(channel: ClientChannel) {
     this.buffer = "";
     this.authenticated = false;
+    this.startAuthBannerTimer();
 
     channel.on("data", (data: Buffer | string) => {
       this.buffer += typeof data === "string" ? data : data.toString("utf8");
@@ -436,6 +473,7 @@ class FreeSwitchESL {
 
     channel.on("close", () => {
       logger.warn("[ESL] SSH channel closed");
+      this.clearAuthBannerTimer();
       this.authenticated = false;
       this.scheduleReconnect("ssh_channel_close");
     });
@@ -454,6 +492,7 @@ class FreeSwitchESL {
 
     sock.on("connect", () => {
       logger.info("[ESL] TCP connected");
+      this.startAuthBannerTimer();
     });
 
     sock.on("data", (data: Buffer | string) => {
@@ -476,6 +515,7 @@ class FreeSwitchESL {
 
   disconnect() {
     this.destroyed = true;
+    this.clearAuthBannerTimer();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     clearAllHangupTimers();
     this.originateDestMap.clear();
@@ -559,6 +599,7 @@ class FreeSwitchESL {
     this.sshConn = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
 
+    this.clearAuthBannerTimer();
     lastDisconnectedAt = Date.now();
     lastDisconnectReason = reason ?? "unknown";
     metrics.eslDisconnectedAt = Date.now();
@@ -643,6 +684,7 @@ class FreeSwitchESL {
 
       if (reply.startsWith("+OK accepted")) {
         logger.info("[ESL] Authenticated — subscribing to call events");
+        this.clearAuthBannerTimer();
         this.authenticated    = true;
         this.reconnectAttempt = 0;
         lastConnectedAt = Date.now();

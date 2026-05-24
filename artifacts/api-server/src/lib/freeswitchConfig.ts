@@ -595,12 +595,17 @@ export function eventSocketConf(password?: string): string {
   <settings>
     <param name="nat-map" value="false"/>
     <!--
-      Security: bind ESL only to localhost. The API server connects from 127.0.0.1.
-      Never expose port 8021 to the internet — use a firewall rule to block it externally.
+      Security: bind ESL only to localhost. The API server connects from 127.0.0.1
+      via an SSH tunnel. apply-inbound-acl="loopback" explicitly permits both the
+      IPv4 loopback (127.0.0.1) and the IPv6 loopback (::1) — SSH forwardOut on
+      some VPS kernel/network stacks arrives as ::1 and is silently dropped without
+      this ACL, causing ESL to connect at the TCP level but never send auth/request.
+      Never expose port 8021 to the internet — block it at the firewall.
     -->
     <param name="listen-ip" value="127.0.0.1"/>
     <param name="listen-port" value="8021"/>
     <param name="password" value="${eslPassword}"/>
+    <param name="apply-inbound-acl" value="loopback"/>
   </settings>
 </configuration>`;
 }

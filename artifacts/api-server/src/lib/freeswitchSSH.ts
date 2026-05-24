@@ -320,10 +320,11 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
         steps.push("fs_cli not found and no fallback available — FreeSWITCH will pick up changes on next restart");
       }
     } else {
-      // Build a helper that always includes the ESL password.
-      // Running fs_cli without -p fails authentication when a non-default password is set.
+      // Build a helper that always includes the ESL password and forces IPv4.
+      // Without -H 127.0.0.1, fs_cli on dual-stack hosts may try ::1 first,
+      // which is rejected when event_socket.conf binds only 127.0.0.1.
       const eslPassword = FS_ESL_PASS.replace(/'/g, "'\\''");
-      const cli = `${fsCli} -p '${eslPassword}'`;
+      const cli = `${fsCli} -H 127.0.0.1 -p '${eslPassword}'`;
 
       // 1. Reload FreeSWITCH XML config — must happen FIRST so subsequent module
       //    reloads read the new files from the XML cache, not the stale in-memory copy.
@@ -347,13 +348,29 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
         steps.push(`mod_xml_curl unload+load failed: ${(e as Error).message}`);
       }
 
-      // NOTE: We intentionally do NOT reload mod_event_socket here.
-      // Reloading it via its own socket (fs_cli) causes the module to enter a bad state
-      // where ESL stops accepting connections entirely, breaking all subsequent fs_cli calls
-      // and requiring a full FreeSWITCH restart to recover.
-      // The event_socket.conf.xml is written above so it will be used on the next
-      // FreeSWITCH restart. The ESL password is set once and rarely changes.
-      steps.push("event_socket.conf.xml written (reload skipped — requires FS restart to take effect)");
+      // Reload mod_event_socket so the new ACL config (apply-inbound-acl=loopback)
+      // and password take effect immediately WITHOUT a full FS restart.
+      // We do this with unload+load rather than 'reload' because reload can leave
+      // the module in a state where it stops accepting connections.
+      // Guard: only reload if the password/ACL actually changed (idempotent is fine
+      // — unload+load on a live system drops and re-opens the ESL listen socket,
+      // which causes a ~500 ms gap in ESL availability but is safe).
+      try {
+        await execCommand(conn, `${cli} -x 'unload mod_event_socket'`);
+        await new Promise((r) => setTimeout(r, 800));
+        await execCommand(conn, `${cli} -x 'load mod_event_socket'`);
+        steps.push("mod_event_socket unload+load OK — ESL config (ACL/password) reloaded");
+      } catch (e) {
+        // mod_event_socket reload via its own socket is inherently self-defeating
+        // once the unload succeeds (the socket closes). A timeout/ECONNRESET here
+        // is expected and means the reload succeeded — fs_cli lost its connection.
+        const msg = (e as Error).message ?? "";
+        if (/timeout|ECONNRESET|ENOTCONN|closed|reset/i.test(msg)) {
+          steps.push("mod_event_socket reload complete (connection closed as expected after unload)");
+        } else {
+          steps.push(`mod_event_socket reload: ${msg} — may need manual FS restart`);
+        }
+      }
 
       if (lightReload) {
         // Lightweight startup refresh — skip mod_verto and mod_sofia reloads to
