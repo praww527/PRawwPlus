@@ -547,6 +547,14 @@ class FreeSwitchESL {
     lastDisconnectedAt = Date.now();
     lastDisconnectReason = reason ?? "unknown";
 
+    // Flush any in-flight bgapi commands so their promise callbacks are called
+    // and callers aren't left hanging indefinitely.  New commands issued after
+    // reconnect will get fresh entries.
+    for (const item of this.bgapiCmdQueue)        item.resolve?.("-ERR ESL disconnected");
+    for (const item of this.bgapiJobMap.values()) item.resolve?.("-ERR ESL disconnected");
+    this.bgapiCmdQueue = [];
+    this.bgapiJobMap.clear();
+
     this.reconnectAttempt++;
     const base = Number.isFinite(RECONNECT_BASE_MS) ? Math.max(250, RECONNECT_BASE_MS) : 2000;
     const max  = Number.isFinite(RECONNECT_MAX_MS)  ? Math.max(base, RECONNECT_MAX_MS) : 60000;
@@ -623,12 +631,14 @@ class FreeSwitchESL {
           "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB " +
           "CUSTOM sofia::register sofia::unregister sofia::pre-register sofia::expire",
         );
-        // Enable deep Sofia SIP tracing so full SIP INVITE/response transactions appear
-        // in FreeSWITCH logs.  This is safe to run on a live system — it only increases
-        // log verbosity and does NOT affect call processing.
-        this.sendApiCommand("sofia global siptrace on");
-        this.sendApiCommand("sofia loglevel all 9");
-        logger.info("[ESL] Deep Sofia tracing enabled (siptrace on, loglevel 9)");
+        // Enable deep Sofia SIP tracing in development only.
+        // In production this floods FreeSWITCH logs and can noticeably impact
+        // performance under load. Gate on NODE_ENV so it never runs in prod.
+        if (!isProduction) {
+          this.sendApiCommand("sofia global siptrace on");
+          this.sendApiCommand("sofia loglevel all 9");
+          logger.info("[ESL] Deep Sofia tracing enabled (siptrace on, loglevel 9) — dev only");
+        }
       } else if (reply.startsWith("+OK")) {
         // This is the bgapi Job-UUID ACK.  Pop the oldest queued command and
         // register it in the job map so we can correlate the BACKGROUND_JOB result.

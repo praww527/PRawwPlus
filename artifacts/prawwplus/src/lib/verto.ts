@@ -729,6 +729,10 @@ export class VertoClient {
         if (iceRestartAttempts < 2 && typeof pc.restartIce === "function") {
           iceRestartAttempts++;
           console.warn(`[Verto] ICE failed — attempting ICE restart (attempt ${iceRestartAttempts})`);
+          // Reset remoteSdpSet so that FreeSWITCH's re-INVITE with new ICE
+          // credentials is accepted. Without this, the new SDP from FS is
+          // silently ignored (remoteSdpSet is still true) and audio stays dead.
+          this.remoteSdpSet = false;
           pc.restartIce();
         } else {
           console.error("[Verto] ICE failed permanently — RTP will not flow. Check firewall / TURN server config.");
