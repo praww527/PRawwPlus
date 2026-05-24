@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe } from "@workspace/api-client-react";
-import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle, WifiOff } from "lucide-react";
+import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { NAV_H } from "@/components/Layout";
 import { useCall } from "@/context/CallContext";
-import { apiFetch } from "@/lib/apiFetch";
+import { useEslOfflineRetry } from "@/hooks/useEslOfflineRetry";
+import { EslOfflineBanner } from "@/components/EslOfflineBanner";
 
 const DIAL_KEYS = [
   { key: "1", sub: "" },
@@ -59,22 +60,9 @@ export default function DialPad() {
   const longPressFired  = useRef(false);
   const zeroHandled     = useRef(false);
 
-  // ── ESL offline auto-retry state ──────────────────────────────────────────
-  const [eslOfflinePending, setEslOfflinePending] = useState(false);
-  const eslRetryNumberRef  = useRef<string>("");
-  const eslRetryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Stop polling helper
-  const stopEslRetry = useCallback(() => {
-    if (eslRetryIntervalRef.current) {
-      clearInterval(eslRetryIntervalRef.current);
-      eslRetryIntervalRef.current = null;
-    }
-    setEslOfflinePending(false);
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => () => stopEslRetry(), [stopEslRetry]);
+  // ── ESL offline auto-retry ────────────────────────────────────────────────
+  const { eslOfflinePending, eslRetryNumberRef, handleEslOfflineError, stopEslRetry } =
+    useEslOfflineRetry();
 
   useEffect(() => {
     const params = new URLSearchParams(search);
@@ -187,41 +175,7 @@ export default function DialPad() {
       }
     } catch (err: any) {
       endCall();
-
-      // ── ESL offline: auto-retry when the system comes back ─────────────
-      const isEslOffline =
-        err?.status === 503 && (err?.data as any)?.eslOffline === true;
-
-      if (isEslOffline) {
-        eslRetryNumberRef.current = number;
-        setEslOfflinePending(true);
-
-        toast({
-          title:       "Call system offline",
-          description: "FreeSWITCH is reconnecting. Your call will retry automatically.",
-        });
-
-        // Poll /api/healthz-lite every 4 s until ESL is back, then auto-retry
-        if (!eslRetryIntervalRef.current) {
-          eslRetryIntervalRef.current = setInterval(async () => {
-            try {
-              const res  = await apiFetch("/api/healthz-lite");
-              const data = await res.json() as { esl?: { connected?: boolean } };
-              if (data?.esl?.connected) {
-                stopEslRetry();
-                toast({
-                  title:       "Call system ready",
-                  description: "Retrying your call…",
-                });
-                // Slight delay so the toast is visible before the dial animation
-                setTimeout(() => handleCall(), 800);
-              }
-            } catch { /* network hiccup — keep polling */ }
-          }, 4000);
-        }
-        return;
-      }
-
+      if (handleEslOfflineError(err, number, handleCall)) return;
       toast({
         title: "Call failed",
         description: err?.message ?? "Could not place the call.",
@@ -389,46 +343,7 @@ export default function DialPad() {
 
       {/* ESL offline auto-retry banner */}
       {eslOfflinePending && (
-        <div
-          style={{
-            width: "calc(100% - 32px)",
-            margin: "10px 16px 0",
-            padding: "12px 14px",
-            borderRadius: 14,
-            background: "rgba(255,159,10,0.10)",
-            border: "1px solid rgba(255,159,10,0.30)",
-            display: "flex", alignItems: "center", gap: 10,
-          }}
-        >
-          <div style={{
-            width: 30, height: 30, borderRadius: 8,
-            background: "rgba(255,159,10,0.16)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
-            <WifiOff style={{ width: 14, height: 14, color: "#ff9f0a" }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 12, color: "#ff9f0a", fontWeight: 700, margin: 0 }}>
-              Call system reconnecting…
-            </p>
-            <p style={{ fontSize: 11, color: "rgba(255,159,10,0.75)", margin: "2px 0 0" }}>
-              Your call to {eslRetryNumberRef.current} will retry automatically
-            </p>
-          </div>
-          <Loader2 style={{ width: 16, height: 16, color: "#ff9f0a", flexShrink: 0 }} className="animate-spin" />
-          <button
-            onClick={stopEslRetry}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: "rgba(255,159,10,0.6)", fontSize: 18, lineHeight: 1,
-              padding: "0 2px", flexShrink: 0,
-            }}
-            aria-label="Cancel retry"
-          >
-            ×
-          </button>
-        </div>
+        <EslOfflineBanner number={eslRetryNumberRef.current} onCancel={stopEslRetry} />
       )}
 
       <div style={{ flex: 1, minHeight: 16 }} />

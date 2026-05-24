@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { useCall } from "@/context/CallContext";
 import { useToast } from "@/hooks/use-toast";
+import { useEslOfflineRetry } from "@/hooks/useEslOfflineRetry";
+import { EslOfflineBanner } from "@/components/EslOfflineBanner";
 
 type FilterType = "all" | "missed" | "incoming" | "outgoing";
 
@@ -70,6 +72,8 @@ export default function CallHistory() {
   const { mutateAsync: initiateCall } = useMakeCall();
   const { toast } = useToast();
   const { startOutgoing, updateCallId, updateCallType, makeVertoCall, endCall, isVertoConnected } = useCall();
+  const { eslOfflinePending, eslRetryNumberRef, handleEslOfflineError, stopEslRetry } =
+    useEslOfflineRetry();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -94,6 +98,7 @@ export default function CallHistory() {
     startOutgoing({ number });
     try {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
+      stopEslRetry();
       if (record?.id) updateCallId(record.id);
       if (record?.type) updateCallType(record.type);
       const dialTarget = record?.type === "internal" ? String(record.extension) : number;
@@ -105,6 +110,7 @@ export default function CallHistory() {
       if (!vertoCallId) throw new Error("Could not connect to the call server.");
     } catch (err: any) {
       endCall();
+      if (handleEslOfflineError(err, number, () => handleCallBack(number))) return;
       toast({ title: "Call failed", description: err?.message ?? "Could not place the call.", variant: "destructive" });
     }
   };
@@ -137,6 +143,11 @@ export default function CallHistory() {
 
   return (
     <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* ESL offline auto-retry banner */}
+      {eslOfflinePending && (
+        <EslOfflineBanner number={eslRetryNumberRef.current} onCancel={stopEslRetry} />
+      )}
+
       {/* Page title */}
       <div style={{ paddingTop: 4 }}>
         <h1 style={{ fontSize: 30, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0, letterSpacing: "-0.02em" }}>

@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useCall } from "@/context/CallContext";
 import { MODAL_Z, NAV_H, NAV_BOTTOM_GAP } from "@/components/Layout";
 import { avatarGradient } from "@/lib/utils";
+import { useEslOfflineRetry } from "@/hooks/useEslOfflineRetry";
+import { EslOfflineBanner } from "@/components/EslOfflineBanner";
 
 const SHEET_CLEAR = NAV_H + NAV_BOTTOM_GAP + 10;
 
@@ -232,6 +234,8 @@ export default function Contacts() {
   const { toast } = useToast();
   const { startOutgoing, updateCallId, updateCallType, endCall, isVertoConnected, makeVertoCall } = useCall();
   const { mutateAsync: initiateCall } = useMakeCall();
+  const { eslOfflinePending, eslRetryNumberRef, handleEslOfflineError, stopEslRetry } =
+    useEslOfflineRetry();
   const { data: callData } = useListCalls({ limit: 500 });
   const prompted = useRef(false);
 
@@ -323,6 +327,7 @@ export default function Contacts() {
 
     try {
       const record = await initiateCall({ data: { recipientNumber: number, fsCallId } });
+      stopEslRetry();
       if (record?.id) updateCallId(record.id);
       if (record?.type) updateCallType(record.type);
       const dialTarget = record?.type === "internal" ? String(record.extension) : number;
@@ -334,6 +339,7 @@ export default function Contacts() {
       if (vertoCallId === null) throw new Error("VoIP connection error. Please try again.");
     } catch (err: any) {
       endCall();
+      if (handleEslOfflineError(err, number, () => handleCall(number, name))) return;
       toast({ title: "Call failed", description: err?.message ?? "Could not place the call.", variant: "destructive" });
     }
   };
@@ -356,6 +362,10 @@ export default function Contacts() {
     <>
       {showImportModal && <ImportModal entries={phoneEntries} onImport={handleImport} onClose={() => setShowImportModal(false)} />}
       {showAddModal && <AddContactModal onAdd={handleAddContact} onClose={() => setShowAddModal(false)} />}
+
+      {eslOfflinePending && (
+        <EslOfflineBanner number={eslRetryNumberRef.current} onCancel={stopEslRetry} />
+      )}
 
       <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Header */}
