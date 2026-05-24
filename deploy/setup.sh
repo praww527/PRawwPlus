@@ -20,11 +20,18 @@ sudo apt-get update -y
 sudo apt-get upgrade -y
 sudo apt-get install -y curl git nginx certbot python3-certbot-nginx ufw
 
-echo "===== [2/8] Firewall (SSH + HTTP + HTTPS + RTP) ====="
+echo "===== [2/8] Firewall (SSH + HTTP + HTTPS + RTP + TURN) ====="
 sudo ufw allow OpenSSH
 sudo ufw allow 'Nginx Full'
 # FreeSWITCH RTP media ports — required for audio, must be UDP
 sudo ufw allow 16384:32768/udp comment "FreeSWITCH RTP media"
+# TURN/STUN — required for WebRTC calls behind NAT (4G, corporate networks)
+# Without these, roughly 30% of calls fail at the ICE negotiation stage.
+sudo ufw allow 3478/tcp  comment "TURN/STUN TCP"
+sudo ufw allow 3478/udp  comment "TURN/STUN UDP"
+sudo ufw allow 5349/tcp  comment "TURNS/TLS TCP"
+sudo ufw allow 5349/udp  comment "TURNS/DTLS UDP"
+sudo ufw allow 49152:65535/udp comment "TURN relay range (coturn)"
 sudo ufw --force enable
 
 echo "===== [3/8] Node.js ${NODE_VERSION} via NodeSource ====="

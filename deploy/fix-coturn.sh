@@ -206,9 +206,56 @@ else
 fi
 success ".env updated"
 
-# ── 7. Ensure log directory exists ───────────────────────────────────────────
+# ── 7. Ensure runtime directories exist ──────────────────────────────────────
 mkdir -p /var/log/coturn
 chown -R turnserver:turnserver /var/log/coturn 2>/dev/null || true
+
+# pidfile directory — must exist + be owned by turnserver or coturn won't start
+mkdir -p /run/coturn
+chown turnserver:turnserver /run/coturn 2>/dev/null || true
+
+# ── 7b. Fix TLS cert permissions for coturn ──────────────────────────────────
+# Let's Encrypt certs are root-only by default.  coturn (running as
+# 'turnserver') cannot read the private key → TURNS on port 5349 silently
+# won't start.  Fix: make turnserver own/read the key, install renewal hook.
+step "Fixing TLS cert permissions"
+
+if [[ -f "$KEY_PATH" ]]; then
+  chown root:turnserver "$KEY_PATH"  && chmod 640 "$KEY_PATH"  && success "privkey.pem: root:turnserver 640"
+  chown root:turnserver "$CERT_PATH" && chmod 644 "$CERT_PATH" && success "fullchain.pem: root:turnserver 644"
+  LIVE_DIR=$(dirname "$CERT_PATH")
+  chmod 750 "$LIVE_DIR" && success "$LIVE_DIR: 750 (coturn can traverse)"
+
+  # Add turnserver to ssl-cert group (belt-and-suspenders)
+  if getent group ssl-cert &>/dev/null; then
+    usermod -aG ssl-cert turnserver 2>/dev/null && info "turnserver added to ssl-cert group"
+  fi
+
+  # Install certbot post-renewal deploy hook so permissions survive renewals.
+  HOOK_DIR="/etc/letsencrypt/renewal-hooks/deploy"
+  mkdir -p "$HOOK_DIR"
+  HOOK_FILE="$HOOK_DIR/coturn-restart.sh"
+  cat > "$HOOK_FILE" << 'HOOK'
+#!/usr/bin/env bash
+# Certbot post-renewal hook — restores coturn cert permissions + restarts coturn
+set -euo pipefail
+DOMAIN_DIR="/etc/letsencrypt/live"
+for DIR in "$DOMAIN_DIR"/*/; do
+  KEY="$DIR/privkey.pem"
+  CERT="$DIR/fullchain.pem"
+  [ -f "$KEY"  ] && chown root:turnserver "$KEY"  && chmod 640 "$KEY"  || true
+  [ -f "$CERT" ] && chown root:turnserver "$CERT" && chmod 644 "$CERT" || true
+  chmod 750 "$DIR" || true
+done
+mkdir -p /run/coturn
+chown turnserver:turnserver /run/coturn || true
+systemctl restart coturn || true
+HOOK
+  chmod 755 "$HOOK_FILE"
+  success "Certbot renewal hook installed: $HOOK_FILE"
+else
+  warn "TLS key $KEY_PATH not found — skipping permission fix"
+fi
 
 # ── 8. Restart services ───────────────────────────────────────────────────────
 step "Restarting services"
@@ -280,6 +327,16 @@ echo -e "  TLS cert      : ${CYAN}$TURN_CERT${NC}"
 echo -e "  Logs          : ${CYAN}journalctl -u coturn -f${NC}"
 echo -e "  Health check  : ${CYAN}curl https://rtc.praww.co.za/api/healthz/turn | python3 -m json.tool${NC}"
 echo ""
-echo -e "${YELLOW}Don't forget: open ports in Oracle VCN Security List if you haven't already:${NC}"
-echo -e "  Ingress: TCP+UDP 3478, TCP 5349, UDP 49152-65535"
+echo -e "${YELLOW}IMPORTANT — Oracle VCN Security List (cloud console, not just UFW):${NC}"
+echo -e "  Navigate to: Oracle Cloud Console → Networking → VCN → Security Lists"
+echo -e "  Add ALL of these Ingress rules (both UFW AND the cloud console must allow them):"
+echo -e "    Protocol  CIDR         Port(s)       Purpose"
+echo -e "    TCP       0.0.0.0/0    3478          TURN/STUN TCP"
+echo -e "    UDP       0.0.0.0/0    3478          TURN/STUN UDP"
+echo -e "    TCP       0.0.0.0/0    5349          TURNS/TLS TCP  ← required for TURNS"
+echo -e "    UDP       0.0.0.0/0    5349          TURNS/DTLS UDP"
+echo -e "    UDP       0.0.0.0/0    49152-65535   TURN relay range"
+echo -e ""
+echo -e "${RED}  If port 5349 is missing from the Oracle VCN rules, TURNS will be${NC}"
+echo -e "${RED}  UNREACHABLE even after this script completes.${NC}"
 echo ""

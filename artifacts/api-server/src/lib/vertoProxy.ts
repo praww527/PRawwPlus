@@ -106,6 +106,13 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 // back within this window, log a warning so the issue is visible in server logs.
 const INVITE_ACK_TIMEOUT_MS = 8_000;
 
+// Upstream retry — when FreeSWITCH is briefly restarting/unavailable,
+// retry the upstream WS connection before giving up and closing the browser client.
+// This prevents the browser needing to do a full 5s–60s exponential-backoff cycle
+// every time FreeSWITCH is momentarily unreachable (e.g. config reload, crash recovery).
+const MAX_UPSTREAM_RETRIES    = 4;
+const UPSTREAM_RETRY_BASE_MS  = 2_000;  // 2 s, 4 s, 6 s, 8 s
+
 export function createVertoProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -125,8 +132,6 @@ export function createVertoProxy(): WebSocketServer {
     // callSession map on disconnect.  Populated when we see a verto login message.
     let sessionExtension: number | null = null;
     let sessionSessId:    string | null = null;
-
-    const upstream = new WebSocket(upstreamUrl, ["verto"]);
 
     // Buffer messages that arrive from the browser while the upstream WebSocket
     // is still in CONNECTING state.  Without this the Verto login message sent
@@ -154,94 +159,134 @@ export function createVertoProxy(): WebSocketServer {
     };
 
     // ── upstream → client ────────────────────────────────────────────────────
-    upstream.on("open", () => {
-      logger.info("Verto proxy: upstream connected to FreeSWITCH");
-      // Flush any messages that were buffered while we were still connecting.
-      for (const msg of pendingToUpstream.splice(0)) {
-        if (upstream.readyState === WebSocket.OPEN) {
-          upstream.send(msg.data, { binary: msg.isBinary });
-        }
-      }
-    });
+    // Mutable upstream reference — updated each retry attempt so the client
+    // message handler always sends to the active upstream WebSocket.
+    let upstream: WebSocket;
+    let upstreamRetryCount = 0;
+    let clientDestroyed    = false;
+    let retryScheduled     = false;
 
-    upstream.on("message", (data, isBinary) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data, { binary: isBinary });
-      }
-      // Log Verto method names and hangup causes (not SDPs) for diagnostics
-      if (!isBinary) {
-        try {
-          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-          const method = msg.method as string | undefined;
-          if (method) {
-            const params = (msg.params ?? {}) as Record<string, unknown>;
-            const callID = params.callID as string | undefined;
-            if (method === "verto.invite") {
-              metrics.callsInitiated++;
-              metrics.activeCalls++;
-              const rpcId = typeof msg.id === "number" ? msg.id : null;
-              const clientOpen = client.readyState === WebSocket.OPEN;
-              logger.info(
-                { method, callID, rpcId, CALLEE_SOCKET_FOUND: clientOpen },
-                "Verto ← FS [INVITE_SENT to callee socket]",
-              );
-              // Start ACK timeout — if the callee socket doesn't respond within
-              // INVITE_ACK_TIMEOUT_MS the client is likely reconnecting/frozen.
-              if (rpcId !== null && callID) {
-                const timer = setTimeout(() => {
-                  pendingInviteAcks.delete(rpcId);
-                  logger.warn(
-                    { callID, rpcId, timeoutMs: INVITE_ACK_TIMEOUT_MS },
-                    "Verto proxy: [INVITE_ACK_TIMEOUT] callee socket did not ACK verto.invite — " +
-                    "client may be reconnecting, frozen, or the invite was silently dropped",
-                  );
-                }, INVITE_ACK_TIMEOUT_MS);
-                pendingInviteAcks.set(rpcId, { callID, timer });
-              }
-            } else if (method === "verto.answer") {
-              metrics.callsAnswered++;
-              logger.info({ method, callID }, "Verto ← FS [answered]");
-            } else if (method === "verto.bye") {
-              metrics.activeCalls = Math.max(0, metrics.activeCalls - 1);
-              const cause = params.cause as string | undefined;
-              if (cause && cause !== "NORMAL_CLEARING" && cause !== "ORIGINATOR_CANCEL") metrics.callsFailed++;
-              logger.info({ method, callID, cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
-            } else if (method !== "verto.info") {
-              logger.info({ method, callID }, "Verto ← FS");
-            }
-          } else if (msg.id !== undefined) {
-            // JSON-RPC response (ack to client request)
-            const isError = Boolean(msg.error);
-            if (isError) {
-              const errCode = (msg.error as Record<string, unknown> | undefined)?.code;
-              // -32002 "CALL DOES NOT EXIST" is normal: the browser sends verto.bye
-              // after FreeSWITCH has already cleaned up the leg — log at info, not warn.
-              if (errCode === -32002) {
-                logger.info({ id: msg.id, error: msg.error }, "Verto ← FS [call already gone]");
-              } else {
-                logger.warn({ id: msg.id, error: msg.error }, "Verto ← FS [RPC error]");
-              }
-            }
+    function attachUpstream(ws: WebSocket): void {
+      upstream = ws;
+
+      ws.on("open", () => {
+        upstreamRetryCount = 0;
+        retryScheduled     = false;
+        logger.info({ upstreamUrl, attempt: upstreamRetryCount + 1 }, "Verto proxy: upstream connected to FreeSWITCH");
+        // Flush any messages buffered while we were connecting / retrying.
+        for (const msg of pendingToUpstream.splice(0)) {
+          if (upstream.readyState === WebSocket.OPEN) {
+            upstream.send(msg.data, { binary: msg.isBinary });
           }
-        } catch { /* not JSON — ignore */ }
-      }
-    });
+        }
+      });
 
-    upstream.on("close", (code, reason) => {
-      metrics.upstreamDisconnectsVerto++;
-      const safe = safeCloseCode(code);
-      logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: upstream closed");
-      if (client.readyState === WebSocket.OPEN) {
-        client.close(safe, reason);
-      }
-    });
+      ws.on("message", (data, isBinary) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data, { binary: isBinary });
+        }
+        // Log Verto method names and hangup causes (not SDPs) for diagnostics
+        if (!isBinary) {
+          try {
+            const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+            const method = msg.method as string | undefined;
+            if (method) {
+              const params = (msg.params ?? {}) as Record<string, unknown>;
+              const callID = params.callID as string | undefined;
+              if (method === "verto.invite") {
+                metrics.callsInitiated++;
+                metrics.activeCalls++;
+                const rpcId = typeof msg.id === "number" ? msg.id : null;
+                const clientOpen = client.readyState === WebSocket.OPEN;
+                logger.info(
+                  { method, callID, rpcId, CALLEE_SOCKET_FOUND: clientOpen },
+                  "Verto ← FS [INVITE_SENT to callee socket]",
+                );
+                if (rpcId !== null && callID) {
+                  const timer = setTimeout(() => {
+                    pendingInviteAcks.delete(rpcId);
+                    logger.warn(
+                      { callID, rpcId, timeoutMs: INVITE_ACK_TIMEOUT_MS },
+                      "Verto proxy: [INVITE_ACK_TIMEOUT] callee socket did not ACK verto.invite — " +
+                      "client may be reconnecting, frozen, or the invite was silently dropped",
+                    );
+                  }, INVITE_ACK_TIMEOUT_MS);
+                  pendingInviteAcks.set(rpcId, { callID, timer });
+                }
+              } else if (method === "verto.answer") {
+                metrics.callsAnswered++;
+                logger.info({ method, callID }, "Verto ← FS [answered]");
+              } else if (method === "verto.bye") {
+                metrics.activeCalls = Math.max(0, metrics.activeCalls - 1);
+                const cause = params.cause as string | undefined;
+                if (cause && cause !== "NORMAL_CLEARING" && cause !== "ORIGINATOR_CANCEL") metrics.callsFailed++;
+                logger.info({ method, callID, cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
+              } else if (method !== "verto.info") {
+                logger.info({ method, callID }, "Verto ← FS");
+              }
+            } else if (msg.id !== undefined) {
+              const isError = Boolean(msg.error);
+              if (isError) {
+                const errCode = (msg.error as Record<string, unknown> | undefined)?.code;
+                if (errCode === -32002) {
+                  logger.info({ id: msg.id, error: msg.error }, "Verto ← FS [call already gone]");
+                } else {
+                  logger.warn({ id: msg.id, error: msg.error }, "Verto ← FS [RPC error]");
+                }
+              }
+            }
+          } catch { /* not JSON — ignore */ }
+        }
+      });
 
-    upstream.on("error", (err) => {
-      logger.warn({ err: err.message }, "Verto proxy: upstream error");
-      if (client.readyState === WebSocket.OPEN) {
-        client.close(1011, Buffer.from("upstream error"));
-      }
-    });
+      ws.on("error", (err) => {
+        // On upstream connection error, retry before giving up.
+        // The error event always precedes the close event, so we set
+        // retryScheduled here and let the close handler do the actual retry.
+        if (!clientDestroyed && upstreamRetryCount < MAX_UPSTREAM_RETRIES) {
+          upstreamRetryCount++;
+          retryScheduled = true;
+          logger.warn(
+            { err: err.message, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES, upstreamUrl },
+            "Verto proxy: upstream error — will retry after delay",
+          );
+        } else {
+          retryScheduled = false;
+          logger.warn(
+            { err: err.message, attempt: upstreamRetryCount, upstreamUrl },
+            "Verto proxy: upstream error — all retries exhausted, closing client",
+          );
+        }
+      });
+
+      ws.on("close", (code, reason) => {
+        if (retryScheduled && !clientDestroyed) {
+          // Schedule retry — upstream was unavailable, give FreeSWITCH time to recover.
+          const delayMs = UPSTREAM_RETRY_BASE_MS * upstreamRetryCount;
+          logger.info(
+            { delayMs, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES },
+            "Verto proxy: upstream closed — scheduling retry",
+          );
+          setTimeout(() => {
+            if (!clientDestroyed) {
+              attachUpstream(new WebSocket(upstreamUrl, ["verto"]));
+            }
+          }, delayMs);
+          retryScheduled = false;
+        } else {
+          // Normal close or retries exhausted — propagate to client.
+          metrics.upstreamDisconnectsVerto++;
+          const safe = safeCloseCode(code);
+          logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: upstream closed");
+          if (client.readyState === WebSocket.OPEN) {
+            client.close(safe, reason);
+          }
+        }
+      });
+    }
+
+    // Kick off the first upstream connection.
+    attachUpstream(new WebSocket(upstreamUrl, ["verto"]));
 
     // ── client → upstream ────────────────────────────────────────────────────
     client.on("message", (data, isBinary) => {
@@ -317,6 +362,7 @@ export function createVertoProxy(): WebSocketServer {
     });
 
     client.on("close", (code, reason) => {
+      clientDestroyed = true;
       cleanup();
       metrics.wsDisconnectsVerto++;
       metrics.activeVertoClients = Math.max(0, metrics.activeVertoClients - 1);
@@ -336,6 +382,7 @@ export function createVertoProxy(): WebSocketServer {
     });
 
     client.on("error", (err) => {
+      clientDestroyed = true;
       cleanup();
       logger.warn({ err: err.message }, "Verto proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) {

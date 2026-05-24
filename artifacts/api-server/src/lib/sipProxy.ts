@@ -78,6 +78,12 @@ async function getSipWsUrl(): Promise<string> {
 const PENDING_BUFFER_LIMIT = 50;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
+// Upstream retry — mirrors the Verto proxy retry strategy.
+// When FreeSWITCH's SIP/WS profile is briefly unavailable (e.g. config reload),
+// retry the upstream connection before closing the mobile client.
+const MAX_UPSTREAM_RETRIES   = 4;
+const UPSTREAM_RETRY_BASE_MS = 2_000; // 2 s, 4 s, 6 s, 8 s
+
 // ── SIP message inspection helpers ───────────────────────────────────────────
 
 /**
@@ -156,8 +162,6 @@ export function createSipProxy(): WebSocketServer {
     metrics.activeSipClients++;
     logger.info({ upstreamUrl, activeClients: metrics.activeSipClients }, "SIP proxy: client connected, opening upstream");
 
-    const upstream = new WebSocket(upstreamUrl, ["sip"]);
-
     // Per-connection state for SIP registration tracking
     const sipState: SipConnectionState = { pendingExt: null, activeExt: null };
 
@@ -175,63 +179,105 @@ export function createSipProxy(): WebSocketServer {
     client.on("pong", () => { /* connection alive — no-op */ });
     const cleanup = () => clearInterval(heartbeat);
 
-    upstream.on("open", () => {
-      logger.debug("SIP proxy: upstream connected");
-      // Flush any messages buffered while we were connecting
-      for (const msg of pendingToUpstream.splice(0)) {
-        if (upstream.readyState === WebSocket.OPEN) {
-          upstream.send(msg.data, { binary: msg.isBinary });
-        }
-      }
-    });
+    // Mutable upstream reference — updated each retry so the client message
+    // handler always sends to the active upstream WebSocket.
+    let upstream: WebSocket;
+    let upstreamRetryCount = 0;
+    let clientDestroyed    = false;
+    let retryScheduled     = false;
 
-    // ── Upstream → Client (responses from FreeSWITCH) ────────────────────────
-    upstream.on("message", (data, isBinary) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data, { binary: isBinary });
-      }
+    function attachUpstream(ws: WebSocket): void {
+      upstream = ws;
 
-      // Inspect text frames only — binary SIP over WS is uncommon but possible
-      if (!isBinary) {
-        try {
-          const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
-
-          if (isSip200OkToRegister(text) && sipState.pendingExt !== null) {
-            // FreeSWITCH confirmed the registration
-            const ext = sipState.pendingExt;
-            const expiresSec = parseSipExpires(text);
-            const contact = parseSipContact(text);
-
-            if (expiresSec > 0) {
-              registerSipSession(buildSipSession(ext, { contact, expiresSec }));
-              sipState.activeExt  = ext;
-              sipState.pendingExt = null;
-              logger.info({ ext, expiresSec, contact }, "SIP proxy: registration confirmed via 200 OK");
-            } else {
-              // 200 OK to a de-REGISTER
-              unregisterSipSession(ext);
-              sipState.activeExt  = null;
-              sipState.pendingExt = null;
-              logger.info({ ext }, "SIP proxy: de-registration confirmed via 200 OK Expires=0");
-            }
+      ws.on("open", () => {
+        upstreamRetryCount = 0;
+        retryScheduled     = false;
+        logger.debug({ attempt: upstreamRetryCount + 1 }, "SIP proxy: upstream connected");
+        // Flush any messages buffered while we were connecting / retrying.
+        for (const msg of pendingToUpstream.splice(0)) {
+          if (upstream.readyState === WebSocket.OPEN) {
+            upstream.send(msg.data, { binary: msg.isBinary });
           }
-        } catch {
-          // Non-fatal — inspection errors must never break the proxy
         }
-      }
-    });
+      });
 
-    upstream.on("close", (code, reason) => {
-      metrics.upstreamDisconnectsSip++;
-      const safe = safeCloseCode(code);
-      logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: upstream closed");
-      if (client.readyState === WebSocket.OPEN) client.close(safe, reason);
-    });
+      // ── Upstream → Client (responses from FreeSWITCH) ──────────────────────
+      ws.on("message", (data, isBinary) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data, { binary: isBinary });
+        }
 
-    upstream.on("error", (err) => {
-      logger.warn({ err: err.message }, "SIP proxy: upstream error");
-      if (client.readyState === WebSocket.OPEN) client.close(1011, Buffer.from("upstream error"));
-    });
+        // Inspect text frames only — binary SIP over WS is uncommon but possible
+        if (!isBinary) {
+          try {
+            const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+
+            if (isSip200OkToRegister(text) && sipState.pendingExt !== null) {
+              // FreeSWITCH confirmed the registration
+              const ext = sipState.pendingExt;
+              const expiresSec = parseSipExpires(text);
+              const contact = parseSipContact(text);
+
+              if (expiresSec > 0) {
+                registerSipSession(buildSipSession(ext, { contact, expiresSec }));
+                sipState.activeExt  = ext;
+                sipState.pendingExt = null;
+                logger.info({ ext, expiresSec, contact }, "SIP proxy: registration confirmed via 200 OK");
+              } else {
+                // 200 OK to a de-REGISTER
+                unregisterSipSession(ext);
+                sipState.activeExt  = null;
+                sipState.pendingExt = null;
+                logger.info({ ext }, "SIP proxy: de-registration confirmed via 200 OK Expires=0");
+              }
+            }
+          } catch {
+            // Non-fatal — inspection errors must never break the proxy
+          }
+        }
+      });
+
+      ws.on("error", (err) => {
+        if (!clientDestroyed && upstreamRetryCount < MAX_UPSTREAM_RETRIES) {
+          upstreamRetryCount++;
+          retryScheduled = true;
+          logger.warn(
+            { err: err.message, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES, upstreamUrl },
+            "SIP proxy: upstream error — will retry after delay",
+          );
+        } else {
+          retryScheduled = false;
+          logger.warn(
+            { err: err.message, attempt: upstreamRetryCount, upstreamUrl },
+            "SIP proxy: upstream error — all retries exhausted, closing client",
+          );
+        }
+      });
+
+      ws.on("close", (code, reason) => {
+        if (retryScheduled && !clientDestroyed) {
+          const delayMs = UPSTREAM_RETRY_BASE_MS * upstreamRetryCount;
+          logger.info(
+            { delayMs, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES },
+            "SIP proxy: upstream closed — scheduling retry",
+          );
+          setTimeout(() => {
+            if (!clientDestroyed) {
+              attachUpstream(new WebSocket(upstreamUrl, ["sip"]));
+            }
+          }, delayMs);
+          retryScheduled = false;
+        } else {
+          metrics.upstreamDisconnectsSip++;
+          const safe = safeCloseCode(code);
+          logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: upstream closed");
+          if (client.readyState === WebSocket.OPEN) client.close(safe, reason);
+        }
+      });
+    }
+
+    // Kick off the first upstream connection.
+    attachUpstream(new WebSocket(upstreamUrl, ["sip"]));
 
     // ── Client → Upstream (requests from JsSIP/mobile) ───────────────────────
     client.on("message", (data, isBinary) => {
@@ -274,6 +320,7 @@ export function createSipProxy(): WebSocketServer {
     });
 
     client.on("close", (code, reason) => {
+      clientDestroyed = true;
       cleanup();
       metrics.wsDisconnectsSip++;
       metrics.activeSipClients = Math.max(0, metrics.activeSipClients - 1);
@@ -295,6 +342,7 @@ export function createSipProxy(): WebSocketServer {
     });
 
     client.on("error", (err) => {
+      clientDestroyed = true;
       cleanup();
       logger.warn({ err: err.message }, "SIP proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(1011, Buffer.from("client error"));

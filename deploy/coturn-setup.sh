@@ -195,10 +195,65 @@ elif ! grep -q "^TURNSERVER_ENABLED" "$DEFAULTS" 2>/dev/null; then
 fi
 success "coturn enabled"
 
-# ── Create log directory ───────────────────────────────────────────────────────
+# ── Create required runtime directories ───────────────────────────────────────
 
 mkdir -p /var/log/coturn
 chown turnserver:turnserver /var/log/coturn 2>/dev/null || true
+
+# coturn writes its PID file to /run/coturn/turnserver.pid — the directory
+# must exist and be owned by the turnserver user or coturn will fail to start.
+mkdir -p /run/coturn
+chown turnserver:turnserver /run/coturn 2>/dev/null || true
+
+# ── Fix TLS cert permissions for coturn ───────────────────────────────────────
+# Let's Encrypt certs are only readable by root by default.
+# coturn (running as the 'turnserver' user) must be able to read the private key
+# or port 5349 (TURNS/TLS) will silently not start.
+#
+# Strategy: add the turnserver user to the ssl-cert group and set group-read
+# permission on the live cert directory.  certbot deploy hooks below keep this
+# in place after each renewal.
+
+if [[ -n "${TLS_CERT:-}" && "$TLS_CERT" == /etc/letsencrypt/* ]]; then
+  DOMAIN_DIR=$(dirname "$(dirname "$TLS_CERT")")  # /etc/letsencrypt/live/<domain>
+  info "Fixing Let's Encrypt cert permissions for coturn..."
+
+  # Add turnserver to ssl-cert group (idempotent)
+  if getent group ssl-cert &>/dev/null; then
+    usermod -aG ssl-cert turnserver 2>/dev/null || true
+    success "Added turnserver to ssl-cert group"
+  fi
+
+  # Ensure the live/<domain> directory and privkey are group-readable
+  chmod 750 "$DOMAIN_DIR"                   2>/dev/null || true
+  chmod 640 "${TLS_KEY}"                    2>/dev/null || true
+  chown root:turnserver "${TLS_KEY}"        2>/dev/null || true
+  chown root:turnserver "${TLS_CERT}"       2>/dev/null || true
+  chmod 644 "${TLS_CERT}"                   2>/dev/null || true
+
+  # Install certbot post-renewal hook so permissions are re-applied automatically
+  HOOK_DIR="/etc/letsencrypt/renewal-hooks/deploy"
+  mkdir -p "$HOOK_DIR"
+  HOOK_FILE="$HOOK_DIR/coturn-restart.sh"
+  cat > "$HOOK_FILE" << 'HOOK'
+#!/usr/bin/env bash
+# Certbot post-renewal hook — restores coturn cert permissions + restarts coturn
+set -euo pipefail
+DOMAIN_DIR="/etc/letsencrypt/live"
+for DIR in "$DOMAIN_DIR"/*/; do
+  KEY="$DIR/privkey.pem"
+  CERT="$DIR/fullchain.pem"
+  [ -f "$KEY"  ] && chown root:turnserver "$KEY"  && chmod 640 "$KEY"  || true
+  [ -f "$CERT" ] && chown root:turnserver "$CERT" && chmod 644 "$CERT" || true
+  chmod 750 "$DIR" || true
+done
+mkdir -p /run/coturn
+chown turnserver:turnserver /run/coturn || true
+systemctl restart coturn || true
+HOOK
+  chmod 755 "$HOOK_FILE"
+  success "Certbot post-renewal hook installed at $HOOK_FILE"
+fi
 
 # ── Open firewall ports ────────────────────────────────────────────────────────
 
