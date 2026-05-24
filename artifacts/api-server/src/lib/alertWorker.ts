@@ -68,6 +68,9 @@ function currentValue(metric: IAlertRule["metric"]): number {
       const delta = metrics.reconnectFailures - prevReconnectFailures;
       return elapsed > 0 ? delta / elapsed : 0;
     }
+    case "esl_disconnect_minutes": {
+      return metrics.eslDisconnectedMs() / 60_000;
+    }
     default:
       return 0;
   }

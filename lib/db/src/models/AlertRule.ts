@@ -14,7 +14,8 @@ export type AlertMetric =
   | "active_calls_drop"
   | "call_setup_latency_p95"
   | "registration_failure_rate"
-  | "reconnect_failure_rate";
+  | "reconnect_failure_rate"
+  | "esl_disconnect_minutes";
 
 export type AlertCondition = "below" | "above";
 
@@ -50,6 +51,7 @@ const AlertRuleSchema = new Schema<IAlertRule>(
         "answer_rate", "ice_failure_rate", "ws_disconnect_rate",
         "active_calls_drop", "call_setup_latency_p95",
         "registration_failure_rate", "reconnect_failure_rate",
+        "esl_disconnect_minutes",
       ],
     },
     condition:      { type: String, enum: ["below", "above"], required: true },

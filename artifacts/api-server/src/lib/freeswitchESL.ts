@@ -18,6 +18,7 @@
 import net from "net";
 import { Client as SSHClient, type ClientChannel } from "ssh2";
 import { logger } from "./logger";
+import { metrics } from "./metrics";
 import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
@@ -560,6 +561,7 @@ class FreeSwitchESL {
 
     lastDisconnectedAt = Date.now();
     lastDisconnectReason = reason ?? "unknown";
+    metrics.eslDisconnectedAt = Date.now();
 
     // Flush any in-flight bgapi commands so their promise callbacks are called
     // and callers aren't left hanging indefinitely.  New commands issued after
@@ -644,6 +646,7 @@ class FreeSwitchESL {
         this.authenticated    = true;
         this.reconnectAttempt = 0;
         lastConnectedAt = Date.now();
+        metrics.eslDisconnectedAt = null;
         // Wire the orchestrator's and A-leg manager's ESL command functions now that
         // we are authenticated.  Both modules issue uuid_kill commands via these fns.
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));

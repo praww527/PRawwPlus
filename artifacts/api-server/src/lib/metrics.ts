@@ -21,6 +21,14 @@ class MetricsStore {
   activeSipClients   = 0;
   activeCalls        = 0;
 
+  // ESL connectivity — timestamp (ms) when ESL went down, null when connected.
+  eslDisconnectedAt: number | null = null;
+
+  /** Returns how many milliseconds ESL has been disconnected (0 when connected). */
+  eslDisconnectedMs(): number {
+    return this.eslDisconnectedAt == null ? 0 : Math.max(0, Date.now() - this.eslDisconnectedAt);
+  }
+
   // ── Counters ───────────────────────────────────────────────────────────────
   callsInitiated           = 0;
   callsAnswered            = 0;
@@ -93,6 +101,7 @@ class MetricsStore {
     return {
       startedAt:               this.startedAt.toISOString(),
       uptimeSeconds:           this.uptimeSeconds(),
+      eslDisconnectedMs:       this.eslDisconnectedMs(),
       activeVertoClients:      this.activeVertoClients,
       activeSipClients:        this.activeSipClients,
       activeCalls:             this.activeCalls,
@@ -141,6 +150,7 @@ class MetricsStore {
     };
 
     gauge("prawwplus_uptime_seconds",          "Server uptime in seconds",                          up);
+    gauge("prawwplus_esl_disconnected_seconds", "Seconds ESL has been disconnected (0 when connected)", this.eslDisconnectedMs() / 1000);
     gauge("prawwplus_active_verto_clients",    "Currently connected Verto WebSocket clients",        this.activeVertoClients);
     gauge("prawwplus_active_sip_clients",      "Currently connected SIP WebSocket clients",          this.activeSipClients);
     gauge("prawwplus_active_calls",            "Calls currently in-progress",                        this.activeCalls);
