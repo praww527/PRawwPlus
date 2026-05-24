@@ -29,6 +29,7 @@ import {
   validateALegSource,
   getALegDiagnostics,
 } from "../lib/aLegManager";
+import { eslStatus } from "../lib/freeswitchESL";
 
 const router: IRouter = Router();
 
@@ -81,6 +82,25 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   const user = await UserModel.findById(userId);
   if (!user) {
     res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  // ── ESL pre-flight: block immediately if FreeSWITCH is unreachable ─────────
+  // Without this, the call is saved as "initiated", the 20 s watchdog fires,
+  // and it writes a failed record — leading to the "109 call errors" pile-up.
+  // Only block when ESL is explicitly enabled (FREESWITCH_DOMAIN is set) and
+  // currently disconnected.  If ESL is not configured at all, proceed normally.
+  const esl = eslStatus();
+  if (esl.enabled && !esl.connected) {
+    logger.warn(
+      { userId, recipientNumber, eslReconnectAttempt: esl.reconnectAttempt },
+      "[Calls] Rejecting call — FreeSWITCH ESL offline",
+    );
+    res.status(503).json({
+      error:   "FreeSWITCH unavailable",
+      message: "The call system is temporarily offline. Please try again in a few seconds.",
+      eslOffline: true,
+    });
     return;
   }
 

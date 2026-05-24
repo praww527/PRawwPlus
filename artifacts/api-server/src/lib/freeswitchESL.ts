@@ -56,7 +56,7 @@ function bareHost(raw: string): string {
 }
 
 const RECONNECT_BASE_MS = parseInt(process.env.ESL_RECONNECT_BASE_MS ?? "2000", 10);
-const RECONNECT_MAX_MS  = parseInt(process.env.ESL_RECONNECT_MAX_MS  ?? "60000", 10);
+const RECONNECT_MAX_MS  = parseInt(process.env.ESL_RECONNECT_MAX_MS  ?? "15000", 10);
 
 // ── Auto-recovery debounce for USER_NOT_REGISTERED ───────────────────────────
 // Limits how often the expensive operations fire across all concurrent calls.
@@ -1595,10 +1595,16 @@ class FreeSwitchESL {
     //    Debounced to once per minute to prevent rescan storms on repeated failures.
     if (now - lastAutoRescanAt >= AUTO_RESCAN_DEBOUNCE_MS) {
       lastAutoRescanAt = now;
+      // Rescan all known SIP/WS profiles so registrations are refreshed.
+      // prawwplus_mobile: JsSIP / SIP-over-WS (browser/mobile)
+      // prawwplus:        fallback SIP profile used by some clients
+      // Verto (mod_verto) does not use sofia profile commands; its directory
+      // is refreshed automatically via xml_curl on each auth request.
       this.sendApiCommand("sofia profile prawwplus_mobile rescan");
+      this.sendApiCommand("sofia profile prawwplus rescan");
       logger.info(
         { destExt },
-        "[ESL] AUTO_RECOVERY: sofia profile prawwplus_mobile rescan triggered",
+        "[ESL] AUTO_RECOVERY: sofia rescan triggered on prawwplus_mobile + prawwplus profiles",
       );
     }
 

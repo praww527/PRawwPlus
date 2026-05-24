@@ -221,14 +221,26 @@ export function registerInitiatedCall(
         "Likely cause: SIP/Verto registration missing, dialplan misconfiguration, or ESL disconnected.",
       );
 
+      // Choose hangupCause based on what the ESL trace actually shows.
+      // Reporting USER_NOT_REGISTERED when ESL never sent a single event (i.e.
+      // ESL was offline) is misleading and triggers the wrong auto-recovery path.
+      const hasAnyEslEvent = eslTrace.length > 0;
+      const timedOutHangupCause = hasAnyEslEvent
+        ? "USER_NOT_REGISTERED"          // FS spoke to us but callee wasn't registered
+        : "SERVICE_UNAVAILABLE";         // FS never responded — ESL offline or originate dropped
+
+      const timedOutFailReason = hasAnyEslEvent
+        ? "No FreeSWITCH activity within 20 s — possible SIP registration failure"
+        : "FreeSWITCH did not respond within 20 s — ESL may have been offline when the call was placed";
+
       await CallModel.findOneAndUpdate(
         { _id: call._id, status: "initiated" },
         {
           $set: {
             status:     "failed",
             endedAt:    new Date(),
-            failReason: "No FreeSWITCH activity within 20 s — possible SIP registration failure",
-            hangupCause: "USER_NOT_REGISTERED",
+            failReason: timedOutFailReason,
+            hangupCause: timedOutHangupCause,
             duration:   0,
             cost:       0,
           },
