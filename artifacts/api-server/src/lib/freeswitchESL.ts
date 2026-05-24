@@ -26,6 +26,7 @@ import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { appendCallEvent } from "./callEventLog";
 import { setMediaWatchdogEsl } from "./mediaWatchdog";
+import { registerSipSession, unregisterSipSession, buildSipSession } from "./callSession";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -619,7 +620,8 @@ class FreeSwitchESL {
           "CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA " +
           "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_BRIDGE " +
           "CHANNEL_HANGUP CHANNEL_HANGUP_COMPLETE " +
-          "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB",
+          "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB " +
+          "CUSTOM sofia::register sofia::unregister sofia::pre-register sofia::expire",
         );
         // Enable deep Sofia SIP tracing so full SIP INVITE/response transactions appear
         // in FreeSWITCH logs.  This is safe to run on a live system — it only increases
@@ -1097,8 +1099,49 @@ class FreeSwitchESL {
       } else if (evtName === "MESSAGE_WAITING") {
         this.handleMessageWaiting(body).catch((e) =>
           logger.error({ err: e }, "[ESL] handleMessageWaiting error"));
+
+      } else if (evtName === "CUSTOM") {
+        // FreeSWITCH fires CUSTOM events with an Event-Subclass for sofia
+        // registration lifecycle.  These are the authoritative ground-truth
+        // events — if ESL says a user registered/expired, we update the
+        // SIP session map regardless of what the SIP proxy already recorded.
+        const subclass = body["Event-Subclass"] ?? "";
+        if (subclass === "sofia::register" || subclass === "sofia::pre-register") {
+          this.handleSofiaRegister(body);
+        } else if (subclass === "sofia::unregister" || subclass === "sofia::expire") {
+          this.handleSofiaUnregister(body);
+        }
       }
     }
+  }
+
+  private handleSofiaRegister(body: Record<string, string>): void {
+    // FreeSWITCH populates several aliases; prefer sip-to-user, fall back to from-user.
+    const rawExt = body["sip-to-user"] ?? body["from-user"] ?? body["sip-username"] ?? "";
+    const ext    = parseInt(rawExt, 10);
+    if (!ext || ext < 1000 || ext > 9999) return;
+
+    const expiresSec = parseInt(body["expires"] ?? "3600", 10) || 3600;
+    const contact    = body["contact"]    ?? body["sip-contact"] ?? undefined;
+    const networkIp  = body["network-ip"] ?? body["sip-network-ip"] ?? undefined;
+
+    registerSipSession(buildSipSession(ext, { contact, networkIp, expiresSec }));
+    logger.info(
+      { ext, expiresSec, networkIp, contact, subclass: body["Event-Subclass"] },
+      "[ESL] SIP registration confirmed via sofia event",
+    );
+  }
+
+  private handleSofiaUnregister(body: Record<string, string>): void {
+    const rawExt = body["sip-to-user"] ?? body["from-user"] ?? body["sip-username"] ?? "";
+    const ext    = parseInt(rawExt, 10);
+    if (!ext || ext < 1000 || ext > 9999) return;
+
+    unregisterSipSession(ext);
+    logger.info(
+      { ext, subclass: body["Event-Subclass"] },
+      "[ESL] SIP session removed via sofia unregister/expire event",
+    );
   }
 
   private async handleMessageWaiting(h: Record<string, string>) {
@@ -1403,11 +1446,18 @@ class FreeSwitchESL {
   private async autoRecoverUnregistered(destExt: string): Promise<void> {
     const now = Date.now();
 
-    // 1. Lightweight sofia rescan (debounced to once per minute)
+    // 1. Lightweight sofia rescan — rescans BOTH profiles:
+    //    prawwplus_mobile: JsSIP / SIP-over-WS registrations
+    //    prawwplus_verto:  mod_verto / WebRTC registrations
+    //    Debounced to once per minute to prevent rescan storms on repeated failures.
     if (now - lastAutoRescanAt >= AUTO_RESCAN_DEBOUNCE_MS) {
       lastAutoRescanAt = now;
-      const sent = this.sendApiCommand("sofia profile prawwplus_mobile rescan");
-      logger.info({ destExt, sent }, "[ESL] AUTO_RECOVERY: sofia profile rescan triggered");
+      const sentMobile = this.sendApiCommand("sofia profile prawwplus_mobile rescan");
+      const sentVerto  = this.sendApiCommand("sofia profile prawwplus_verto rescan");
+      logger.info(
+        { destExt, sentMobile, sentVerto },
+        "[ESL] AUTO_RECOVERY: sofia profile rescan triggered for both profiles",
+      );
     }
 
     // 2. Push notification to callee: "please reopen the app"

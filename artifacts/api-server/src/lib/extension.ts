@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { UserModel } from "@workspace/db";
+import { logger } from "./logger";
 
 const EXTENSION_START = 1001;
 
@@ -12,6 +13,17 @@ function generateSipPassword(): string {
   return pw;
 }
 
+/**
+ * Injected callback: called after a new extension is assigned so FreeSWITCH
+ * can immediately rescan its directory and accept a REGISTER for the new user.
+ * Set by startup.ts once ESL is connected. No-op if not wired up.
+ */
+let sofiaRescanFn: (() => void) | null = null;
+
+export function setSofiaRescanFn(fn: () => void): void {
+  sofiaRescanFn = fn;
+}
+
 export async function assignExtensionIfNeeded(userId: string): Promise<{ extension: number; fsPassword: string } | null> {
   const user = await UserModel.findById(userId).select("extension fsPassword");
   if (!user) return null;
@@ -21,11 +33,16 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
     return { extension: user.extension, fsPassword: user.fsPassword };
   }
 
+  let isNewAssignment = false;
+
   // Has extension but missing fsPassword — just generate the password
   if (user.extension && !user.fsPassword) {
     const fsPassword = generateSipPassword();
     await UserModel.updateOne({ _id: userId }, { $set: { fsPassword } });
-    return { extension: user.extension, fsPassword };
+    isNewAssignment = true;
+    const result = { extension: user.extension, fsPassword };
+    triggerRescanIfNeeded(isNewAssignment, result.extension);
+    return result;
   }
 
   // Neither exists — assign next available extension + generate password.
@@ -53,7 +70,8 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
         break;
       }
 
-      // Successfully assigned — fall through to final read.
+      // Successfully assigned — new user, FS needs to learn about this extension.
+      isNewAssignment = true;
       break;
     } catch (err: any) {
       // Duplicate key on the unique extension index — another user grabbed the
@@ -65,7 +83,25 @@ export async function assignExtensionIfNeeded(userId: string): Promise<{ extensi
 
   const updated = await UserModel.findById(userId).select("extension fsPassword");
   if (!updated?.extension || !updated?.fsPassword) return null;
+
+  triggerRescanIfNeeded(isNewAssignment, updated.extension);
   return { extension: updated.extension, fsPassword: updated.fsPassword };
+}
+
+/**
+ * After a brand-new extension is written to MongoDB, tell FreeSWITCH to rescan
+ * its directory so the new SIP credentials are immediately usable.
+ * FreeSWITCH's mod_xml_curl serves the directory dynamically, so a rescan is
+ * sufficient — no SSH config push is needed for a single new user.
+ */
+function triggerRescanIfNeeded(isNew: boolean, extension: number): void {
+  if (!isNew || !sofiaRescanFn) return;
+  try {
+    sofiaRescanFn();
+    logger.info({ extension }, "[extension] sofia rescan triggered after new extension assignment");
+  } catch (err) {
+    logger.warn({ err, extension }, "[extension] sofia rescan failed — new user may need to retry registration");
+  }
 }
 
 export function isInternalNumber(number: string): boolean {

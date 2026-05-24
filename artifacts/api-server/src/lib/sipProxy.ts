@@ -4,7 +4,20 @@
  * Mobile JsSIP clients connect via:
  *   wss://APP_URL/api/sip/ws  →  ws://freeswitch:5066
  *
- * This mirrors the Verto proxy pattern for mod_verto.
+ * In addition to proxying raw WebSocket frames, this module inspects the
+ * SIP messages that flow through the connection to maintain the in-memory
+ * SIP session map (callSession.ts).  Tracking here provides low-latency
+ * session state even before the FreeSWITCH ESL sofia::register event fires.
+ *
+ * Registration flow tracked:
+ *   Client → Upstream:  REGISTER with Expires > 0  → store pendingExt
+ *   Upstream → Client:  SIP/2.0 200 OK + CSeq REGISTER → confirm session
+ *   Client → Upstream:  REGISTER with Expires: 0     → immediate deregister
+ *   Client disconnect:                                → deregister cleanup
+ *
+ * The ESL sofia::register/unregister events in freeswitchESL.ts act as an
+ * authoritative second source and will overwrite whatever this proxy sets,
+ * so both can safely coexist without coordination.
  */
 
 import { WebSocketServer, WebSocket } from "ws";
@@ -13,6 +26,11 @@ import type { Duplex } from "stream";
 import { logger } from "./logger";
 import { getSshForwardUrl } from "./sshForwardServer";
 import { metrics } from "./metrics";
+import {
+  registerSipSession,
+  unregisterSipSession,
+  buildSipSession,
+} from "./callSession";
 
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 
@@ -60,6 +78,69 @@ async function getSipWsUrl(): Promise<string> {
 const PENDING_BUFFER_LIMIT = 50;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
+// ── SIP message inspection helpers ───────────────────────────────────────────
+
+/**
+ * Extract the SIP extension (4-digit, 1000–9999) from the From: header.
+ * Handles both `From: <sip:1001@domain>` and `From: "Name" <sip:1001@domain>`.
+ */
+function parseSipFromExtension(msg: string): number | null {
+  const m = msg.match(/^From:\s*(?:"[^"]*"\s*)?<sip:(\d+)@/im);
+  if (!m) return null;
+  const ext = parseInt(m[1], 10);
+  return ext >= 1000 && ext <= 9999 ? ext : null;
+}
+
+/**
+ * Parse the Expires value from a SIP message.
+ * Checks the top-level `Expires:` header first, then the Contact `expires=` param.
+ */
+function parseSipExpires(msg: string): number {
+  const hdr = msg.match(/^Expires:\s*(\d+)/im);
+  if (hdr) return parseInt(hdr[1], 10);
+  const contact = msg.match(/;expires=(\d+)/i);
+  if (contact) return parseInt(contact[1], 10);
+  return 3600;
+}
+
+/** True when the SIP message is a REGISTER request. */
+function isSipRegister(msg: string): boolean {
+  return /^REGISTER\s+sip:/i.test(msg.trimStart());
+}
+
+/** True when the SIP message is a 200 OK response to a REGISTER (CSeq method check). */
+function isSip200OkToRegister(msg: string): boolean {
+  return (
+    /^SIP\/2\.0\s+200\b/i.test(msg.trimStart()) &&
+    /^CSeq:\s*\d+\s+REGISTER\b/im.test(msg)
+  );
+}
+
+/** True when this is a de-registration (REGISTER with Expires: 0). */
+function isSipDeregister(msg: string): boolean {
+  return isSipRegister(msg) && /^Expires:\s*0\b/im.test(msg);
+}
+
+/**
+ * Extract the SIP Contact URI from a message.
+ * Returns just the URI inside the angle brackets, e.g. "sip:1001@ws.client".
+ */
+function parseSipContact(msg: string): string | undefined {
+  const m = msg.match(/^Contact:\s*<([^>]+)>/im);
+  return m?.[1];
+}
+
+// ── Per-connection SIP session state ─────────────────────────────────────────
+
+interface SipConnectionState {
+  /** Extension extracted from the most recent REGISTER From: header. */
+  pendingExt: number | null;
+  /** Extension whose session is currently active (post-200 OK confirmation). */
+  activeExt:  number | null;
+}
+
+// ── Proxy factory ─────────────────────────────────────────────────────────────
+
 export function createSipProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -76,6 +157,9 @@ export function createSipProxy(): WebSocketServer {
     logger.info({ upstreamUrl, activeClients: metrics.activeSipClients }, "SIP proxy: client connected, opening upstream");
 
     const upstream = new WebSocket(upstreamUrl, ["sip"]);
+
+    // Per-connection state for SIP registration tracking
+    const sipState: SipConnectionState = { pendingExt: null, activeExt: null };
 
     // Buffer messages that arrive from the mobile client while the upstream
     // WebSocket is still in CONNECTING state.  Without this the SIP REGISTER
@@ -101,9 +185,39 @@ export function createSipProxy(): WebSocketServer {
       }
     });
 
+    // ── Upstream → Client (responses from FreeSWITCH) ────────────────────────
     upstream.on("message", (data, isBinary) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(data, { binary: isBinary });
+      }
+
+      // Inspect text frames only — binary SIP over WS is uncommon but possible
+      if (!isBinary) {
+        try {
+          const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+
+          if (isSip200OkToRegister(text) && sipState.pendingExt !== null) {
+            // FreeSWITCH confirmed the registration
+            const ext = sipState.pendingExt;
+            const expiresSec = parseSipExpires(text);
+            const contact = parseSipContact(text);
+
+            if (expiresSec > 0) {
+              registerSipSession(buildSipSession(ext, { contact, expiresSec }));
+              sipState.activeExt  = ext;
+              sipState.pendingExt = null;
+              logger.info({ ext, expiresSec, contact }, "SIP proxy: registration confirmed via 200 OK");
+            } else {
+              // 200 OK to a de-REGISTER
+              unregisterSipSession(ext);
+              sipState.activeExt  = null;
+              sipState.pendingExt = null;
+              logger.info({ ext }, "SIP proxy: de-registration confirmed via 200 OK Expires=0");
+            }
+          }
+        } catch {
+          // Non-fatal — inspection errors must never break the proxy
+        }
       }
     });
 
@@ -119,6 +233,7 @@ export function createSipProxy(): WebSocketServer {
       if (client.readyState === WebSocket.OPEN) client.close(1011, Buffer.from("upstream error"));
     });
 
+    // ── Client → Upstream (requests from JsSIP/mobile) ───────────────────────
     client.on("message", (data, isBinary) => {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
@@ -127,6 +242,34 @@ export function createSipProxy(): WebSocketServer {
         // Drop oldest when cap is reached to prevent OOM.
         if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
         pendingToUpstream.push({ data, isBinary });
+      }
+
+      // Inspect text frames for SIP REGISTER messages
+      if (!isBinary) {
+        try {
+          const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+
+          if (isSipRegister(text)) {
+            const ext = parseSipFromExtension(text);
+            if (ext !== null) {
+              if (isSipDeregister(text)) {
+                // Client is explicitly de-registering — remove immediately.
+                // The 200 OK handler will also fire and is idempotent.
+                unregisterSipSession(ext);
+                sipState.activeExt  = null;
+                sipState.pendingExt = null;
+                logger.info({ ext }, "SIP proxy: REGISTER Expires:0 — immediate deregister");
+              } else {
+                // Normal registration or refresh — record pending extension;
+                // session is only confirmed when FreeSWITCH responds 200 OK.
+                sipState.pendingExt = ext;
+                logger.debug({ ext }, "SIP proxy: REGISTER seen — awaiting 200 OK from FS");
+              }
+            }
+          }
+        } catch {
+          // Non-fatal — inspection errors must never break the proxy
+        }
       }
     });
 
@@ -137,6 +280,18 @@ export function createSipProxy(): WebSocketServer {
       const safe = safeCloseCode(code);
       logger.info({ code, safe, reason: reason.toString(), activeClients: metrics.activeSipClients }, "SIP proxy: client closed");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(safe, reason);
+
+      // Clean up SIP session on disconnect — covers cases where:
+      //   - Client closed the tab/app without sending de-REGISTER
+      //   - Network was cut (keepalive detected disconnect)
+      // The ESL sofia::expire event will also fire when FS detects the
+      // registration has lapsed, providing a redundant cleanup path.
+      if (sipState.activeExt !== null) {
+        unregisterSipSession(sipState.activeExt);
+        logger.info({ ext: sipState.activeExt }, "SIP proxy: client disconnected — SIP session removed");
+        sipState.activeExt = null;
+      }
+      sipState.pendingExt = null;
     });
 
     client.on("error", (err) => {

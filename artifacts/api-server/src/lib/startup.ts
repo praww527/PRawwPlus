@@ -16,6 +16,7 @@ import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { startReconciliationWorker } from "./reconciliationWorker";
 import { startSessionSweeper, setSweepEslCommandFn } from "./sessionSweeper";
 import { setMediaWatchdogEsl } from "./mediaWatchdog";
+import { setSofiaRescanFn } from "./extension";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -165,6 +166,15 @@ export async function runStartup(): Promise<void> {
   if (process.env.FREESWITCH_DOMAIN) {
     startESL();
     logger.info("FreeSWITCH ESL listener started");
+
+    // Wire the sofia rescan callback into extension.ts so new users get an
+    // immediate FreeSWITCH directory rescan after their first extension is
+    // assigned — without this, their first SIP REGISTER can fail with
+    // USER_NOT_REGISTERED until the next scheduled rescan.
+    setSofiaRescanFn(() => {
+      sendEslApiCommand("sofia profile prawwplus_mobile rescan");
+      sendEslApiCommand("sofia profile prawwplus_verto rescan");
+    });
   }
 
   // ── 3a. Wire up media watchdog ESL injection ─────────────────────────────
