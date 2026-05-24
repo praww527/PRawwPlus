@@ -45,7 +45,7 @@ jobs:
   # ─── 2. Deploy to VPS (main/master push only) ────────────────────────────────
   #
   # Required GitHub Secrets (Settings → Secrets and variables → Actions):
-  #   VPS_HOST       — VPS IP or hostname   (e.g. 140.x.x.x)
+  #   VPS_HOST       — VPS IP or hostname   (e.g. 158.180.29.84)
   #   VPS_USER       — SSH user             (e.g. ubuntu)
   #   VPS_SSH_KEY    — full PEM private key (-----BEGIN OPENSSH PRIVATE KEY-----)
   #   VPS_PORT       — SSH port             (default: 22)
@@ -53,12 +53,41 @@ jobs:
   #
   # Optional:
   #   VPS_HEALTH_URL — health endpoint      (e.g. https://rtc.praww.co.za/api/healthz)
+  #
+  # If VPS_HOST or VPS_SSH_KEY are not set, this job is skipped (not failed)
+  # so the verify job can still show green while deployment is being configured.
   deploy:
     needs: verify
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
+      - name: Check deployment secrets
+        id: secrets_check
+        run: |
+          VPS_HOST="${{ secrets.VPS_HOST }}"
+          VPS_SSH_KEY="${{ secrets.VPS_SSH_KEY }}"
+          if [[ -z "$VPS_HOST" || -z "$VPS_SSH_KEY" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️  VPS deployment secrets are not configured — skipping deploy."
+            echo "   To enable auto-deploy, add these secrets in:"
+            echo "   GitHub → Settings → Secrets and variables → Actions"
+            echo ""
+            echo "   Required secrets:"
+            echo "     VPS_HOST       — VPS IP or hostname (e.g. 158.180.29.84)"
+            echo "     VPS_USER       — SSH login user     (e.g. ubuntu)"
+            echo "     VPS_SSH_KEY    — SSH private key    (-----BEGIN OPENSSH PRIVATE KEY-----)"
+            echo "     VPS_PORT       — SSH port           (e.g. 22)"
+            echo "     VPS_DEPLOY_DIR — repo path          (e.g. /home/ubuntu/PRawwPlus)"
+            echo ""
+            echo "   Optional:"
+            echo "     VPS_HEALTH_URL — health check URL   (e.g. https://rtc.praww.co.za/api/healthz)"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "✓ VPS secrets are configured — proceeding with deploy"
+          fi
+
       - name: Deploy via SSH
+        if: steps.secrets_check.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host:     ${{ secrets.VPS_HOST }}
@@ -116,6 +145,7 @@ jobs:
             echo "==> Deploy complete $(date)"
 
       - name: HTTP health check
+        if: steps.secrets_check.outputs.configured == 'true'
         env:
           HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
         run: |
