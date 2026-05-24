@@ -30,6 +30,9 @@ import { resolveCoinsPerMinuteForUser, calcCoinsFromBillsec } from "./rating";
 import { sendExpoPush, sendFcmDataMessage } from "./push";
 import { appendCallEvent } from "./callEventLog";
 
+/** Configurable ring timeout — kills stale ringing channels if FS own timer doesn't fire */
+const RING_TIMEOUT_MS = parseInt(process.env.RING_TIMEOUT_MS ?? "45000", 10);
+
 const COINS_PER_MINUTE = 1;
 const MIN_COINS_SAFETY = 0.1;
 const INSUFFICIENT_BALANCE_VOICE_DELAY = 9_000;
@@ -98,6 +101,36 @@ function sendEslCmd(cmd: string) {
 /** Active balance-exhaustion timers keyed by fsCallId */
 const hangupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// ─── Ring timeout watchdog ────────────────────────────────────────────────────
+// Fires RING_TIMEOUT_MS after the call enters "ringing" state.
+// If the call is still ringing (not answered/bridged) at that point, we issue
+// uuid_kill so the call doesn't stay zombie-ringing indefinitely.
+// This is a safety net — FreeSWITCH's own no_answer_timeout in the dialplan
+// (typically 30 s) should fire first; this fires if it doesn't.
+
+const ringTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelRingTimer(fsCallId: string): void {
+  const t = ringTimers.get(fsCallId);
+  if (t) { clearTimeout(t); ringTimers.delete(fsCallId); }
+}
+
+function registerRingTimer(fsCallId: string): void {
+  cancelRingTimer(fsCallId);
+  if (!RING_TIMEOUT_MS || RING_TIMEOUT_MS <= 0) return;
+
+  const timer = setTimeout(() => {
+    ringTimers.delete(fsCallId);
+    logger.warn(
+      { fsCallId, ringTimeoutMs: RING_TIMEOUT_MS },
+      "[Orchestrator] Ring timeout expired — sending uuid_kill to prevent zombie ringing",
+    );
+    sendEslCmd(`uuid_kill ${fsCallId} RECOVERY_ON_TIMER_EXPIRE`);
+  }, RING_TIMEOUT_MS);
+
+  ringTimers.set(fsCallId, timer);
+}
+
 export function cancelHangupTimer(fsCallId: string) {
   const t = hangupTimers.get(fsCallId);
   if (t) {
@@ -109,6 +142,8 @@ export function cancelHangupTimer(fsCallId: string) {
 export function clearAllHangupTimers() {
   for (const t of hangupTimers.values()) clearTimeout(t);
   hangupTimers.clear();
+  for (const t of ringTimers.values()) clearTimeout(t);
+  ringTimers.clear();
 }
 
 // ─── INITIATED state auto-recovery ───────────────────────────────────────────
@@ -370,6 +405,11 @@ export async function ringingCall(
 
   logger.info({ aLegUuid, bLegUuid, applied: result.applied }, "[Orchestrator] ringingCall done");
   if (result.applied) {
+    // Start the ring timeout watchdog so stale ringing channels are killed
+    // if FreeSWITCH's own no_answer_timeout doesn't fire in time.
+    registerRingTimer(aLegUuid);
+    if (bLegUuid && bLegUuid !== aLegUuid) registerRingTimer(bLegUuid);
+
     appendCallEvent({
       callId: result.callId, fsCallId: aLegUuid,
       userId: result.userId, event: "ringing",
@@ -377,6 +417,54 @@ export async function ringingCall(
     }).catch(() => {});
   }
   return EventResult.DONE;
+}
+
+/**
+ * Handle CHANNEL_BRIDGE: transition answered → bridged.
+ *
+ * FreeSWITCH fires CHANNEL_BRIDGE when two-way audio is truly established
+ * between both legs.  This is the definitive "call is connected" event.
+ * Recording should be started here rather than at CHANNEL_ANSWER.
+ *
+ * Returns EventResult.RETRY when the DB record doesn't exist yet.
+ */
+export async function bridgeCall(
+  fsCallId: string,
+  otherLegId?: string,
+): Promise<EventResult> {
+  // Cancel ring timer — the call progressed past ringing
+  cancelRingTimer(fsCallId);
+  if (otherLegId && otherLegId !== fsCallId) cancelRingTimer(otherLegId);
+
+  const result = await transitionCallStatus(
+    fsCallId,
+    "bridged",
+    { bridgedAt: new Date() },
+    otherLegId,
+  );
+  if (!result) return EventResult.RETRY;
+
+  logger.info({ fsCallId, otherLegId, applied: result.applied }, "[Orchestrator] bridgeCall done");
+  if (result.applied) {
+    appendCallEvent({
+      callId: result.callId, fsCallId,
+      userId: result.userId, event: "custom",
+      metadata: { type: "bridged", otherLegId },
+    }).catch(() => {});
+  }
+  return EventResult.DONE;
+}
+
+/**
+ * Kill the sibling leg of a call for bidirectional hangup propagation.
+ *
+ * When the A-leg hangs up, FreeSWITCH normally also kills the B-leg.
+ * This explicit command handles edge cases where the sibling leg becomes orphaned
+ * (e.g. mid-bridge transfer failures, dialplan loops, early-media-only calls).
+ */
+export function killSiblingLeg(siblingUuid: string, cause = "NORMAL_CLEARING"): void {
+  if (!siblingUuid) return;
+  sendEslCmd(`uuid_kill ${siblingUuid} ${cause}`);
 }
 
 /**
@@ -412,11 +500,15 @@ export async function answerCall(
 
   if (!call) return EventResult.RETRY;
 
-  // Already answered or in terminal state
-  if (call.status === "answered" || call.endedAt) {
-    logger.debug({ fsCallId }, "[Orchestrator] answerCall — already answered, skipping");
+  // Already answered/bridged or in terminal state
+  if (call.status === "answered" || call.status === "bridged" || call.endedAt) {
+    logger.debug({ fsCallId }, "[Orchestrator] answerCall — already answered/bridged, skipping");
     return EventResult.DONE;
   }
+
+  // Cancel ring timeout — call is being answered
+  cancelRingTimer(fsCallId);
+  if (otherLegId && otherLegId !== fsCallId) cancelRingTimer(otherLegId);
 
   const result = await transitionCallStatus(fsCallId, "answered", { startedAt: new Date() });
   if (!result) return EventResult.RETRY;
@@ -513,9 +605,11 @@ export async function finalizeCall(
   cancelHangupTimer(fsCallId);
   if (otherLegId) cancelHangupTimer(otherLegId);
 
-  // Cancel INITIATED watchdog — call is being finalized by FS regardless of state
+  // Cancel all watchdogs — call is being finalized by FS regardless of state
   cancelInitiatedTimer(fsCallId);
   if (otherLegId && otherLegId !== fsCallId) cancelInitiatedTimer(otherLegId);
+  cancelRingTimer(fsCallId);
+  if (otherLegId && otherLegId !== fsCallId) cancelRingTimer(otherLegId);
 
   await connectDB();
 
@@ -571,10 +665,10 @@ export async function finalizeCall(
   // Pattern observed:  CREATE → PROGRESS_MEDIA → ANSWER → HANGUP_COMPLETE
   // with billsec = 0 and hangupCause = NORMAL_CLEARING.
   //
-  // Rule: if the call would be "completed" but no audio was exchanged
+  // Rule: if the call would be "completed"/"ended" but no audio was exchanged
   // (billsec = 0), override the status to "failed" so the UI shows the real
   // outcome instead of a phantom 0-second completed call.
-  if (finalStatus === "completed" && safeBillsec === 0) {
+  if ((finalStatus === "completed" || finalStatus === "ended") && safeBillsec === 0) {
     finalStatus = "failed";
     logger.warn(
       { fsCallId, hangupCause, billsec: safeBillsec, prevStatus: call.status },
@@ -597,7 +691,7 @@ export async function finalizeCall(
     endedAt:     new Date(),
     hangupCause: hangupCause,
   };
-  if (finalStatus !== "completed") {
+  if (finalStatus !== "completed" && finalStatus !== "ended") {
     update.failReason = finalStatus === "failed" && safeBillsec === 0 && hangupCause === "NORMAL_CLEARING"
       ? "Carrier rejected — answered then immediately disconnected (billsec=0)"
       : causeToLabel(hangupCause);
@@ -818,11 +912,13 @@ export async function endCallById(
     endedAt:  new Date(),
   };
 
-  if (to !== "completed") {
+  if (to !== "completed" && to !== "ended") {
     const reasonMap: Record<string, string> = {
       missed:    "No answer",
       cancelled: "Call cancelled",
       failed:    "Call failed",
+      rejected:  "Call rejected",
+      voicemail: "Went to voicemail",
     };
     restUpdate.failReason = reasonMap[to] ?? "Call ended";
   }

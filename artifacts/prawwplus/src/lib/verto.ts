@@ -100,7 +100,7 @@ function preferOpusCodec(sdp: string): string {
   return sdp;
 }
 
-const PING_INTERVAL_MS = 25_000; // 25 s — keeps WS alive through most browser/network idle timeouts
+const PING_INTERVAL_MS = 15_000; // 15 s — matches proxy heartbeat; keeps WS alive on mobile networks
 
 export class VertoClient {
   private ws:             WebSocket | null = null;

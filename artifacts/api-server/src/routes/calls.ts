@@ -17,6 +17,7 @@ import {
 import { userRateLimit } from "../lib/userRateLimit";
 import { logger } from "../lib/logger";
 import { parsePageLimit } from "../lib/pagination";
+import { isExtensionOnline, getSessionCount } from "../lib/callSession";
 
 const router: IRouter = Router();
 
@@ -82,6 +83,35 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     ? { type: "internal" as const, extension: resolvedExtension }
     : { type: direction === "inbound" ? "internal" as const : "external" as const };
   const callType = route.type;
+
+  // ── Pre-call extension online check ─────────────────────────────────────────
+  // For internal (extension-to-extension) calls, verify the destination is
+  // currently connected via the Verto proxy session map.
+  // This gives instant feedback instead of waiting for the 20 s INITIATED timeout.
+  //
+  // IMPORTANT: This is a soft check — we warn but do NOT block for two reasons:
+  //   1. The session map is empty right after server restart (extensions may be
+  //      connected but not yet tracked because login wasn't seen since restart).
+  //   2. JsSIP mobile clients register via the SIP proxy (not Verto), so they
+  //      won't appear in the Verto session map.
+  // Hard blocking will be added once the session map is populated reliably.
+  if (callType === "internal" && resolvedExtension) {
+    const sessionCount = getSessionCount();
+    const online = isExtensionOnline(resolvedExtension);
+    if (sessionCount > 0 && !online) {
+      logger.warn(
+        { extension: resolvedExtension, sessionCount },
+        "[Calls] Destination extension NOT in active Verto sessions — " +
+        "extension may be offline, backgrounded, or on JsSIP (mobile). " +
+        "Push notification sent; 20 s INITIATED timeout is the fallback.",
+      );
+    } else {
+      logger.info(
+        { extension: resolvedExtension, online, sessionCount },
+        "[Calls] Pre-call extension session check",
+      );
+    }
+  }
 
   if (callType === "external") {
     // External (PSTN) calls require a verified mobile number so caller-ID

@@ -19,6 +19,11 @@ import type { Duplex } from "stream";
 import { logger } from "./logger";
 import { getSshForwardUrl } from "./sshForwardServer";
 import { metrics } from "./metrics";
+import {
+  registerVertoSession,
+  unregisterVertoSession,
+  touchVertoSession,
+} from "./callSession";
 
 // Close codes that are "receive-only" — cannot be sent per RFC 6455 §7.4.2
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
@@ -96,7 +101,7 @@ async function getInternalWsUrl(): Promise<string> {
 }
 
 const PENDING_BUFFER_LIMIT = 50;
-const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_INTERVAL_MS = 15_000;
 // If the callee's socket receives a verto.invite but we see no JSON-RPC ACK
 // back within this window, log a warning so the issue is visible in server logs.
 const INVITE_ACK_TIMEOUT_MS = 8_000;
@@ -115,6 +120,11 @@ export function createVertoProxy(): WebSocketServer {
     }
     metrics.activeVertoClients++;
     logger.info({ upstreamUrl, activeClients: metrics.activeVertoClients }, "Verto proxy: browser connected, opening upstream");
+
+    // Track which extension this client logged in as so we can update the
+    // callSession map on disconnect.  Populated when we see a verto login message.
+    let sessionExtension: number | null = null;
+    let sessionSessId:    string | null = null;
 
     const upstream = new WebSocket(upstreamUrl, ["verto"]);
 
@@ -257,6 +267,28 @@ export function createVertoProxy(): WebSocketServer {
               metrics.callsInitiated++;
               metrics.activeCalls++;
             }
+            // Detect Verto login — extract extension + sessId and register session
+            if (method === "login") {
+              const loginStr = params.login as string | undefined;
+              const sessId   = params.sessid as string | undefined;
+              const extMatch = loginStr?.match(/^(\d+)@/);
+              if (extMatch && sessId) {
+                const ext = parseInt(extMatch[1], 10);
+                sessionExtension = ext;
+                sessionSessId    = sessId;
+                registerVertoSession({
+                  extension:      ext,
+                  sessId,
+                  connectedAt:    Date.now(),
+                  lastPingAt:     Date.now(),
+                  reconnectCount: 0,
+                });
+                logger.info(
+                  { extension: ext, sessId: sessId.slice(0, 8) + "…" },
+                  "Verto proxy: [SESSION_REGISTERED] extension logged in via Verto",
+                );
+              }
+            }
             logger.info({ method, callID, to }, "Verto → FS");
           } else if (!method && typeof msg.id === "number") {
             // This is a JSON-RPC response from the client — it could be the ACK
@@ -276,12 +308,28 @@ export function createVertoProxy(): WebSocketServer {
       }
     });
 
+    // Update lastPingAt whenever the client sends a pong — the browser responds
+    // to our WebSocket ping frames, not to Verto-level keepalives.
+    client.on("pong", () => {
+      if (sessionExtension !== null) {
+        touchVertoSession(sessionExtension);
+      }
+    });
+
     client.on("close", (code, reason) => {
       cleanup();
       metrics.wsDisconnectsVerto++;
       metrics.activeVertoClients = Math.max(0, metrics.activeVertoClients - 1);
       const safe = safeCloseCode(code);
       logger.info({ code, safe, reason: reason.toString(), activeClients: metrics.activeVertoClients }, "Verto proxy: client closed");
+      // Unregister session so callers know this extension is offline
+      if (sessionExtension !== null) {
+        unregisterVertoSession(sessionExtension, sessionSessId ?? undefined);
+        logger.info(
+          { extension: sessionExtension },
+          "Verto proxy: [SESSION_UNREGISTERED] extension disconnected",
+        );
+      }
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.close(safe, reason);
       }

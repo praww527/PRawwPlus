@@ -25,8 +25,16 @@ test("NO_ANSWER maps to missed", () => {
   assert.equal(causeToStatus("NO_ANSWER"), "missed");
 });
 
-test("NORMAL_CLEARING maps to completed", () => {
-  assert.equal(causeToStatus("NORMAL_CLEARING"), "completed");
+test("NORMAL_CLEARING maps to ended", () => {
+  assert.equal(causeToStatus("NORMAL_CLEARING"), "ended");
+});
+
+test("CALL_REJECTED maps to rejected", () => {
+  assert.equal(causeToStatus("CALL_REJECTED"), "rejected");
+});
+
+test("ATTENDED_TRANSFER maps to voicemail", () => {
+  assert.equal(causeToStatus("ATTENDED_TRANSFER"), "voicemail");
 });
 
 test("causeToLabel returns sensible default for empty cause", () => {

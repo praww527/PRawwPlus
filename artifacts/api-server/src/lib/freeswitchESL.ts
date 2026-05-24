@@ -21,7 +21,7 @@ import { logger } from "./logger";
 import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
-import { ringingCall, answerCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
+import { ringingCall, answerCall, bridgeCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
 
@@ -615,7 +615,8 @@ class FreeSwitchESL {
         this.sendLine(
           "event plain " +
           "CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA " +
-          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_HANGUP CHANNEL_HANGUP_COMPLETE " +
+          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_BRIDGE " +
+          "CHANNEL_HANGUP CHANNEL_HANGUP_COMPLETE " +
           "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB",
         );
         // Enable deep Sofia SIP tracing so full SIP INVITE/response transactions appear
@@ -788,6 +789,59 @@ class FreeSwitchESL {
           logger.debug(
             { uuid },
             "[ESL] CHANNEL_ANSWER with no Other-Leg — announcement playback, skipping answerCall",
+          );
+        }
+
+      } else if (evtName === "CHANNEL_BRIDGE") {
+        // CHANNEL_BRIDGE fires when FreeSWITCH truly connects both legs — this is
+        // the definitive "two-way audio established" event.
+        // It fires AFTER CHANNEL_ANSWER and confirms the bridge is active.
+        const bridgeUuid     = body["Unique-ID"]           ?? "";
+        const bridgeOtherLeg = body["Other-Leg-Unique-ID"] ?? body["Bridge-B-Unique-ID"] ?? "";
+        const callerDest     = body["Caller-Destination-Number"] ?? "";
+        const callerFrom     = body["variable_effective_caller_id_number"] ?? body["Caller-Caller-ID-Number"] ?? "";
+
+        recordEslTrace(bridgeUuid, "CHANNEL_BRIDGE");
+        if (bridgeOtherLeg) recordEslTrace(bridgeOtherLeg, "CHANNEL_BRIDGE");
+
+        logger.info(
+          { uuid: bridgeUuid, otherLeg: bridgeOtherLeg, callerDest, callerFrom },
+          "[ESL] CHANNEL_BRIDGE — two-way audio established between legs",
+        );
+
+        if (bridgeUuid) {
+          enqueueEslEvent(
+            bridgeUuid,
+            "CHANNEL_BRIDGE",
+            () => bridgeCall(bridgeUuid, bridgeOtherLeg || undefined),
+            { otherLegId: bridgeOtherLeg || undefined },
+          );
+
+          // Start recording the bridged call if a recordings directory is configured.
+          // File naming matches the SSH-based listing format: call_<callerExt>_<destExt>_<uuid>.wav
+          const recordingsDir = (
+            process.env.FREESWITCH_RECORDINGS_DIR ??
+            `${process.env.FREESWITCH_STORAGE_DIR ?? "/usr/local/freeswitch/storage"}/recordings/calls`
+          );
+          const callerExt = callerFrom.replace(/\D/g, "").slice(-4) || "unknown";
+          const destExt   = callerDest.replace(/\D/g, "").slice(-4) || "unknown";
+          const recPath   = `${recordingsDir}/call_${callerExt}_${destExt}_${bridgeUuid}.wav`;
+
+          this.sendApiCommand(
+            `uuid_record ${bridgeUuid} start ${recPath}`,
+            (result) => {
+              if (result.startsWith("-ERR")) {
+                logger.warn(
+                  { uuid: bridgeUuid, recPath, result },
+                  "[ESL] CHANNEL_BRIDGE: uuid_record failed — check FREESWITCH_RECORDINGS_DIR and FS permissions",
+                );
+              } else {
+                logger.info(
+                  { uuid: bridgeUuid, recPath },
+                  "[ESL] CHANNEL_BRIDGE: recording started",
+                );
+              }
+            },
           );
         }
 

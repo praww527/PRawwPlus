@@ -3,54 +3,77 @@
  *
  * States and the only valid transitions between them:
  *
- *   initiated ──────┬──► ringing ──► answered ──► completed
- *                   │               └──────────── failed
+ *   initiated ──────┬──► ringing ──► early_media ──► answered ──► bridged ──► ended
+ *                   │               └─────────────────────────────────────── failed
  *                   ├──► answered   (ESL CHANNEL_ANSWER without prior CHANNEL_ORIGINATE)
  *                   ├──► missed
  *                   ├──► cancelled
  *                   └──► failed
  *
- *   ringing ─────── ┬──► answered
+ *   ringing ─────── ┬──► early_media (CHANNEL_PROGRESS_MEDIA / SIP 183)
+ *                   ├──► answered
  *                   ├──► missed
  *                   ├──► cancelled
+ *                   ├──► rejected
+ *                   ├──► voicemail
  *                   └──► failed
  *
- *   answered ───────┬──► completed
- *                   ├──► failed
- *                   ├──► missed     (dialplan answered A-leg for announcement, then NO_ANSWER)
- *                   └──► cancelled  (dialplan answered A-leg for announcement, then USER_BUSY/cancel)
+ *   early_media ────┬──► answered
+ *                   ├──► missed / cancelled / rejected / voicemail / failed / ended
  *
- * Terminal states (completed, missed, cancelled, failed) accept no further
- * transitions so duplicate ESL events / API calls are safely ignored.
+ *   answered ───────┬──► bridged   (CHANNEL_BRIDGE — true two-way audio)
+ *                   ├──► ended     (normal completion)
+ *                   ├──► completed (backward-compat alias for ended)
+ *                   ├──► voicemail (went to voicemail — ATTENDED_TRANSFER)
+ *                   ├──► failed
+ *                   ├──► missed
+ *                   └──► cancelled
+ *
+ *   bridged ────────┬──► ended / completed / failed / voicemail
+ *
+ * Terminal states accept no further transitions so duplicate ESL events / API
+ * calls are safely ignored.
+ *
+ * Backward compatibility: "completed" and "cancelled" are kept as valid targets
+ * for the webhook/REST path so existing records and clients are not broken.
+ * New code should prefer "ended" (normal completion) and "rejected" (callee declined).
  */
 
 export type CallStatus =
   | "initiated"
   | "ringing"
-  | "answered"
-  | "completed"
-  | "failed"
-  | "missed"
-  | "cancelled";
+  | "early_media"   // SIP 183 / CHANNEL_PROGRESS_MEDIA received
+  | "answered"      // CHANNEL_ANSWER fired — media flowing
+  | "bridged"       // CHANNEL_BRIDGE fired — two-way audio confirmed
+  | "voicemail"     // call went to voicemail (ATTENDED_TRANSFER hangup cause)
+  | "missed"        // callee did not answer within timeout
+  | "failed"        // network / registration error
+  | "rejected"      // callee explicitly declined or USER_BUSY
+  | "ended"         // normal call completion (preferred over "completed")
+  | "cancelled"     // caller cancelled before answer (kept for backward compat)
+  | "completed";    // kept for backward compat — treated identical to "ended"
 
-/** Lookup: which states may a given state advance to */
+const TERMINAL: ReadonlySet<CallStatus> = new Set([
+  "voicemail", "missed", "failed", "rejected", "ended", "cancelled", "completed",
+]);
+
 const TRANSITIONS: Record<CallStatus, ReadonlyArray<CallStatus>> = {
-  "initiated": ["ringing", "answered", "missed", "cancelled", "failed"],
-  "ringing":   ["answered", "missed", "cancelled", "failed"],
-  "answered":  ["completed", "failed", "missed", "cancelled"],
-  "completed": [],
-  "failed":    [],
-  "missed":    [],
-  "cancelled": [],
+  "initiated":   ["ringing", "early_media", "answered", "bridged", "missed", "cancelled", "rejected", "failed", "ended", "completed"],
+  "ringing":     ["early_media", "answered", "bridged", "missed", "cancelled", "rejected", "voicemail", "failed", "ended", "completed"],
+  "early_media": ["answered", "bridged", "missed", "cancelled", "rejected", "voicemail", "failed", "ended", "completed"],
+  "answered":    ["bridged", "ended", "completed", "voicemail", "failed", "missed", "cancelled", "rejected"],
+  "bridged":     ["ended", "completed", "voicemail", "failed"],
+  "voicemail":   [],
+  "missed":      [],
+  "failed":      [],
+  "rejected":    [],
+  "ended":       [],
+  "cancelled":   [],
+  "completed":   [],
 };
 
 /** Terminal statuses — used for Mongo guards and $nin filters */
-export const TERMINAL_CALL_STATUSES: ReadonlyArray<CallStatus> = [
-  "completed",
-  "failed",
-  "missed",
-  "cancelled",
-];
+export const TERMINAL_CALL_STATUSES: ReadonlyArray<CallStatus> = Array.from(TERMINAL);
 
 /** Map FreeSWITCH hangup causes to a final CallStatus */
 export function causeToStatus(cause: string): CallStatus {
@@ -61,16 +84,20 @@ export function causeToStatus(cause: string): CallStatus {
       return "missed";
 
     case "ORIGINATOR_CANCEL":
+      return "cancelled";
+
     case "USER_BUSY":
     case "CALL_REJECTED":
     case "LOSE_RACE":
-      return "cancelled";
+      return "rejected";
+
+    case "ATTENDED_TRANSFER":
+      return "voicemail";
 
     case "NORMAL_CLEARING":
-    case "ALLOTTED_TIMEOUT":
     case "NORMAL_UNSPECIFIED":
-    case "ATTENDED_TRANSFER":
-      return "completed";
+    case "ALLOTTED_TIMEOUT":
+      return "ended";
 
     case "UNREGISTERED":
     case "USER_NOT_REGISTERED":
@@ -146,11 +173,11 @@ export function isTransitionAllowed(
   from: string,
   to: CallStatus,
 ): boolean {
+  // Normalise legacy status aliases
   const normalizedFrom =
     from === "in-progress" || from === "in_progress" ? "answered" : from;
   const allowed = TRANSITIONS[normalizedFrom as CallStatus];
   if (!allowed) {
-    // Unknown / corrupt state — do not allow arbitrary transitions (billing safety)
     return false;
   }
   if (allowed.length === 0) {
@@ -169,4 +196,9 @@ export function isTransitionAllowed(
 /** Return the set of valid next states for a given current state */
 export function allowedTransitions(from: CallStatus): ReadonlyArray<CallStatus> {
   return TRANSITIONS[from as CallStatus] ?? [];
+}
+
+/** Returns true if the given status string is a terminal state */
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL.has(status as CallStatus);
 }
