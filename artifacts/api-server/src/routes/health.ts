@@ -232,13 +232,31 @@ router.get("/healthz/turn", async (_req, res) => {
     summary = "TURN server reachable — relay candidates will be available for symmetric NAT traversal.";
   }
 
+  // Automatic STUN-only fallback: if TURN is configured but completely
+  // unreachable (e.g. Coturn not yet running), include STUN-only servers so
+  // callers on the same network can still connect while the admin fixes TURN.
+  // The "stunOnly" flag tells the client to warn the user about degraded NAT.
+  const stunOnly = onlyStun;
+  const turnDown = hasTurn && !turnReachable;
+  const fallbackStunServers = turnDown
+    ? [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ]
+    : null;
+
   res.status(ok ? 200 : 503).json({
     ok,
     hasTurn,
     onlyStun,
+    stunOnly,
+    turnDown,
     turnReachable: hasTurn ? turnReachable : false,
     servers: flat,
     summary,
+    // When TURN is configured but unreachable, include fallback STUN so clients
+    // can still attempt calls on same-network paths while TURN is fixed.
+    fallbackStunServers,
     // Expose whether managed TURN mode (HMAC credentials) is active
     managedTurn: Boolean(process.env.TURN_SECRET && process.env.TURN_HOST),
     turnHost: process.env.TURN_HOST ?? null,

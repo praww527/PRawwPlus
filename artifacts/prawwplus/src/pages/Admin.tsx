@@ -2222,6 +2222,8 @@ function SystemTab() {
   const [iceList,    setIceList]    = useState<Array<{ urls: string; username: string; credential: string }>>([]);
   const [newIce,     setNewIce]     = useState({ urls: "", username: "", credential: "" });
   const [turnConfig, setTurnConfig] = useState<{ turnSecretSet: boolean; turnHostSet: boolean; turnHost: string | null; mode: string; iceUrls: string[]; note: string } | null>(null);
+  const [turnHealth, setTurnHealth] = useState<{ ok: boolean; hasTurn: boolean; onlyStun: boolean; turnDown: boolean; turnReachable: boolean; summary: string; servers: any[] } | null>(null);
+  const [turnHealthLoading, setTurnHealthLoading] = useState(false);
 
   // Directory / call-path test state
   const [dirResult,  setDirResult]  = useState<any>(null);
@@ -2288,6 +2290,17 @@ function SystemTab() {
       const data = await adminFetch("/admin/turn-config");
       setTurnConfig(data);
     } catch { /* non-critical */ }
+  };
+
+  const probeTurnHealth = async () => {
+    setTurnHealthLoading(true);
+    setTurnHealth(null);
+    try {
+      const data = await adminFetch("/healthz/turn");
+      setTurnHealth(data);
+    } catch (e: any) {
+      setTurnHealth({ ok: false, hasTurn: false, onlyStun: true, turnDown: false, turnReachable: false, summary: e.message ?? "Health check failed", servers: [] });
+    } finally { setTurnHealthLoading(false); }
   };
 
   const saveIce = async () => {
@@ -2601,6 +2614,42 @@ function SystemTab() {
             </div>
           </div>
 
+          {/* TURN health probe */}
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: "#fff", margin: "0 0 2px" }}>Server-side TURN Reachability</p>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: 0 }}>TCP-probes each configured ICE server from the API server's network — confirms ports are open</p>
+              {turnHealth && (
+                <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: turnHealth.ok ? "rgba(48,209,88,0.08)" : turnHealth.onlyStun ? "rgba(255,159,10,0.08)" : "rgba(255,69,58,0.08)", border: `1px solid ${turnHealth.ok ? "rgba(48,209,88,0.2)" : turnHealth.onlyStun ? "rgba(255,159,10,0.2)" : "rgba(255,69,58,0.2)"}` }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: turnHealth.ok ? "#30d158" : turnHealth.onlyStun ? "#ff9f0a" : "#ff453a" }}>
+                    {turnHealth.ok ? "✓ TURN reachable" : turnHealth.onlyStun ? "⚠ STUN-only (no TURN configured)" : "✗ TURN unreachable"}
+                  </p>
+                  <p style={{ margin: "0 0 6px", fontSize: 10, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>{turnHealth.summary}</p>
+                  {turnHealth.servers.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {turnHealth.servers.map((s, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: s.reachable ? "rgba(48,209,88,0.15)" : "rgba(255,69,58,0.15)", color: s.reachable ? "#30d158" : "#ff453a", flexShrink: 0 }}>
+                            {s.reachable ? `${s.latencyMs}ms` : "FAIL"}
+                          </span>
+                          <span style={{ fontSize: 10, fontFamily: "monospace", color: "rgba(255,255,255,0.5)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.url}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={probeTurnHealth}
+              disabled={turnHealthLoading}
+              style={{ flexShrink: 0, padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700, border: "none", cursor: turnHealthLoading ? "not-allowed" : "pointer", background: turnHealthLoading ? "rgba(255,255,255,0.06)" : "rgba(255,159,10,0.18)", color: turnHealthLoading ? "rgba(255,255,255,0.3)" : "#ff9f0a", display: "flex", alignItems: "center", gap: 6 }}
+            >
+              {turnHealthLoading ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <Wifi style={{ width: 12, height: 12 }} />}
+              {turnHealthLoading ? "Probing…" : "Probe"}
+            </button>
+          </div>
+
           {/* TURN auto-config status panel */}
           {turnConfig && (
             <div style={{ margin: "0 0 0", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", background: turnConfig.mode === "auto" ? "rgba(48,209,88,0.04)" : "rgba(255,159,10,0.04)" }}>
@@ -2683,38 +2732,76 @@ function SystemTab() {
                 Saved servers override the ICE_SERVERS env var and take effect immediately — no restart needed.
               </p>
 
-              {/* Existing servers */}
-              {iceList.map((s, i) => (
-                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  <input
-                    value={s.urls}
-                    onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, urls: e.target.value } : x))}
-                    placeholder="turn:host:3478 or stun:host:3478"
-                    style={{ flex: 2, minWidth: 160, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", fontFamily: "monospace", outline: "none" }}
-                  />
-                  <input
-                    value={s.username}
-                    onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, username: e.target.value } : x))}
-                    placeholder="username"
-                    style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
-                  />
-                  <input
-                    value={s.credential}
-                    onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, credential: e.target.value } : x))}
-                    placeholder="password"
-                    type="password"
-                    style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", outline: "none" }}
-                  />
-                  <button onClick={() => setIceList(iceList.filter((_, j) => j !== i))} style={{ flexShrink: 0, padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: "rgba(255,69,58,0.15)", color: "#ff453a" }}>✕</button>
+              {/* URL format examples */}
+              <div style={{ background: "rgba(26,140,255,0.06)", border: "1px solid rgba(26,140,255,0.15)", borderRadius: 8, padding: "10px 12px" }}>
+                <p style={{ margin: "0 0 6px", fontSize: 10, fontWeight: 700, color: "rgba(26,140,255,0.8)", textTransform: "uppercase", letterSpacing: "0.06em" }}>URL format examples</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {[
+                    { url: "stun:turn.praww.co.za:3478", desc: "STUN — public IP discovery, no auth needed" },
+                    { url: "turn:turn.praww.co.za:3478?transport=udp", desc: "TURN UDP — primary relay transport (fastest)" },
+                    { url: "turn:turn.praww.co.za:3478?transport=tcp", desc: "TURN TCP — fallback when UDP is blocked" },
+                    { url: "turns:turn.praww.co.za:5349?transport=tcp", desc: "TURNS TLS — relay over TLS (corporate firewalls)" },
+                  ].map(({ url, desc }) => (
+                    <div key={url} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                      <button
+                        onClick={() => {
+                          const scheme = url.split(":")[0];
+                          const needsAuth = scheme === "turn" || scheme === "turns";
+                          setNewIce({ urls: url, username: needsAuth ? newIce.username : "", credential: needsAuth ? newIce.credential : "" });
+                        }}
+                        style={{ flexShrink: 0, padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 600, border: "1px solid rgba(26,140,255,0.3)", cursor: "pointer", background: "rgba(26,140,255,0.12)", color: "#1a8cff" }}
+                      >use</button>
+                      <div>
+                        <span style={{ fontSize: 10, fontFamily: "monospace", color: "rgba(255,255,255,0.75)" }}>{url}</span>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginLeft: 6 }}>{desc}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+                <p style={{ margin: "6px 0 0", fontSize: 10, color: "rgba(26,140,255,0.6)", lineHeight: 1.5 }}>
+                  For Coturn HMAC auto-mode: set <code style={{ fontSize: 9 }}>TURN_HOST</code> + <code style={{ fontSize: 9 }}>TURN_SECRET</code> env vars instead — credentials are generated per-request automatically.
+                </p>
+              </div>
+
+              {/* Existing servers */}
+              {iceList.map((s, i) => {
+                const scheme = s.urls.split(":")[0]?.toLowerCase() ?? "";
+                const isTurnUrl = scheme === "turn" || scheme === "turns";
+                const urlValid = /^(stun|turn|turns):/.test(s.urls.trim());
+                return (
+                  <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      value={s.urls}
+                      onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, urls: e.target.value } : x))}
+                      placeholder="turn:host:3478?transport=udp"
+                      style={{ flex: 2, minWidth: 160, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.06)", border: `1px solid ${urlValid || !s.urls ? "rgba(255,255,255,0.12)" : "rgba(255,69,58,0.4)"}`, color: "#fff", fontFamily: "monospace", outline: "none" }}
+                    />
+                    <input
+                      value={s.username}
+                      onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, username: e.target.value } : x))}
+                      placeholder={isTurnUrl ? "username (required)" : "—"}
+                      disabled={!isTurnUrl}
+                      style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: isTurnUrl ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.12)", color: isTurnUrl ? "#fff" : "rgba(255,255,255,0.2)", outline: "none" }}
+                    />
+                    <input
+                      value={s.credential}
+                      onChange={(e) => setIceList(iceList.map((x, j) => j === i ? { ...x, credential: e.target.value } : x))}
+                      placeholder={isTurnUrl ? "password (required)" : "—"}
+                      type="password"
+                      disabled={!isTurnUrl}
+                      style={{ flex: 1, minWidth: 80, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: isTurnUrl ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.12)", color: isTurnUrl ? "#fff" : "rgba(255,255,255,0.2)", outline: "none" }}
+                    />
+                    <button onClick={() => setIceList(iceList.filter((_, j) => j !== i))} style={{ flexShrink: 0, padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: "rgba(255,69,58,0.15)", color: "#ff453a" }}>✕</button>
+                  </div>
+                );
+              })}
 
               {/* Add new row */}
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", paddingTop: 4, borderTop: "1px dashed rgba(255,255,255,0.08)" }}>
                 <input
                   value={newIce.urls}
                   onChange={(e) => setNewIce({ ...newIce, urls: e.target.value })}
-                  placeholder="turn:your-turn-server.com:3478"
+                  placeholder="turn:your-turn-server.com:3478?transport=udp"
                   style={{ flex: 2, minWidth: 160, padding: "6px 10px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,0.04)", border: "1px dashed rgba(255,255,255,0.15)", color: "#fff", fontFamily: "monospace", outline: "none" }}
                 />
                 <input
@@ -2743,7 +2830,7 @@ function SystemTab() {
               </div>
 
               <p style={{ margin: "2px 0 0", fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
-                Leave username &amp; password blank for STUN servers. Saving an empty list restores env-var or default fallback.
+                STUN servers need no auth. TURN/TURNS entries require username &amp; password. Saving an empty list restores env-var or default STUN fallback.
               </p>
             </div>
           )}

@@ -147,6 +147,20 @@ async function checkMicrophone(): Promise<"granted" | "denied" | "unavailable"> 
   }
 }
 
+// ─── Server-side TURN health probe ──────────────────────────────────────────
+
+interface TurnHealthResult {
+  ok: boolean;
+  hasTurn: boolean;
+  onlyStun: boolean;
+  turnDown: boolean;
+  turnReachable: boolean;
+  summary: string;
+  servers: Array<{ url: string; scheme: string; reachable: boolean; latencyMs: number; isTurn: boolean }>;
+  managedTurn: boolean;
+  turnHost: string | null;
+}
+
 // ─── FreeSWITCH status type ─────────────────────────────────────────────────
 
 interface FsStatus {
@@ -324,6 +338,47 @@ export default function DiagnosticsPage() {
       setResults([...out]);
     }
 
+    // ── 7b. Server-side TURN health probe ────────────────────────────────────
+    push({ id: "turn-server", label: "TURN Server Health (Server-side)", severity: "loading", value: "Probing TURN server from API…" });
+    try {
+      const resp = await fetch("/api/healthz/turn", { signal: AbortSignal.timeout(10_000) });
+      const th: TurnHealthResult = await resp.json();
+      let severity: Severity;
+      if (th.ok) {
+        severity = "ok";
+      } else if (th.onlyStun) {
+        severity = "warning";
+      } else {
+        severity = "critical";
+      }
+      const serverList = th.servers.length > 0
+        ? ` Probed: ${th.servers.map((s) => `${s.url} (${s.reachable ? `${s.latencyMs}ms` : "UNREACHABLE"})`).join(", ")}.`
+        : "";
+      const modeNote = th.managedTurn
+        ? ` HMAC auto-mode active (host: ${th.turnHost ?? "?"}).`
+        : "";
+      out[out.findIndex((r) => r.id === "turn-server")] = {
+        id: "turn-server",
+        label: "TURN Server Health (Server-side)",
+        severity,
+        value: `${th.summary}${modeNote}${serverList}`,
+        fix: !th.ok && !th.onlyStun
+          ? "Run: sudo bash deploy/coturn-setup.sh — or configure ICE servers in Admin → System → ICE Servers."
+          : th.onlyStun && !th.hasTurn
+          ? "No TURN server configured. Calls will fail on 4G/mobile and behind strict NAT. Add TURN credentials in Admin → System → ICE Servers."
+          : undefined,
+      };
+    } catch (err: any) {
+      out[out.findIndex((r) => r.id === "turn-server")] = {
+        id: "turn-server",
+        label: "TURN Server Health (Server-side)",
+        severity: "warning",
+        value: `Could not reach /api/healthz/turn: ${err?.message ?? "timeout"}`,
+        fix: "Ensure the API server is running and accessible.",
+      };
+    }
+    setResults([...out]);
+
     // ── 8. Push notifications ───────────────────────────────────────────────
     const notifPerm = "Notification" in window ? Notification.permission : "unavailable";
     push({
@@ -469,7 +524,7 @@ export default function DiagnosticsPage() {
 
       {/* WebRTC / ICE */}
       <Section title="WebRTC / NAT Traversal" icon={<Zap size={13} />}>
-        {results.filter((r) => ["webrtc", "turn"].includes(r.id)).map((r) => (
+        {results.filter((r) => ["webrtc", "turn", "turn-server"].includes(r.id)).map((r) => (
           <DiagCard key={r.id} result={r} />
         ))}
       </Section>

@@ -225,9 +225,117 @@ else
   echo "          sudo nginx -t && sudo systemctl reload nginx"
 fi
 
-# ── 8. Disk / memory ─────────────────────────────────────────────────────────
+# ── 8. Coturn / TURN server ───────────────────────────────────────────────────
 hr
-echo "8. Resources"
+echo "8. Coturn / TURN server"
+
+# Check if coturn is installed
+if command -v turnserver &>/dev/null || dpkg -l coturn &>/dev/null 2>&1 | grep -q '^ii'; then
+  pass "coturn is installed"
+
+  if systemctl is-active --quiet coturn 2>/dev/null; then
+    pass "coturn service is running"
+  else
+    fail "coturn service is NOT running"
+    echo "     Fix: sudo systemctl start coturn && sudo journalctl -u coturn -n 30 --no-pager"
+  fi
+
+  # Check for lt-cred-mech conflict
+  CONF="/etc/turnserver.conf"
+  if [[ -f "$CONF" ]]; then
+    if grep -q '^lt-cred-mech' "$CONF" 2>/dev/null; then
+      fail "turnserver.conf contains 'lt-cred-mech' — this BREAKS HMAC/REST API auth"
+      echo "     Fix: sudo sed -i '/^lt-cred-mech/d' $CONF && sudo systemctl restart coturn"
+      echo "          or run: sudo bash $DEPLOY_DIR/deploy/fix-coturn.sh"
+    else
+      pass "turnserver.conf: no lt-cred-mech conflict"
+    fi
+
+    if grep -q '^use-auth-secret' "$CONF" 2>/dev/null; then
+      pass "turnserver.conf: use-auth-secret enabled (REST API / HMAC mode)"
+    else
+      warn "turnserver.conf: use-auth-secret NOT found — HMAC credentials will not work"
+      echo "     Fix: Add 'use-auth-secret' and 'static-auth-secret=<TURN_SECRET>' to $CONF"
+    fi
+  else
+    warn "$CONF not found — coturn may not be configured yet"
+    echo "     Fix: sudo bash $DEPLOY_DIR/deploy/coturn-setup.sh"
+  fi
+
+  # Check TURN port 3478
+  if ss -lntu 2>/dev/null | grep -q ":3478 "; then
+    pass "Port 3478 is listening (TURN UDP/TCP)"
+  else
+    fail "Port 3478 is NOT listening (TURN)"
+    echo "     Fix: sudo systemctl restart coturn && sudo ufw allow 3478/tcp && sudo ufw allow 3478/udp"
+  fi
+
+  # Check TURNS port 5349
+  if ss -lntu 2>/dev/null | grep -q ":5349 "; then
+    pass "Port 5349 is listening (TURNS TLS)"
+  else
+    warn "Port 5349 is NOT listening (TURNS TLS) — TLS cert may be missing"
+    echo "     Fix: Get a cert: sudo certbot certonly --standalone -d turn.praww.co.za"
+    echo "          Then re-run: sudo bash $DEPLOY_DIR/deploy/coturn-setup.sh"
+  fi
+
+  # Validate TLS cert paths from config
+  if [[ -f "$CONF" ]]; then
+    CERT_PATH=$(grep '^cert=' "$CONF" 2>/dev/null | cut -d= -f2- | tr -d ' ')
+    KEY_PATH=$(grep '^pkey=' "$CONF" 2>/dev/null | cut -d= -f2- | tr -d ' ')
+    if [[ -n "$CERT_PATH" && -f "$CERT_PATH" ]]; then
+      EXPIRY=$(openssl x509 -enddate -noout -in "$CERT_PATH" 2>/dev/null | cut -d= -f2 || echo "")
+      if [[ -n "$EXPIRY" ]]; then
+        EXPIRY_TS=$(date -d "$EXPIRY" +%s 2>/dev/null || echo "0")
+        NOW_TS=$(date +%s)
+        DAYS_LEFT=$(( (EXPIRY_TS - NOW_TS) / 86400 ))
+        if [[ "$DAYS_LEFT" -gt 14 ]]; then
+          pass "TURN TLS cert valid for $DAYS_LEFT days"
+        elif [[ "$DAYS_LEFT" -gt 0 ]]; then
+          warn "TURN TLS cert expires SOON — $DAYS_LEFT days ($EXPIRY)"
+          echo "     Fix: sudo certbot renew && sudo systemctl restart coturn"
+        else
+          fail "TURN TLS cert is EXPIRED"
+          echo "     Fix: sudo certbot renew --force-renewal && sudo systemctl restart coturn"
+        fi
+      else
+        warn "Could not read TURN TLS cert expiry from $CERT_PATH"
+      fi
+    elif [[ -n "$CERT_PATH" ]]; then
+      fail "TURN TLS cert path not found: $CERT_PATH"
+      echo "     Fix: sudo bash $DEPLOY_DIR/deploy/fix-coturn.sh"
+    fi
+    if [[ -n "$KEY_PATH" && ! -f "$KEY_PATH" ]]; then
+      fail "TURN TLS key path not found: $KEY_PATH"
+    fi
+  fi
+
+  # API health check for TURN
+  TURN_HEALTH=$(curl -sf --max-time 6 "http://127.0.0.1:${API_PORT}/api/healthz/turn" 2>/dev/null || echo "")
+  if [[ -n "$TURN_HEALTH" ]]; then
+    TURN_OK=$(echo "$TURN_HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('ok',False)).lower())" 2>/dev/null || echo "?")
+    HAS_TURN=$(echo "$TURN_HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('hasTurn',False)).lower())" 2>/dev/null || echo "?")
+    TURN_REACHABLE=$(echo "$TURN_HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('turnReachable',False)).lower())" 2>/dev/null || echo "?")
+    SUMMARY=$(echo "$TURN_HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('summary',''))" 2>/dev/null || echo "")
+    if [[ "$TURN_OK" == "true" ]]; then
+      pass "TURN health: ok=true, hasTurn=$HAS_TURN, reachable=$TURN_REACHABLE"
+    else
+      warn "TURN health: ok=$TURN_OK, hasTurn=$HAS_TURN, reachable=$TURN_REACHABLE"
+      [[ -n "$SUMMARY" ]] && echo "     $SUMMARY"
+    fi
+  else
+    warn "Could not reach /api/healthz/turn — API may not be running"
+  fi
+
+else
+  warn "coturn is NOT installed"
+  echo "     Fix: sudo bash $DEPLOY_DIR/deploy/coturn-setup.sh"
+  echo "     Calls will fail on 4G/mobile and behind NAT without TURN relay."
+fi
+
+# ── 9. Disk / memory ─────────────────────────────────────────────────────────
+hr
+echo "9. Resources"
 
 DISK_USE=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
 if [ "$DISK_USE" -lt 80 ]; then
