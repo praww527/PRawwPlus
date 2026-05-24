@@ -17,7 +17,7 @@ import {
 import { userRateLimit } from "../lib/userRateLimit";
 import { logger } from "../lib/logger";
 import { parsePageLimit } from "../lib/pagination";
-import { isExtensionOnline, getSessionCount } from "../lib/callSession";
+import { isExtensionOnline, getTotalSessionCount } from "../lib/callSession";
 
 const router: IRouter = Router();
 
@@ -102,7 +102,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   //   connected but not yet tracked because no login/REGISTER has been seen
   //   since the restart).  Hard blocking is deferred until the map is warm.
   if (callType === "internal" && resolvedExtension) {
-    const sessionCount = getSessionCount();
+    const sessionCount = getTotalSessionCount();
     const online = isExtensionOnline(resolvedExtension);
     if (sessionCount > 0 && !online) {
       logger.warn(
@@ -282,7 +282,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
 
         // Full incoming-call push payload — same shape the service worker expects.
         const pushData: Record<string, string> = {
-          type:          "incoming_call",
+          type:          "call_wakeup",
           callUuid:      callRecord._id.toString(),
           ...(callerPhone
             ? { fromPhone: callerPhone }

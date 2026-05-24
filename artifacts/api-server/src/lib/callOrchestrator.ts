@@ -401,6 +401,32 @@ export async function ringingCall(
     }
   }
 
+  // Time-window fallback: for Verto callers where linkCallRecordToFsALeg failed,
+  // the stored fsCallId is the mobile-generated UUID which may differ from the
+  // FS A-leg UUID seen in CHANNEL_ORIGINATE.  Search for any "initiated" call
+  // created within the last 60 s and link it to the FS A-leg UUID so subsequent
+  // events (CHANNEL_ANSWER, CHANNEL_HANGUP_COMPLETE) can find it.
+  if (!call) {
+    const windowStart = new Date(Date.now() - 60_000);
+    call = await CallModel.findOne({
+      status: "initiated",
+      startedAt: { $gte: windowStart },
+    })
+      .select("status _id")
+      .sort({ startedAt: -1 })
+      .lean();
+    if (call) {
+      await CallModel.updateOne(
+        { _id: (call as any)._id },
+        { $set: { fsCallId: aLegUuid } },
+      );
+      logger.warn(
+        { aLegUuid, bLegUuid, callId: (call as any)._id },
+        "[Orchestrator] ringingCall resolved via 60-s time-window fallback — fsCallId updated",
+      );
+    }
+  }
+
   if (!call) return EventResult.RETRY;
 
   // Pass both UUIDs so transitionCallStatus can resolve whichever matches DB

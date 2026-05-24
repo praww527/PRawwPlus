@@ -258,6 +258,19 @@ export function dialplanXml(fsDomain: string): string {
   -->
   <context name="prawwplus">
 
+    <!--
+      Conference rooms — matched FIRST so they bypass the DND check entirely.
+      Destinations matching "conf" + 4 digits (e.g. conf1234) are routed
+      directly into mod_conference.  The PRaww+ API creates rooms and
+      transfers participants via ESL; this extension just admits them.
+    -->
+    <extension name="conference_rooms" continue="false">
+      <condition field="destination_number" expression="^(conf\d{4})$">
+        <action application="answer"/>
+        <action application="conference" data="$1@default+flags{mute}"/>
+      </condition>
+    </extension>
+
     <!-- ── DND check (runs first; continue="true" falls through) ────── -->
     <extension name="dnd_reject" continue="true">
       <condition field="destination_number" expression="^([1-9][0-9]{3})$" break="never">

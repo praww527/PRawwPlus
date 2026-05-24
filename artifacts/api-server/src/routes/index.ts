@@ -25,6 +25,7 @@ import ipBlocksRouter from "./ipBlocks";
 import auditSearchRouter from "./auditSearch";
 import logLevelRouter from "./logLevel";
 import tenantsRouter from "./tenants";
+import conferenceRouter from "./conference";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(ipBlocksRouter);
 router.use(auditSearchRouter);
 router.use(logLevelRouter);
 router.use(tenantsRouter);
+router.use(conferenceRouter);
 
 export default router;

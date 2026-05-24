@@ -1272,7 +1272,9 @@ class FreeSwitchESL {
     // FreeSWITCH sometimes includes "@domain" in the destination field
     // (e.g. "1002@internal.domain").  Strip it before the extension regex test.
     const rawDestExt = h["Caller-Destination-Number"] ?? h["Channel-Destination-Number"] ?? "";
-    const destExt    = rawDestExt.replace(/@.*$/, "").trim();
+    // Strip @domain suffix first, then any sofia/verto/ or user/ URI prefix so
+    // the regex guard below sees a plain extension number.
+    const destExt    = rawDestExt.replace(/@.*$/, "").replace(/^.*\//, "").trim();
     const callerExt = h["Caller-Caller-ID-Number"] ?? h["Channel-Caller-ID-Number"] ?? "Unknown";
 
     // Mobile JsSIP: align Mongo fsCallId with FS A-leg UUID before orchestration.
@@ -1296,7 +1298,13 @@ class FreeSwitchESL {
     }
 
     if (!bLegUuid || !destExt) return;
-    if (!/^[1-9]\d{3}$/.test(destExt)) return;
+    if (!/^[1-9]\d{3}$/.test(destExt)) {
+      logger.warn(
+        { bLegUuid, rawDestExt, destExt },
+        "[ESL] CHANNEL_ORIGINATE — destExt failed 4-digit guard; callee push skipped",
+      );
+      return;
+    }
 
     this.originateDestMap.set(bLegUuid, { destExt, callerExt });
 

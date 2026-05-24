@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X, PhoneMissed, PhoneCall, WifiOff, Voicemail } from "lucide-react";
+import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X, PhoneMissed, PhoneCall, WifiOff, Voicemail, Users } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
 import { useEndCall, getGetMeQueryKey, type EndCallRequestStatus } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { phoneAudio } from "@/lib/phoneAudio";
+import { apiFetch } from "@/lib/apiFetch";
 
 const DTMF_KEYS = [
   { key: "1", sub: "" },
@@ -47,6 +48,12 @@ export default function CallingScreen() {
   const [speaker, setSpeakerState] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
   const [dtmfBuffer, setDtmfBuffer] = useState("");
+
+  const [showConference, setShowConference] = useState(false);
+  const [confExtInput, setConfExtInput] = useState("");
+  const [confRoomId, setConfRoomId] = useState<string | null>(null);
+  const [confStatus, setConfStatus] = useState<string | null>(null);
+  const [confBusy, setConfBusy] = useState(false);
 
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -184,6 +191,69 @@ export default function CallingScreen() {
     setDtmfBuffer((b) => (b + digit).slice(-12));
   };
 
+  const handleStartConference = useCallback(async () => {
+    if (confBusy) return;
+    const ext = confExtInput.trim();
+    if (!/^\d{4}$/.test(ext) && !/^\+?\d{7,15}$/.test(ext)) {
+      setConfStatus("Enter a 4-digit extension or full phone number");
+      return;
+    }
+    setConfBusy(true);
+    setConfStatus("Setting up conference…");
+    try {
+      let roomId = confRoomId;
+      if (!roomId) {
+        const createRes = await apiFetch("/api/conference", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ callId: callInfo?.callId }),
+          credentials: "include",
+        });
+        if (!createRes.ok) {
+          const err = await createRes.json().catch(() => ({})) as any;
+          setConfStatus(err?.error ?? "Failed to create conference room");
+          return;
+        }
+        const created = await createRes.json() as { roomId: string; transferred: boolean };
+        roomId = created.roomId;
+        setConfRoomId(roomId);
+        if (!created.transferred) {
+          setConfStatus("Conference created — transfer via FreeSWITCH not available. Inviting participant…");
+        }
+      }
+
+      const isInternal = /^\d{4}$/.test(ext);
+      const inviteRes = await apiFetch(`/api/conference/${roomId}/invite`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(isInternal ? { extension: Number(ext) } : { phone: ext }),
+        credentials: "include",
+      });
+      if (!inviteRes.ok) {
+        const err = await inviteRes.json().catch(() => ({})) as any;
+        setConfStatus(err?.error ?? "Failed to invite participant");
+        return;
+      }
+      setConfStatus(`Calling ${ext}…`);
+      setConfExtInput("");
+    } catch {
+      setConfStatus("Network error — please try again");
+    } finally {
+      setConfBusy(false);
+    }
+  }, [confBusy, confExtInput, confRoomId, callInfo?.callId]);
+
+  const handleEndConference = useCallback(async () => {
+    if (!confRoomId) return;
+    await apiFetch(`/api/conference/${confRoomId}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => {});
+    setConfRoomId(null);
+    setConfStatus(null);
+    setShowConference(false);
+  }, [confRoomId]);
+
   /** Map a FreeSWITCH hangup cause to the status enum the REST API accepts */
   function causeToEndStatus(cause: string | undefined): EndCallRequestStatus {
     switch (cause) {
@@ -252,13 +322,19 @@ export default function CallingScreen() {
       icon: Keyboard,
       label: "Keypad",
       active: showKeypad,
-      onPress: () => setShowKeypad((v) => !v),
+      onPress: () => { setShowKeypad((v) => !v); setShowConference(false); },
     },
     {
       icon: speaker ? Volume2 : VolumeX,
       label: "Speaker",
       active: speaker,
       onPress: handleSpeaker,
+    },
+    {
+      icon: Users,
+      label: confRoomId ? "Conference" : "Add",
+      active: showConference,
+      onPress: () => { setShowConference((v) => !v); setShowKeypad(false); },
     },
   ];
 
@@ -309,6 +385,70 @@ export default function CallingScreen() {
           {formatDuration(elapsed)}
         </p>
       </div>
+
+      {/* Conference panel */}
+      {showConference && callPhase === "connected" && (
+        <div
+          style={{
+            width: "100%", maxWidth: 340, margin: "0 auto 12px",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 18, padding: "20px 24px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <span style={{ color: "white", fontWeight: 700, fontSize: 16 }}>
+              {confRoomId ? `Conference — ${confRoomId}` : "Add Participant"}
+            </span>
+            {confRoomId && (
+              <button
+                onClick={handleEndConference}
+                style={{
+                  background: "#ff3b30", border: "none", borderRadius: 10,
+                  color: "white", fontSize: 11, fontWeight: 700, padding: "4px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                End
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input
+              type="text"
+              placeholder="Ext 1002 or +27821234567"
+              value={confExtInput}
+              onChange={(e) => setConfExtInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleStartConference()}
+              style={{
+                flex: 1, background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                borderRadius: 10, padding: "10px 14px",
+                color: "white", fontSize: 15, outline: "none",
+              }}
+            />
+            <button
+              onClick={handleStartConference}
+              disabled={confBusy}
+              style={{
+                background: confBusy ? "rgba(10,132,255,0.4)" : "#0a84ff",
+                border: "none", borderRadius: 10, padding: "10px 18px",
+                color: "white", fontWeight: 700, fontSize: 14, cursor: "pointer",
+                opacity: confBusy ? 0.7 : 1,
+              }}
+            >
+              {confBusy ? "…" : "Invite"}
+            </button>
+          </div>
+
+          {confStatus && (
+            <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, margin: 0 }}>
+              {confStatus}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* DTMF Keypad overlay */}
       {showKeypad && callPhase === "connected" ? (
