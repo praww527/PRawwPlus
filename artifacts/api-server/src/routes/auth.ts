@@ -147,7 +147,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
           );
         }
       }
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       logger.warn({ err }, "Failed to query admins for new-user notification");
     });
 

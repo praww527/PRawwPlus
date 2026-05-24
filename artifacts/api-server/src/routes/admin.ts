@@ -1780,7 +1780,7 @@ router.get("/admin/call-trace/by-callid/:callId", requireAdmin, async (req, res)
       source: "esl_trace", event: e.event,
       ts: new Date(e.ts).toISOString(), cause: e.cause ?? null, metadata: null,
     })),
-    ...dbEvents.map((e) => ({
+    ...dbEvents.map((e: any) => ({
       source: "db", event: e.event,
       ts: new Date(e.ts).toISOString(), cause: null, metadata: e.metadata ?? null,
       id: e._id,
