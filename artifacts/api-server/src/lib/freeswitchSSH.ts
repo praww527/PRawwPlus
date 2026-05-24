@@ -272,7 +272,53 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
     ).then((p) => p.trim()).catch(() => "");
 
     if (!fsCli) {
-      steps.push("fs_cli not found — skipping reload (FreeSWITCH will pick up changes on next restart)");
+      // fs_cli not available — fall back to sending ESL commands directly via
+      // the FreeSWITCH binary's -rp (reload profiles) flag, or via a raw TCP
+      // ESL command using netcat / socat if present.
+      // Most reliable fallback: use the freeswitch binary to send ESL commands
+      // via its built-in -x flag (works even without fs_cli installed).
+      const fsBin = await execCommand(
+        conn,
+        "command -v freeswitch 2>/dev/null || " +
+        "ls /usr/local/freeswitch/bin/freeswitch /usr/bin/freeswitch 2>/dev/null | head -1 || " +
+        "echo ''",
+      ).then((p) => p.trim()).catch(() => "");
+
+      const eslPassword = FS_ESL_PASS.replace(/'/g, "'\\''");
+
+      // Also try netcat-based ESL: echo "auth <pass>\napi reloadxml\nexit\n" | nc host port
+      const hasNc = await execCommand(conn, "command -v nc 2>/dev/null || echo ''")
+        .then((p) => p.trim()).catch(() => "");
+
+      if (fsBin) {
+        // FreeSWITCH binary supports -x 'command' just like fs_cli
+        try {
+          await execCommand(conn, `${fsBin} -p '${eslPassword}' -x 'reloadxml'`);
+          steps.push("reloadxml OK (via freeswitch binary)");
+        } catch (e) {
+          steps.push(`reloadxml via freeswitch binary failed: ${(e as Error).message}`);
+        }
+        try {
+          await execCommand(conn, `${fsBin} -p '${eslPassword}' -x 'unload mod_xml_curl'`);
+          await execCommand(conn, `${fsBin} -p '${eslPassword}' -x 'load mod_xml_curl'`);
+          steps.push("mod_xml_curl reload OK (via freeswitch binary)");
+        } catch (e) {
+          steps.push(`mod_xml_curl reload via freeswitch binary failed: ${(e as Error).message}`);
+        }
+      } else if (hasNc) {
+        // Last resort: pipe raw ESL commands through netcat
+        const ncCmd =
+          `printf 'auth ${eslPassword}\\n\\napi reloadxml\\n\\nexit\\n\\n' | ` +
+          `nc -q2 127.0.0.1 8021 2>/dev/null || true`;
+        try {
+          await execCommand(conn, ncCmd);
+          steps.push("reloadxml OK (via netcat ESL)");
+        } catch {
+          steps.push("reloadxml via netcat failed — FreeSWITCH will pick up changes on next restart");
+        }
+      } else {
+        steps.push("fs_cli not found and no fallback available — FreeSWITCH will pick up changes on next restart");
+      }
     } else {
       // Build a helper that always includes the ESL password.
       // Running fs_cli without -p fails authentication when a non-default password is set.

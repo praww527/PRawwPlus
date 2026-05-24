@@ -346,14 +346,14 @@ class FreeSwitchESL {
     if (this.socket && !this.socket.destroyed) return;
 
     const sshKey = process.env.FREESWITCH_SSH_KEY;
-    const eslHostBare = bareHost(ESL_HOST);
-    const isLocal = eslHostBare === "127.0.0.1" || eslHostBare === "localhost";
 
-    // Only use SSH tunnel when ESL host is localhost (i.e. FreeSWITCH is on the
-    // same machine as this server). When connecting to a remote VPS directly,
-    // connect via TCP — SSH tunneling to a remote host is not needed
-    // and the key auth would target the wrong machine.
-    if (sshKey && isLocal) {
+    // ESL (mod_event_socket) is bound to 127.0.0.1 for security — it must never
+    // be exposed on the public IP.  When we have an SSH key, always tunnel through
+    // SSH to reach the ESL port on the remote server's loopback, regardless of
+    // whether FREESWITCH_DOMAIN is localhost or a remote IP/hostname.
+    // Only fall back to direct TCP if no SSH key is configured (e.g. ESL is
+    // explicitly bound to 0.0.0.0 in a controlled lab environment).
+    if (sshKey) {
       this.connectViaSsh(sshKey);
     } else {
       this.connectDirect();
@@ -628,6 +628,17 @@ class FreeSwitchESL {
     if (ct === "command/reply") {
       const reply   = event.headers["Reply-Text"] ?? "";
       const jobUuid = event.headers["Job-UUID"]   ?? "";
+      if (reply === "-ERR invalid" || reply.startsWith("-ERR")) {
+        // Auth failed — wrong password.  Log clearly and schedule reconnect with backoff.
+        logger.error(
+          { reply, host: ESL_HOST, port: ESL_PORT },
+          "[ESL] Authentication FAILED — check FREESWITCH_ESL_PASSWORD matches FreeSWITCH event_socket.conf.xml. " +
+          "If you just changed the password, restart FreeSWITCH so it reloads event_socket.conf.xml.",
+        );
+        this.scheduleReconnect("auth_failed");
+        return;
+      }
+
       if (reply.startsWith("+OK accepted")) {
         logger.info("[ESL] Authenticated — subscribing to call events");
         this.authenticated    = true;
