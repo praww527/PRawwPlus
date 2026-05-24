@@ -9,7 +9,7 @@ set -uo pipefail
 
 DEPLOY_DIR="/home/ubuntu/PRawwPlus"
 DOMAIN="rtc.praww.co.za"
-API_PORT=3000
+API_PORT=8080
 
 RED='\033[0;31m'
 GRN='\033[0;32m'
@@ -65,10 +65,10 @@ if [ -f "$DEPLOY_DIR/.env" ]; then
   check_var FREESWITCH_ESL_PASSWORD
 
   ENV_PORT=$(read_env_var PORT)
-  if [ "$ENV_PORT" != "3000" ]; then
-    fail "PORT=${ENV_PORT:-unset} — nginx expects 3000. Fix: PORT=3000 in .env"
+  if [ "$ENV_PORT" != "8080" ]; then
+    fail "PORT=${ENV_PORT:-unset} — nginx expects 8080. Fix: PORT=8080 in .env"
   else
-    pass "PORT=3000 matches nginx upstream"
+    pass "PORT=8080 matches nginx upstream"
   fi
 else
   fail ".env not found at $DEPLOY_DIR/.env"
@@ -106,7 +106,7 @@ check_port() {
   fi
 }
 
-check_port 3000  "Node.js API"
+check_port 8080  "Node.js API"
 check_port 8021  "FreeSWITCH ESL"
 check_port 8081  "FreeSWITCH Verto WS"
 check_port 5066  "FreeSWITCH SIP WS"
@@ -362,6 +362,9 @@ echo "Quick-fix commands:"
 echo "  View API logs:       sudo journalctl -u prawwplus-api -f"
 echo "  Restart API:         sudo systemctl restart prawwplus-api"
 echo "  Deploy latest code:  bash $DEPLOY_DIR/deploy/update.sh"
-echo "  Promote to admin:    pnpm --filter @workspace/scripts run make-admin admin@email.com"
+echo "  Bootstrap admin:     curl -s -X POST https://${DOMAIN}/api/admin/setup \\"
+echo "                         -H 'Content-Type: application/json' \\"
+echo "                         -d '{\"email\":\"admin@praww.co.za\",\"password\":\"YourStr0ngP@ss\"}'"
+echo "  Promote existing:    pnpm --filter @workspace/scripts run make-admin admin@email.com"
 echo "  Reload nginx:        sudo systemctl reload nginx"
 echo ""
