@@ -2229,6 +2229,9 @@ function SystemTab() {
   const [dirResult,  setDirResult]  = useState<any>(null);
   const [dirTesting, setDirTesting] = useState(false);
 
+  const [eslReconnecting, setEslReconnecting] = useState(false);
+  const [eslReconnectMsg,  setEslReconnectMsg]  = useState<{ ok: boolean; message: string } | null>(null);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -2272,6 +2275,24 @@ function SystemTab() {
     } catch (e: any) {
       setSshResult({ ok: false, error: e.message });
     } finally { setSshTesting(false); }
+  };
+
+  const reconnectEsl = async () => {
+    setEslReconnecting(true);
+    setEslReconnectMsg(null);
+    try {
+      const data = await adminFetch("/admin/esl/reconnect", { method: "POST" });
+      setEslReconnectMsg({ ok: data.success, message: data.message ?? (data.success ? "Reconnect initiated" : data.error ?? "Failed") });
+      if (data.success) {
+        toast({ title: "ESL reconnect initiated", description: "FreeSWITCH ESL is reconnecting." });
+        setTimeout(load, 3000);
+      } else {
+        toast({ title: "ESL reconnect failed", description: data.error ?? "Unknown error", variant: "destructive" });
+      }
+    } catch (e: any) {
+      setEslReconnectMsg({ ok: false, message: e.message });
+      toast({ title: "ESL reconnect failed", description: e.message, variant: "destructive" });
+    } finally { setEslReconnecting(false); }
   };
 
   const loadIce = async () => {
@@ -2490,6 +2511,40 @@ function SystemTab() {
                 }}>
                   {pushLog.join("\n")}
                 </pre>
+              </div>
+            )}
+          </div>
+
+          {/* Reconnect ESL */}
+          <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#fff", margin: 0 }}>Reconnect FreeSWITCH ESL</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "2px 0 0" }}>Force-drops and re-establishes the ESL socket connection without restarting the server</p>
+              </div>
+              <button
+                onClick={reconnectEsl}
+                disabled={eslReconnecting}
+                style={{
+                  flexShrink: 0, padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+                  border: "none", cursor: eslReconnecting ? "not-allowed" : "pointer",
+                  background: eslReconnecting ? "rgba(255,255,255,0.06)" : "rgba(255,159,10,0.2)",
+                  color: eslReconnecting ? "rgba(255,255,255,0.3)" : "#ff9f0a",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {eslReconnecting ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <RefreshCw style={{ width: 12, height: 12 }} />}
+                {eslReconnecting ? "Reconnecting…" : "Reconnect"}
+              </button>
+            </div>
+            {eslReconnectMsg && (
+              <div style={{
+                marginTop: 10, padding: "8px 12px", borderRadius: 8, fontSize: 11,
+                background: eslReconnectMsg.ok ? "rgba(48,209,88,0.08)" : "rgba(255,69,58,0.08)",
+                border: `1px solid ${eslReconnectMsg.ok ? "rgba(48,209,88,0.2)" : "rgba(255,69,58,0.2)"}`,
+                color: eslReconnectMsg.ok ? "#30d158" : "#ff453a",
+              }}>
+                {eslReconnectMsg.ok ? `✓ ${eslReconnectMsg.message}` : `✗ ${eslReconnectMsg.message}`}
               </div>
             )}
           </div>

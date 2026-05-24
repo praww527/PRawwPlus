@@ -89,7 +89,46 @@ export async function runStartup(): Promise<void> {
   // ── 0. Validate environment ─────────────────────────────────────────────
   validateEnv();
 
-  // ── 1. Connect to MongoDB ────────────────────────────────────────────────
+  // ── 1. Start FreeSWITCH ESL listener ────────────────────────────────────
+  // ESL is started BEFORE MongoDB so call control works even when the DB is
+  // temporarily unavailable at boot.  All ESL event handlers call connectDB()
+  // lazily, so starting early is safe.
+  if (process.env.FREESWITCH_DOMAIN) {
+    startESL();
+    logger.info("FreeSWITCH ESL listener started");
+
+    // Wire the sofia rescan callback into extension.ts so new users get an
+    // immediate FreeSWITCH directory rescan after their first extension is
+    // assigned — without this, their first SIP REGISTER can fail with
+    // USER_NOT_REGISTERED until the next scheduled rescan.
+    setSofiaRescanFn(() => {
+      sendEslApiCommand("sofia profile prawwplus_mobile rescan");
+    });
+  }
+
+  // ── 1a. Wire up media watchdog ESL injection ─────────────────────────────
+  // Must be called after startESL() so the bgapi/command functions are ready.
+  setMediaWatchdogEsl(
+    (cmd: string) => sendEslBgapiAwait(cmd, 12_000),
+    (cmd: string) => { sendEslApiCommand(cmd); },
+  );
+
+  // ── 1b. Start stale session sweeper ─────────────────────────────────────
+  setSweepEslCommandFn((cmd: string) => { sendEslApiCommand(cmd); });
+  startSessionSweeper();
+
+  // ── 1c. SIP session expiry watchdog ──────────────────────────────────────
+  // Every 5 minutes, evict any SIP registration entries whose expiresAt has
+  // passed. This prevents the in-memory map from serving stale registrations
+  // as "alive" after a device re-registers with a new contact/IP.
+  setInterval(() => {
+    const removed = cleanExpiredSipSessions();
+    if (removed > 0) {
+      logger.info({ removed }, "[SIP-Watchdog] Evicted expired SIP session entries");
+    }
+  }, 5 * 60_000).unref();
+
+  // ── 2. Connect to MongoDB ────────────────────────────────────────────────
   const uri = process.env.MONGODB_URI ?? process.env.MONGO_URI;
   if (!uri) {
     logger.warn(
@@ -163,43 +202,7 @@ export async function runStartup(): Promise<void> {
     logger.warn({ err }, "Failed to clean up stale calls — non-fatal");
   }
 
-  // ── 3. Start FreeSWITCH ESL listener ────────────────────────────────────
-  if (process.env.FREESWITCH_DOMAIN) {
-    startESL();
-    logger.info("FreeSWITCH ESL listener started");
-
-    // Wire the sofia rescan callback into extension.ts so new users get an
-    // immediate FreeSWITCH directory rescan after their first extension is
-    // assigned — without this, their first SIP REGISTER can fail with
-    // USER_NOT_REGISTERED until the next scheduled rescan.
-    setSofiaRescanFn(() => {
-      sendEslApiCommand("sofia profile prawwplus_mobile rescan");
-    });
-  }
-
-  // ── 3a. Wire up media watchdog ESL injection ─────────────────────────────
-  // Must be called after startESL() so the bgapi/command functions are ready.
-  setMediaWatchdogEsl(
-    (cmd: string) => sendEslBgapiAwait(cmd, 12_000),
-    (cmd: string) => { sendEslApiCommand(cmd); },
-  );
-
-  // ── 3b. Start stale session sweeper ─────────────────────────────────────
-  setSweepEslCommandFn((cmd: string) => { sendEslApiCommand(cmd); });
-  startSessionSweeper();
-
-  // ── 3c. SIP session expiry watchdog ──────────────────────────────────────
-  // Every 5 minutes, evict any SIP registration entries whose expiresAt has
-  // passed. This prevents the in-memory map from serving stale registrations
-  // as "alive" after a device re-registers with a new contact/IP.
-  setInterval(() => {
-    const removed = cleanExpiredSipSessions();
-    if (removed > 0) {
-      logger.info({ removed }, "[SIP-Watchdog] Evicted expired SIP session entries");
-    }
-  }, 5 * 60_000).unref();
-
-  // ── 4. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
+  // ── 3. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
   // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl
   // directory lookups reach our live API endpoint at rtc.PRaww.co.za.
   if (process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {

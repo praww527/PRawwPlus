@@ -19,7 +19,7 @@ import {
 } from "@workspace/db";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { xmlCurlConf, vertoConf, dialplanXml, eventSocketConf, sipProfileXml } from "../lib/freeswitchConfig";
-import { eslStatus, sendEslApiCommand, sendEslBgapiAwait, getLastEslEvent, getEslTrace } from "../lib/freeswitchESL";
+import { eslStatus, sendEslApiCommand, sendEslBgapiAwait, getLastEslEvent, getEslTrace, stopESL, startESL } from "../lib/freeswitchESL";
 import { metrics } from "../lib/metrics";
 import {
   getAllSessions,
@@ -1400,6 +1400,21 @@ router.get("/admin/system-health", requireAdmin, async (req, res) => {
 router.post("/admin/freeswitch/push-config", requireAdmin, async (_req, res) => {
   const result = await pushFreeSwitchConfig({ lightReload: false });
   res.status(result.success ? 200 : 500).json(result);
+});
+
+router.post("/admin/esl/reconnect", requireAdmin, async (req, res) => {
+  const admin = (req as any).user;
+  logger.info({ adminId: admin?._id }, "[Admin] Manual ESL reconnect triggered");
+  try {
+    stopESL();
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    startESL();
+    const status = eslStatus();
+    res.json({ success: true, message: "ESL reconnect initiated", esl: status });
+  } catch (err) {
+    logger.error({ err }, "[Admin] ESL reconnect failed");
+    res.status(500).json({ success: false, error: (err as Error)?.message ?? "Unknown error" });
+  }
 });
 
 // ── ICE / TURN Server Configuration ───────────────────────────────────────────
