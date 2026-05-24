@@ -46,8 +46,16 @@ router.get("/verto/config", async (req: Request, res: Response) => {
   }
 
   const user = await UserModel.findById(userId)
-    .select("coins ringtone ringtoneDuration dnd freeswitchHost freeswitchPort phone phoneVerified")
+    .select("coins ringtone ringtoneDuration dnd freeswitchHost freeswitchPort phone phoneVerified locked")
     .lean();
+
+  if (user?.locked) {
+    res.status(403).json({
+      error:   "Account locked",
+      message: "Your account has been locked. Please contact support.",
+    });
+    return;
+  }
 
   const coins = user?.coins ?? 0;
   const domain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
@@ -171,8 +179,16 @@ router.get("/sip/config", async (req: Request, res: Response) => {
   }
 
   const user = await UserModel.findById(userId)
-    .select("coins phone phoneVerified")
+    .select("coins phone phoneVerified locked")
     .lean();
+
+  if (user?.locked) {
+    res.status(403).json({
+      error:   "Account locked",
+      message: "Your account has been locked. Please contact support.",
+    });
+    return;
+  }
 
   const domain = process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
   const appUrl = getBaseUrl(req);
