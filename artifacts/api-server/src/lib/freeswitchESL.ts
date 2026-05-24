@@ -22,6 +22,7 @@ import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
 import { ringingCall, answerCall, bridgeCall, finalizeCall, setEslCommandFn, setEslTraceFn, clearAllHangupTimers } from "./callOrchestrator";
+import { setALegEslCommandFn } from "./aLegManager";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { appendCallEvent } from "./callEventLog";
@@ -632,8 +633,10 @@ class FreeSwitchESL {
         this.authenticated    = true;
         this.reconnectAttempt = 0;
         lastConnectedAt = Date.now();
-        // Wire the orchestrator's ESL command function now that we are authenticated
+        // Wire the orchestrator's and A-leg manager's ESL command functions now that
+        // we are authenticated.  Both modules issue uuid_kill commands via these fns.
         setEslCommandFn((cmd) => this.sendApiCommand(cmd));
+        setALegEslCommandFn((cmd) => this.sendApiCommand(cmd));
         // Subscribe to all channel events including CHANNEL_HANGUP for deep SIP debugging.
         // BACKGROUND_JOB captures bgapi originate results (including -ERR before channel creation).
         this.sendLine(

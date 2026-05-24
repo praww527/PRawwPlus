@@ -24,6 +24,7 @@ import {
   unregisterVertoSession,
   touchVertoSession,
 } from "./callSession";
+import { notifyALegSessionDropped } from "./aLegManager";
 
 // Close codes that are "receive-only" — cannot be sent per RFC 6455 §7.4.2
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
@@ -375,6 +376,11 @@ export function createVertoProxy(): WebSocketServer {
           { extension: sessionExtension },
           "Verto proxy: [SESSION_UNREGISTERED] extension disconnected",
         );
+        // Notify the A-leg manager so it can arm the disconnect watchdog for any
+        // active call on this extension.  This fires uuid_kill on the FS channel
+        // if the caller doesn't reconnect within ALEG_DISCONNECT_GRACE_MS (default 8 s),
+        // reducing zombie-call lifetime from 30–45 s to < 10 s.
+        notifyALegSessionDropped(sessionExtension);
       }
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.close(safe, reason);

@@ -33,6 +33,14 @@ import { armMediaWatchdog, cancelMediaWatchdog, clearAllMediaWatchdogs } from ".
 import { metrics } from "./metrics";
 import { randomUUID } from "node:crypto";
 import { cleanupBLeg } from "./bLegManager";
+import {
+  recordALegFsCallId,
+  recordALegRinging,
+  recordALegAnswered,
+  recordALegBridged,
+  recordALegHangup,
+  cleanupALeg,
+} from "./aLegManager";
 
 /** Configurable ring timeout — kills stale ringing channels if FS own timer doesn't fire */
 const RING_TIMEOUT_MS = parseInt(process.env.RING_TIMEOUT_MS ?? "45000", 10);
@@ -436,6 +444,10 @@ export async function ringingCall(
 
   logger.info({ aLegUuid, bLegUuid, applied: result.applied }, "[Orchestrator] ringingCall done");
   if (result.applied) {
+    // Track the confirmed A-leg UUID and ringing state in the A-leg manager.
+    recordALegFsCallId(result.callId, aLegUuid);
+    recordALegRinging(result.callId, bLegUuid);
+
     // Start the ring timeout watchdog so stale ringing channels are killed
     // if FreeSWITCH's own no_answer_timeout doesn't fire in time.
     registerRingTimer(aLegUuid);
@@ -477,6 +489,9 @@ export async function bridgeCall(
 
   logger.info({ fsCallId, otherLegId, applied: result.applied }, "[Orchestrator] bridgeCall done");
   if (result.applied) {
+    // Record bridged state in the A-leg manager.
+    recordALegBridged(result.callId, otherLegId);
+
     // Record bridge time in metrics (startedAt → bridge)
     try {
       const callDoc = await CallModel.findById(result.callId).select("startedAt").lean();
@@ -555,6 +570,9 @@ export async function answerCall(
   const result = await transitionCallStatus(fsCallId, "answered", { startedAt: new Date() });
   if (!result) return EventResult.RETRY;
   if (!result.applied) return EventResult.DONE;
+
+  // Record answered state in the A-leg manager.
+  recordALegAnswered(result.callId);
 
   appendCallEvent({
     callId: result.callId, fsCallId,
@@ -679,8 +697,10 @@ export async function finalizeCall(
 
   if (!call) return EventResult.RETRY;
 
-  // Release B-leg manager in-memory state now that we have the MongoDB _id
+  // Release B-leg and A-leg manager in-memory state now that we have the MongoDB _id
   cleanupBLeg(String(call._id));
+  recordALegHangup(String(call._id), hangupCause);
+  cleanupALeg(String(call._id));
 
   // Already finalised (idempotent)
   if (call.endedAt) {

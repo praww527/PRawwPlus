@@ -24,6 +24,11 @@ import {
   waitForRegistration,
   getBLegDiagnostics,
 } from "../lib/bLegManager";
+import {
+  recordALegInit,
+  validateALegSource,
+  getALegDiagnostics,
+} from "../lib/aLegManager";
 
 const router: IRouter = Router();
 
@@ -247,6 +252,23 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   // automatically marked failed after 20 s instead of hanging indefinitely.
   if (fsCallId && typeof fsCallId === "string" && fsCallId.trim()) {
     registerInitiatedCall(fsCallId.trim(), callId);
+  }
+
+  // Record A-leg lifecycle state so the A-leg manager can track the caller's
+  // session, validate source liveness, and arm the disconnect watchdog.
+  {
+    const callerExtension = typeof (user as any).extension === "number"
+      ? (user as any).extension
+      : parseInt(String((user as any).extension ?? ""), 10) || undefined;
+    const fsCallIdStr = fsCallId && typeof fsCallId === "string" && fsCallId.trim()
+      ? fsCallId.trim() : undefined;
+    recordALegInit(callId, callerExtension ?? undefined, userId, fsCallIdStr);
+
+    // Pre-flight: validate the caller's session liveness and log the result.
+    // This is a soft check — it never blocks the call.
+    if (callerExtension != null && callerExtension >= 1000 && callerExtension <= 9999) {
+      validateALegSource(callId, callerExtension);
+    }
   }
 
   // Record B-leg lifecycle state for internal calls so pre-originate validation,
@@ -481,6 +503,39 @@ router.get("/calls/:callId/bleg-diagnostics", async (req, res) => {
   }
 
   const diag = getBLegDiagnostics(callId);
+  if (!diag) {
+    res.json({ available: false, reason: "State not found — call may have ended or server restarted" });
+    return;
+  }
+
+  res.json({ available: true, ...diag });
+});
+
+/**
+ * GET /api/calls/:callId/aleg-diagnostics
+ *
+ * Returns the in-memory A-leg lifecycle state for a call.
+ * Includes pre-flight validation result, transport detection, FS UUID,
+ * disconnect watchdog status, and current live session liveness.
+ * Authenticated to the call owner only (admin uses admin routes for full view).
+ */
+router.get("/calls/:callId/aleg-diagnostics", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  await connectDB();
+  const userId = (req as any).user.id as string;
+  const { callId } = req.params;
+
+  const call = await CallModel.findOne({ _id: callId, userId }).select("status").lean();
+  if (!call) {
+    res.status(404).json({ error: "Call not found" });
+    return;
+  }
+
+  const diag = getALegDiagnostics(callId);
   if (!diag) {
     res.json({ available: false, reason: "State not found — call may have ended or server restarted" });
     return;
