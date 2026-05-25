@@ -29,7 +29,6 @@ import { EventResult } from "./eslEventBuffer";
 import { resolveCoinsPerMinuteForUser, calcCoinsFromBillsec } from "./rating";
 import { sendExpoPush, sendFcmDataMessage } from "./push";
 import { notifyMissedCall } from "./missedCallNotifier";
-import { sendWakeup } from "./wakeupPush";
 import { appendCallEvent } from "./callEventLog";
 import { armMediaWatchdog, cancelMediaWatchdog, clearAllMediaWatchdogs } from "./mediaWatchdog";
 import { metrics } from "./metrics";
@@ -189,6 +188,7 @@ export function registerInitiatedCall(
   const existing = initiatedTimers.get(fsCallId);
   if (existing) clearTimeout(existing);
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   const timer = setTimeout(async () => {
     initiatedTimers.delete(fsCallId);
     try {
@@ -621,6 +621,7 @@ export async function answerCall(
       "[Orchestrator] Scheduling balance-based hangup");
 
     const callUserId = String(call.userId);
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     const timer = setTimeout(async () => {
       hangupTimers.delete(fsCallId);
       // Re-read balance before disconnecting — prevents premature hangup when
@@ -868,7 +869,7 @@ export async function finalizeCall(
         "[Orchestrator] finalizeCall transaction failed — falling back to non-transactional path",
       );
     } finally {
-      session.endSession();
+      void session.endSession();
     }
   }
 

@@ -29,14 +29,12 @@ let lastActiveCalls = 0;
 let prevWsDisconnects = 0;
 let prevRegistrationFailures = 0;
 let prevReconnectFailures = 0;
-let prevCallsInitiated = 0;
 let prevWindowStart = Date.now();
 
 // ── Metric evaluators ────────────────────────────────────────────────────────
 
 function currentValue(metric: IAlertRule["metric"]): number {
   const now = Date.now();
-  const windowMs = 5 * 60_000; // default 5-min window in ms
 
   switch (metric) {
     case "answer_rate": {
@@ -216,7 +214,7 @@ async function evaluate(): Promise<void> {
   prevWsDisconnects = metrics.wsDisconnectsVerto;
   prevRegistrationFailures = metrics.registrationFailures;
   prevReconnectFailures = metrics.reconnectFailures;
-  prevCallsInitiated = metrics.callsInitiated;
+
   prevWindowStart = now;
 }
 

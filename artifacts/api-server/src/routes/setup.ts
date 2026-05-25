@@ -96,7 +96,7 @@ router.post("/admin/setup", async (req: Request, res: Response) => {
   const passwordHash = await bcrypt.hash(password, 12);
   const userId = randomUUID();
 
-  const user = await UserModel.create({
+  await UserModel.create({
     _id: userId,
     email: normalizedEmail,
     name: name?.trim() || "Admin",

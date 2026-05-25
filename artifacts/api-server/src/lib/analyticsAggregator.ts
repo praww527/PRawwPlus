@@ -14,7 +14,6 @@
  */
 
 import { connectDB, CdrModel, UserModel } from "@workspace/db";
-import { logger } from "./logger";
 
 export interface HourlyBucket {
   hour:          string;

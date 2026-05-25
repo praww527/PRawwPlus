@@ -150,6 +150,7 @@ interface SipConnectionState {
 export function createSipProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   wss.on("connection", async (client: WebSocket, _req: IncomingMessage) => {
     let upstreamUrl: string;
     try {

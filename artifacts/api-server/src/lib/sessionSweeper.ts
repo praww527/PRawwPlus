@@ -67,10 +67,16 @@ async function sweepZombieCalls(): Promise<number> {
     await connectDB();
 
     const cutoff = new Date(Date.now() - ZOMBIE_CALL_AGE_MS);
+    // Also sweep answered/bridged calls stuck longer than 2× the zombie threshold —
+    // these can occur when FreeSWITCH drops without sending CHANNEL_HANGUP_COMPLETE
+    // (e.g. crash, network partition) and the ESL reconnect missed the event.
+    const bridgeCutoff = new Date(Date.now() - Math.max(ZOMBIE_CALL_AGE_MS * 2, 600_000));
     const zombies = await CallModel.find({
-      status:  { $in: ["initiated", "ringing"] },
+      $or: [
+        { status: { $in: ["initiated", "ringing"] }, startedAt: { $lt: cutoff } },
+        { status: { $in: ["answered", "bridged"]  }, startedAt: { $lt: bridgeCutoff } },
+      ],
       endedAt: null,
-      startedAt: { $lt: cutoff },
     })
       .select("_id userId fsCallId status startedAt")
       .lean();

@@ -196,7 +196,7 @@ router.delete("/admin/users/:userId/sessions", requireAdmin, async (req, res) =>
   try {
     const result = await SessionModel.deleteMany({ "sess.user.id": userId } as any);
     deleted = result.deletedCount ?? 0;
-  } catch (err) {
+  } catch (_err) {
     res.status(500).json({ error: "Failed to delete sessions" });
     return;
   }
@@ -1470,7 +1470,7 @@ router.put("/admin/ice-servers", requireAdmin, async (req: any, res) => {
     { $set: { iceServers, updatedAt: new Date(), updatedBy: req.user?.email ?? req.user?.id } },
     { upsert: true, new: true },
   );
-  await logAdminAction(req, { action: "system.ice-servers.update", targetType: "system", targetLabel: "ICE servers", details: { count: iceServers.length } });
+  void logAdminAction(req, { action: "system.ice-servers.update", targetType: "system", targetLabel: "ICE servers", details: { count: iceServers.length } });
   res.json({ ok: true, count: iceServers.length });
 });
 

@@ -10,7 +10,7 @@
  * Jobs are idempotent and safe to run multiple times.
  */
 
-import { connectDB, UserModel, CdrModel, BillingLedgerModel, InvoiceModel } from "@workspace/db";
+import { connectDB, UserModel, CdrModel, InvoiceModel } from "@workspace/db";
 import { logger } from "./logger";
 import { sendAdminPush } from "./push";
 import { getUsersBelowThreshold } from "./balanceGuard";

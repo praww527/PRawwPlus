@@ -36,6 +36,9 @@ jobs:
       - name: API server — typecheck
         run: pnpm --filter @workspace/api-server run typecheck
 
+      - name: API server — lint (ESLint, zero warnings)
+        run: pnpm --filter @workspace/api-server run lint
+
       - name: API server — build
         run: pnpm --filter @workspace/api-server run build
 

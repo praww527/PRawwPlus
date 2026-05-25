@@ -423,7 +423,7 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
         try {
           await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile start'`);
           steps.push("sofia profile prawwplus_mobile start OK");
-        } catch (e) {
+        } catch (_e) {
           try {
             await execCommand(conn, `${cli} -x 'sofia profile prawwplus_mobile rescan'`);
             steps.push("sofia profile prawwplus_mobile rescan OK");

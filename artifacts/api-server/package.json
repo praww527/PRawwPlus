@@ -8,6 +8,7 @@
     "start": "tsx ./src/index.ts",
     "build": "tsx ./build.ts",
     "typecheck": "pnpm --filter @workspace/db run build && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
     "test": "tsx --test src/lib/callStateMachine.test.ts src/lib/callLimits.test.ts",
     "test:esl": "tsx scripts/test-esl.ts"
   },
@@ -37,6 +38,7 @@
     "@types/ws": "^8.18.1",
     "esbuild": "^0.27.3",
     "pino-pretty": "^13",
-    "tsx": "catalog:"
+    "tsx": "catalog:",
+    "typescript-eslint": "^8.59.4"
   }
 }

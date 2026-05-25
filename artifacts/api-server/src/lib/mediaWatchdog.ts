@@ -92,9 +92,9 @@ export function armMediaWatchdog(
 
   cancelMediaWatchdog(fsCallId);
 
-  const timer = setTimeout(async () => {
+  const timer = setTimeout(() => {
     watchdogTimers.delete(fsCallId);
-    await checkRtp(fsCallId, otherLegId, callId, userId);
+    void checkRtp(fsCallId, otherLegId, callId, userId);
   }, MEDIA_WATCHDOG_MS);
 
   watchdogTimers.set(fsCallId, timer);

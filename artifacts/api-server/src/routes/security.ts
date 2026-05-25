@@ -5,9 +5,8 @@
 
 import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel, CallModel, CdrModel, BillingLedgerModel, AuditLogModel } from "@workspace/db";
-import { generateTotpSecret, generateOtpAuthUrl, verifyTotp, generateTotp } from "../lib/totp";
+import { generateTotpSecret, generateOtpAuthUrl, verifyTotp } from "../lib/totp";
 import { logger } from "../lib/logger";
-import { randomUUID } from "crypto";
 
 const router: IRouter = Router();
 

@@ -71,6 +71,7 @@ attachVertoProxy(server, vertoWss);
 const sipWss = createSipProxy();
 attachSipProxy(server, sipWss);
 
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
 server.listen(port, host, async () => {
   logger.info({ port, host }, "Server listening");
 

@@ -171,7 +171,7 @@ router.post("/payments/subscribe", async (req, res) => {
 
 router.post("/payments/webhook", async (req, res) => {
   const body: Record<string, string> = req.body;
-  const { m_payment_id, payment_status, custom_str1: userId, custom_str2 } = body;
+  const { m_payment_id, payment_status, custom_str1: _userId, custom_str2 } = body;
 
   if (
     typeof m_payment_id !== "string" ||

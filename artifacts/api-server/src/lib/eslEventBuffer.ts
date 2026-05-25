@@ -101,7 +101,7 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
 
     const remaining = queue.get(ev.fsCallId);
     if (remaining && remaining.length > 0) {
-      setImmediate(() => processEvent(remaining[0]));
+      setImmediate(() => { void processEvent(remaining[0]); });
     }
     return;
   }
@@ -129,7 +129,7 @@ async function processEvent(ev: QueuedEvent): Promise<void> {
   logger.warn({ fsCallId: ev.fsCallId, label: ev.label, attempt: ev.attempt, delayMs: delay },
     "[ESLBuffer] DB record not found — retrying ESL event after delay");
 
-  ev.retryTimer = setTimeout(() => processEvent(ev), delay);
+  ev.retryTimer = setTimeout(() => { void processEvent(ev); }, delay);
 }
 
 /**
@@ -153,7 +153,7 @@ export function enqueueEslEvent(
   }
 
   queue.set(fsCallId, [ev]);
-  setImmediate(() => processEvent(ev));
+  setImmediate(() => { void processEvent(ev); });
 }
 
 export function eslBufferDepth(): number {

@@ -118,6 +118,7 @@ const UPSTREAM_RETRY_BASE_MS  = 2_000;  // 2 s, 4 s, 6 s, 8 s
 export function createVertoProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   wss.on("connection", async (client: WebSocket, _req: IncomingMessage) => {
     let upstreamUrl: string;
     try {

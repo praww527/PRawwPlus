@@ -179,7 +179,7 @@ router.get("/admin/live-registrations", requireAdmin, async (_req, res) => {
     ...sipRaw.map((s) => s.userId).filter(Boolean),
   ])] as string[];
 
-  let nameMap: Record<string, string> = {};
+  const nameMap: Record<string, string> = {};
   if (userIds.length > 0) {
     try {
       await connectDB();

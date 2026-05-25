@@ -10,12 +10,10 @@
  *   - Emit real-time stats for the Operations Center SSE stream
  */
 
-import { randomUUID } from "crypto";
 import { connectDB } from "@workspace/db";
 import { CallQueueModel, type ICallQueue, type QueueStrategy } from "@workspace/db";
 import { logger } from "./logger";
 import { broadcastSseEvent } from "../routes/adminOps";
-import { metrics } from "./metrics";
 
 export interface QueuedCaller {
   callerId:    string;

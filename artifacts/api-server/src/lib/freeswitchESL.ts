@@ -27,7 +27,7 @@ import { setALegEslCommandFn } from "./aLegManager";
 import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { appendCallEvent } from "./callEventLog";
-import { setMediaWatchdogEsl } from "./mediaWatchdog";
+import { cancelMediaWatchdog } from "./mediaWatchdog";
 import { registerSipSession, unregisterSipSession, buildSipSession } from "./callSession";
 import {
   notifyRegistration,
@@ -339,6 +339,10 @@ class FreeSwitchESL {
    */
   private retryAttempts = new Map<string, number>();
 
+  /** Periodic heartbeat — sends bgapi status every 30 s when authenticated
+   *  to detect silently-dead TCP/SSH connections faster than OS keepalive alone. */
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
   // ── bgapi job tracking ──────────────────────────────────────────────────────
   // FreeSWITCH responds to every bgapi command with:
   //   command/reply  →  Reply-Text: +OK Job-UUID: <uuid>
@@ -465,6 +469,38 @@ class FreeSwitchESL {
     }
   }
 
+  /** Start the application-level ESL heartbeat.
+   *
+   *  Sends `bgapi status` every 30 s so we always have a BACKGROUND_JOB event
+   *  in-flight.  A silently-dead TCP connection (firewall ACL drop, half-open)
+   *  will stop responding and `lastEventAt` will grow stale — the next scheduled
+   *  heartbeat will log a warning.  The OS-level TCP keepalive (`setKeepAlive`)
+   *  is the complementary low-level mechanism; together they give two layers of
+   *  dead-connection detection without depending solely on FreeSWITCH sending events.
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.authenticated) return;
+      const staleSec = lastEventAt ? Math.round((Date.now() - lastEventAt) / 1000) : null;
+      if (staleSec !== null && staleSec > 60) {
+        logger.warn(
+          { staleSec, host: ESL_HOST },
+          "[ESL] Heartbeat: no ESL event in >60 s — possible silent TCP death; sending keepalive",
+        );
+      }
+      this.sendApiCommand("status");
+    }, 30_000);
+    this.heartbeatTimer.unref();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   private attachChannel(channel: ClientChannel) {
     this.buffer = "";
     this.authenticated = false;
@@ -498,6 +534,11 @@ class FreeSwitchESL {
     this.buffer        = "";
     this.authenticated = false;
 
+    // Enable OS-level TCP keepalive so the kernel sends ACK probes every 30 s.
+    // This detects half-open connections (e.g. firewall silently dropped the TCP
+    // session) at the network layer, complementing our application-level heartbeat.
+    sock.setKeepAlive(true, 30_000);
+
     sock.on("connect", () => {
       logger.info("[ESL] TCP connected");
       this.startAuthBannerTimer();
@@ -524,6 +565,7 @@ class FreeSwitchESL {
   disconnect() {
     this.destroyed = true;
     this.clearAuthBannerTimer();
+    this.stopHeartbeat();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     clearAllHangupTimers();
     this.originateDestMap.clear();
@@ -608,6 +650,7 @@ class FreeSwitchESL {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
 
     this.clearAuthBannerTimer();
+    this.stopHeartbeat();
     lastDisconnectedAt = Date.now();
     lastDisconnectReason = reason ?? "unknown";
     metrics.eslDisconnectedAt = Date.now();
@@ -703,14 +746,18 @@ class FreeSwitchESL {
         setALegEslCommandFn((cmd) => this.sendApiCommand(cmd));
         // Subscribe to all channel events including CHANNEL_HANGUP for deep SIP debugging.
         // BACKGROUND_JOB captures bgapi originate results (including -ERR before channel creation).
+        // CHANNEL_UNBRIDGE fires when a bridge is torn down — used to cancel media watchdog
+        // and detect premature bridge loss (e.g. transfer failure, mid-call partition).
         this.sendLine(
           "event plain " +
           "CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA " +
-          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_BRIDGE " +
+          "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_BRIDGE CHANNEL_UNBRIDGE " +
           "CHANNEL_HANGUP CHANNEL_HANGUP_COMPLETE " +
           "CHANNEL_DESTROY MESSAGE_WAITING BACKGROUND_JOB " +
           "CUSTOM sofia::register sofia::unregister sofia::pre-register sofia::expire",
         );
+        // Start application-level heartbeat to detect silently-dead connections.
+        this.startHeartbeat();
         // Enable deep Sofia SIP tracing in development only.
         // In production this floods FreeSWITCH logs and can noticeably impact
         // performance under load. Gate on NODE_ENV so it never runs in prod.
@@ -973,6 +1020,35 @@ class FreeSwitchESL {
               }
             },
           );
+        }
+
+      } else if (evtName === "CHANNEL_UNBRIDGE") {
+        // CHANNEL_UNBRIDGE fires when FreeSWITCH tears down the bridge between
+        // two legs — BEFORE CHANNEL_HANGUP_COMPLETE.  Causes include:
+        //   • One leg explicitly ending the call (normal flow)
+        //   • Blind/attended transfer (the bridge moves, not the call)
+        //   • Mid-call ICE/RTP failure without full hang-up
+        //   • Dialplan `transfer` action splitting the bridge
+        //
+        // Seeing UNBRIDGE without a following HANGUP_COMPLETE means the A-leg
+        // was re-bridged elsewhere (transfer) — the call is still "live" in FS.
+        const ubUuid     = body["Unique-ID"]           ?? "";
+        const ubOtherLeg = body["Other-Leg-Unique-ID"] ?? body["Bridge-B-Unique-ID"] ?? "";
+        const ubCause    = body["Hangup-Cause"]        ?? "";
+
+        if (ubUuid)     recordEslTrace(ubUuid,     "CHANNEL_UNBRIDGE", ubCause || undefined);
+        if (ubOtherLeg) recordEslTrace(ubOtherLeg, "CHANNEL_UNBRIDGE", ubCause || undefined);
+
+        logger.info(
+          { uuid: ubUuid, otherLeg: ubOtherLeg, hangupCause: ubCause || "(none)" },
+          "[ESL] CHANNEL_UNBRIDGE — bridge torn down between legs",
+        );
+
+        // Cancel the media watchdog on both legs — the bridge is gone so there
+        // will be no more RTP packets on this pair regardless of final outcome.
+        cancelMediaWatchdog(ubUuid);
+        if (ubOtherLeg && ubOtherLeg !== ubUuid) {
+          cancelMediaWatchdog(ubOtherLeg);
         }
 
       } else if (evtName === "CHANNEL_HANGUP") {
@@ -1357,6 +1433,11 @@ class FreeSwitchESL {
     // Notify any callers blocked in waitForRegistration() so the callee-ready
     // endpoint can return immediately instead of waiting for the poll interval.
     notifyRegistration(ext);
+
+    // If this extension had an active call and its Verto/SIP session dropped
+    // (e.g. browser reconnect, brief network flap), cancel the disconnect watchdog
+    // now that the session is back — prevents a false uuid_kill on the A-leg.
+    notifyALegSessionReconnected(ext);
   }
 
   private handleSofiaUnregister(body: Record<string, string>): void {
@@ -1574,7 +1655,6 @@ class FreeSwitchESL {
       // Resolve caller's phone number so call history never shows raw extensions
       const callerExtNum = /^[1-9]\d{3}$/.test(callerExt) ? parseInt(callerExt, 10) : null;
       let callerPhone = callerExt;
-      let destPhone: string | undefined;
       if (callerExtNum) {
         const callerUser = await UserModel.findOne({ extension: callerExtNum })
           .select("phone phoneVerified")
@@ -1584,7 +1664,7 @@ class FreeSwitchESL {
       }
       // Also resolve the callee's phone for recipientNumber
       const destUserFull = await UserModel.findById(destUser._id).select("phone").lean();
-      destPhone = destUserFull?.phone ?? destExt;
+      const destPhone = destUserFull?.phone ?? destExt;
 
       const now = new Date();
       await CallModel.create({
