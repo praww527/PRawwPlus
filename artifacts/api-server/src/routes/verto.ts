@@ -292,11 +292,14 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   // Support both so manual GET debugging also works.
   const params = (req.method === "POST" ? req.body : req.query) as Record<string, string | undefined>;
 
-  // FreeSWITCH versions vary: some send `user=<ext>`, others send `key_name=user&key_value=<ext>`.
-  // Also check `huntgroup_id` and `number_alias` as additional fallbacks.
+  // FreeSWITCH mod_xml_curl sends: key_name=id&key_value=<ext> (standard).
+  // Some builds send key_name=user or a bare user= field instead.
+  // Accept all three so every FreeSWITCH version works.
   const ext =
     params["user"] ??
-    (params["key_name"] === "user" ? params["key_value"] : undefined) ??
+    (params["key_name"] === "id" || params["key_name"] === "user"
+      ? params["key_value"]
+      : undefined) ??
     params["number_alias"];
   const domain = params["domain"];
 
