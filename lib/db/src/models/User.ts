@@ -80,6 +80,11 @@ export interface IUser extends Document<string> {
   verificationDocSubmittedAt?: Date;
   tenantId?: string;
   policyAgreedAt?: Date;
+  totpSecret?: string;
+  totpEnabled?: boolean;
+  totpVerified?: boolean;
+  resellerCommissionPct?: number;
+  concurrentCallLimit?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -156,6 +161,11 @@ const UserSchema = new Schema<IUser>(
     verificationDocSubmittedAt: { type: Date },
     tenantId: { type: String, index: true },
     policyAgreedAt: { type: Date },
+    totpSecret:     { type: String, select: false },
+    totpEnabled:    { type: Boolean, default: false },
+    totpVerified:   { type: Boolean, default: false },
+    resellerCommissionPct: { type: Number },
+    concurrentCallLimit:   { type: Number },
     notificationPrefs: {
       type: new Schema({
         incomingCalls: { type: Boolean, default: true },

@@ -28,6 +28,8 @@ import {
 import { EventResult } from "./eslEventBuffer";
 import { resolveCoinsPerMinuteForUser, calcCoinsFromBillsec } from "./rating";
 import { sendExpoPush, sendFcmDataMessage } from "./push";
+import { notifyMissedCall } from "./missedCallNotifier";
+import { sendWakeup } from "./wakeupPush";
 import { appendCallEvent } from "./callEventLog";
 import { armMediaWatchdog, cancelMediaWatchdog, clearAllMediaWatchdogs } from "./mediaWatchdog";
 import { metrics } from "./metrics";
@@ -942,6 +944,23 @@ export async function finalizeCall(
     createVoicemailRecord(resDoc, fsCallId).catch((err) =>
       logger.warn({ err, callId: resDoc._id }, "[Orchestrator] Voicemail record creation failed"),
     );
+  }
+
+  if (finalStatus === "missed") {
+    const recipientExt = (resDoc as any).recipientNumber
+      ? parseInt(String((resDoc as any).recipientNumber), 10)
+      : null;
+    if (recipientExt) {
+      const { UserModel: UM } = await import("@workspace/db");
+      const callee = await UM.findOne({ extension: recipientExt }).select("_id").lean();
+      if (callee) {
+        notifyMissedCall(
+          String((callee as any)._id),
+          String((resDoc as any).callerNumber ?? "unknown"),
+          String(resDoc._id),
+        ).catch(() => {});
+      }
+    }
   }
 
   return EventResult.DONE;

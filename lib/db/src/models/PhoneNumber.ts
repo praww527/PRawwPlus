@@ -7,6 +7,13 @@ export interface IPhoneNumber extends Document<string> {
   country?: string;
   region?: string;
   assignedAt?: Date | null;
+  cnamName?: string;
+  capabilities?: string[];
+  forwardTo?: string;
+  monthlyFeeCents?: number;
+  billingRef?: string;
+  portStatus?: "none" | "porting-in" | "porting-out" | "ported";
+  portRequestId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,7 +25,14 @@ const PhoneNumberSchema = new Schema<IPhoneNumber>(
     userId: { type: String, default: null, index: true },
     country: { type: String },
     region: { type: String },
-    assignedAt: { type: Date, default: null },
+    assignedAt:      { type: Date, default: null },
+    cnamName:        { type: String },
+    capabilities:    { type: [String], default: ["voice"] },
+    forwardTo:       { type: String },
+    monthlyFeeCents: { type: Number, default: 0 },
+    billingRef:      { type: String },
+    portStatus:      { type: String, enum: ["none","porting-in","porting-out","ported"], default: "none" },
+    portRequestId:   { type: String },
   },
   { timestamps: true, _id: false }
 );

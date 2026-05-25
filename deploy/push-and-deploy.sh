@@ -36,7 +36,15 @@ if [ -z "${FREESWITCH_SSH_KEY:-}" ]; then
 fi
 
 KEY_FILE="$(mktemp)"
-echo "${FREESWITCH_SSH_KEY}" | base64 -d > "$KEY_FILE"
+# Key may be stored as raw PEM or as base64-encoded PEM.
+# Try base64 decode first; if it yields a valid PEM header, use it.
+# Otherwise write the secret directly as-is (already PEM).
+DECODED="$(echo "${FREESWITCH_SSH_KEY}" | base64 -d 2>/dev/null || true)"
+if echo "$DECODED" | grep -q "BEGIN"; then
+  printf '%s\n' "$DECODED" > "$KEY_FILE"
+else
+  printf '%s\n' "${FREESWITCH_SSH_KEY}" > "$KEY_FILE"
+fi
 chmod 600 "$KEY_FILE"
 
 cleanup() { rm -f "$KEY_FILE"; }

@@ -293,7 +293,7 @@ function CallSettingsSheet() {
   );
 }
 
-type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "phone" | "verify";
+type Sheet = "none" | "topup" | "plan" | "history" | "numbers" | "terms" | "privacy" | "contact" | "phone" | "verify" | "security";
 
 export default function Profile() {
   const { logout, user: authUser } = useAuth();
@@ -330,6 +330,16 @@ export default function Profile() {
   const [verifyDocName, setVerifyDocName] = useState<string>("");
   const [submittingVerify, setSubmittingVerify] = useState(false);
   const [policyAgreed, setPolicyAgreed] = useState(false);
+
+  // ── 2FA / Security state ──────────────────────────────────────────────────
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [totpSecret, setTotpSecret] = useState("");
+  const [totpOtpAuth, setTotpOtpAuth] = useState("");
+  const [totpSetupStep, setTotpSetupStep] = useState<"idle" | "setup" | "verify" | "disable">("idle");
+  const [totpToken, setTotpToken] = useState("");
+  const [totpLoading, setTotpLoading] = useState(false);
+  const [totpMsg, setTotpMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [popiaLoading, setPopiaLoading] = useState(false);
   const verifyFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -458,6 +468,74 @@ export default function Profile() {
 
   const userPhone = (user as any)?.phone as string | undefined;
   const userPhoneVerified = (user as any)?.phoneVerified as boolean | undefined;
+
+  // ── 2FA functions ────────────────────────────────────────────────────────
+  const openSecuritySheet = async () => {
+    setTotpMsg(null); setTotpToken(""); setTotpSetupStep("idle");
+    setSheet("security");
+    try {
+      const r = await fetch("/api/security/2fa/status", { credentials: "include" });
+      const d = await r.json();
+      setTotpEnabled(d.enabled ?? false);
+    } catch { /* ignore */ }
+  };
+
+  const startTotpSetup = async () => {
+    setTotpLoading(true); setTotpMsg(null);
+    try {
+      const r = await fetch("/api/security/2fa/setup", { method: "POST", credentials: "include" });
+      const d = await r.json();
+      if (!r.ok) { setTotpMsg({ text: d.error ?? "Setup failed", ok: false }); return; }
+      setTotpSecret(d.secret);
+      setTotpOtpAuth(d.otpAuthUrl);
+      setTotpSetupStep("verify");
+    } finally { setTotpLoading(false); }
+  };
+
+  const verifyTotp = async () => {
+    if (!totpToken.trim()) return;
+    setTotpLoading(true); setTotpMsg(null);
+    try {
+      const r = await fetch("/api/security/2fa/verify", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: totpToken.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setTotpMsg({ text: d.error ?? "Invalid token", ok: false }); return; }
+      setTotpEnabled(true); setTotpSetupStep("idle"); setTotpToken("");
+      setTotpMsg({ text: "2FA is now active on your account.", ok: true });
+    } finally { setTotpLoading(false); }
+  };
+
+  const disableTotp = async () => {
+    if (!totpToken.trim()) return;
+    setTotpLoading(true); setTotpMsg(null);
+    try {
+      const r = await fetch("/api/security/2fa/disable", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: totpToken.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setTotpMsg({ text: d.error ?? "Invalid token", ok: false }); return; }
+      setTotpEnabled(false); setTotpSetupStep("idle"); setTotpToken("");
+      setTotpMsg({ text: "2FA has been disabled.", ok: true });
+    } finally { setTotpLoading(false); }
+  };
+
+  const downloadPopiaExport = async () => {
+    setPopiaLoading(true);
+    try {
+      const r = await fetch("/api/security/popia/export", { method: "POST", credentials: "include" });
+      if (!r.ok) { alert("Failed to generate export."); return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `popia-export-${new Date().toISOString().slice(0,10)}.json`;
+      a.click(); URL.revokeObjectURL(url);
+    } finally { setPopiaLoading(false); }
+  };
 
   const openPhoneSheet = () => {
     setPhoneInput(userPhone ?? "");
@@ -832,6 +910,24 @@ export default function Profile() {
             onClick={() => setSheet("verify")}
           />
         )}
+      </Section>
+
+      {/* ── Security ────────────────────────── */}
+      <Section title="Security">
+        <Row
+          icon={<Shield size={15} />}
+          iconBg="rgba(94,92,230,0.18)"
+          label="Two-Factor Authentication"
+          value={totpEnabled ? "Enabled" : "Off"}
+          onClick={openSecuritySheet}
+        />
+        <Row
+          icon={<FileText size={15} />}
+          iconBg="rgba(10,132,255,0.15)"
+          label="Download My Data (POPIA)"
+          value={popiaLoading ? "Downloading…" : "Export"}
+          onClick={popiaLoading ? undefined : downloadPopiaExport}
+        />
       </Section>
 
       {/* ── Preferences ─────────────────────── */}

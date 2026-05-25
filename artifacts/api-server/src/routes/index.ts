@@ -28,6 +28,13 @@ import tenantsRouter from "./tenants";
 import conferenceRouter from "./conference";
 import setupRouter from "./setup";
 import adminOpsRouter from "./adminOps";
+import ivrRouter from "./ivr";
+import queuesRouter from "./queues";
+import cdrExportRouter from "./cdrExport";
+import securityRouter from "./security";
+import analyticsRouter from "./analytics";
+import portRequestsRouter from "./portRequests";
+import resellerCommissionsRouter from "./resellerCommissions";
 
 const router: IRouter = Router();
 
@@ -60,5 +67,12 @@ router.use(logLevelRouter);
 router.use(tenantsRouter);
 router.use(conferenceRouter);
 router.use(adminOpsRouter);
+router.use(ivrRouter);
+router.use(queuesRouter);
+router.use(cdrExportRouter);
+router.use(securityRouter);
+router.use(analyticsRouter);
+router.use(portRequestsRouter);
+router.use(resellerCommissionsRouter);
 
 export default router;

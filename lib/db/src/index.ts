@@ -103,3 +103,7 @@ export * from "./models/CallEvent";
 export * from "./models/AlertRule";
 export * from "./models/AlertEvent";
 export * from "./models/Voicemail";
+export * from "./models/CallQueue";
+export * from "./models/IvrFlow";
+export * from "./models/PortRequest";
+export * from "./models/ResellerCommission";

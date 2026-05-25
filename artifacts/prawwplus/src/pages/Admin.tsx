@@ -17,6 +17,9 @@ import {
   Loader2, Bell, BellRing, Send, Users2, Wrench, Info, Server, Database,
   Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff, Building2,
   Cpu, HardDrive, MemoryStick, Radio, GitBranch, Zap, TrendingUp,
+  LineChart, BarChart2, ShieldCheckIcon, PhoneForwarded, List, Network,
+  Download, PieChart, MessageSquare, UserCog, UserPlus, Calendar,
+  ShieldQuestion, FileBarChart, GitMerge,
 } from "lucide-react";
 
 const TABS = [
@@ -38,6 +41,10 @@ const TABS = [
   { id: "alert-rules",  label: "Alerts",        icon: BellRing    },
   { id: "ip-blocks",    label: "IP Blocks",     icon: ShieldOff   },
   { id: "tenants",      label: "Tenants",       icon: Building2   },
+  { id: "ivr",          label: "IVR & Queues",  icon: Network      },
+  { id: "security",     label: "Security",      icon: ShieldCheck  },
+  { id: "analytics",    label: "Analytics",     icon: LineChart    },
+  { id: "commissions",  label: "Commissions",   icon: TrendingUp   },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -4126,6 +4133,10 @@ export default function Admin() {
         {tab === "alert-rules"   && <AlertRulesTab />}
         {tab === "ip-blocks"     && <IpBlocksTab />}
         {tab === "tenants"       && <TenantsTab />}
+        {tab === "ivr"           && <IvrQueuesTab />}
+        {tab === "security"      && <SecurityTab />}
+        {tab === "analytics"     && <AnalyticsTab />}
+        {tab === "commissions"   && <CommissionsTab />}
       </div>
     </div>
   );
@@ -4778,6 +4789,862 @@ function TenantsTab() {
               <p className="text-sm">No tenant data found</p>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── IVR & Queues Tab (Phase 2) ───────────────────────────────────────────────
+
+type IvrSection = "flows" | "queues";
+
+function IvrQueuesTab() {
+  const [section, setSection] = useState<IvrSection>("flows");
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Network className="w-6 h-6 text-indigo-400" />
+        <h2 className="text-xl font-bold text-white">IVR & Call Queues</h2>
+      </div>
+      <div className="flex gap-2">
+        {(["flows","queues"] as IvrSection[]).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSection(s)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              section === s
+                ? "bg-indigo-600 text-white"
+                : "bg-white/5 text-gray-400 hover:bg-white/10"
+            }`}
+          >
+            {s === "flows" ? "IVR Flows" : "Call Queues"}
+          </button>
+        ))}
+      </div>
+      {section === "flows" ? <IvrFlowsPanel /> : <CallQueuesPanel />}
+    </div>
+  );
+}
+
+interface IvrFlow {
+  id: string;
+  name: string;
+  extension: number;
+  description?: string;
+  active: boolean;
+  startNode: string;
+  nodes: unknown[];
+  tenantId?: string;
+}
+
+function IvrFlowsPanel() {
+  const [flows, setFlows] = useState<IvrFlow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", extension: "", description: "", startNode: "main", active: true });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await adminFetch("/api/ivr/flows");
+      const d = await r.json();
+      setFlows(d.flows ?? []);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function save() {
+    setSaving(true); setErr("");
+    try {
+      const r = await adminFetch("/api/ivr/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, extension: Number(form.extension) }),
+      });
+      if (!r.ok) { const d: { error?: string } = await r.json(); setErr(d.error ?? "Failed"); return; }
+      setShowForm(false);
+      setForm({ name: "", extension: "", description: "", startNode: "main", active: true });
+      await load();
+    } finally { setSaving(false); }
+  }
+
+  async function del(id: string) {
+    if (!confirm("Delete this IVR flow?")) return;
+    await adminFetch(`/api/ivr/flows/${id}`, { method: "DELETE" });
+    await load();
+  }
+
+  async function push(id: string) {
+    const r = await adminFetch(`/api/ivr/flows/${id}/push`, { method: "POST" });
+    const d: { message?: string; error?: string } = await r.json();
+    alert(d.message ?? d.error ?? "Done");
+  }
+
+  if (loading) return <div className="text-gray-400 text-sm py-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors">
+          <GitBranch className="w-4 h-4" /> New IVR Flow
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-white">New IVR Flow</h3>
+          {err && <p className="text-red-400 text-sm">{err}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Name</label>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Main Menu" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Extension / DID</label>
+              <input value={form.extension} onChange={e => setForm(f => ({ ...f, extension: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="e.g. 7000" type="number" />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-gray-400 mb-1 block">Description</label>
+              <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Optional description" />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button onClick={save} disabled={saving} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">
+              {saving ? "Creating…" : "Create"}
+            </button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {flows.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <Network className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No IVR flows configured yet</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {flows.map(f => (
+            <div key={f.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-2 h-2 rounded-full ${f.active ? "bg-green-400" : "bg-gray-600"}`} />
+                <div>
+                  <p className="text-sm font-medium text-white">{f.name}</p>
+                  <p className="text-xs text-gray-500">Ext {f.extension} · {f.nodes?.length ?? 0} nodes{f.description ? ` · ${f.description}` : ""}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => push(f.id)} className="text-xs px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors">Push to FS</button>
+                <button onClick={() => del(f.id)} className="text-xs px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface CallQueue {
+  id: string;
+  name: string;
+  extension: number;
+  strategy: string;
+  active: boolean;
+  agents: { userId: string; extension: number; paused: boolean; penalty: number }[];
+  liveDepth?: number;
+  liveStats?: { answered: number; abandoned: number; avgWaitSec: number } | null;
+}
+
+function CallQueuesPanel() {
+  const [queues, setQueues] = useState<CallQueue[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", extension: "", strategy: "round-robin", maxWaitSec: "120", maxQueueDepth: "20" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await adminFetch("/api/queues");
+      const d = await r.json();
+      setQueues(d.queues ?? []);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function save() {
+    setSaving(true); setErr("");
+    try {
+      const r = await adminFetch("/api/queues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, extension: Number(form.extension), maxWaitSec: Number(form.maxWaitSec), maxQueueDepth: Number(form.maxQueueDepth) }),
+      });
+      if (!r.ok) { const d: { error?: string } = await r.json(); setErr(d.error ?? "Failed"); return; }
+      setShowForm(false);
+      setForm({ name: "", extension: "", strategy: "round-robin", maxWaitSec: "120", maxQueueDepth: "20" });
+      await load();
+    } finally { setSaving(false); }
+  }
+
+  async function del(id: string) {
+    if (!confirm("Delete this queue?")) return;
+    await adminFetch(`/api/queues/${id}`, { method: "DELETE" });
+    await load();
+  }
+
+  if (loading) return <div className="text-gray-400 text-sm py-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+
+  const strategies = ["round-robin","least-recent","fewest-calls","random","linear","ringall"];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors">
+          <List className="w-4 h-4" /> New Queue
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-white">New Call Queue</h3>
+          {err && <p className="text-red-400 text-sm">{err}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Queue Name</label>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Support Queue" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Extension</label>
+              <input value={form.extension} onChange={e => setForm(f => ({ ...f, extension: e.target.value }))} type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="8000" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Strategy</label>
+              <select value={form.strategy} onChange={e => setForm(f => ({ ...f, strategy: e.target.value }))} className="w-full bg-gray-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+                {strategies.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Max Wait (secs)</label>
+              <input value={form.maxWaitSec} onChange={e => setForm(f => ({ ...f, maxWaitSec: e.target.value }))} type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button onClick={save} disabled={saving} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">
+              {saving ? "Creating…" : "Create"}
+            </button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {queues.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <List className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No call queues configured yet</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {queues.map(q => (
+            <div key={q.id} className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${q.active ? "bg-green-400" : "bg-gray-600"}`} />
+                  <div>
+                    <p className="text-sm font-medium text-white">{q.name}</p>
+                    <p className="text-xs text-gray-500">Ext {q.extension} · {q.strategy} · {q.agents?.length ?? 0} agents</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  {q.liveStats && (
+                    <div className="flex gap-4 text-xs">
+                      <span className="text-green-400">{q.liveStats.answered} ans</span>
+                      <span className="text-red-400">{q.liveStats.abandoned} abn</span>
+                      <span className="text-blue-400">{q.liveStats.avgWaitSec?.toFixed(0)}s avg wait</span>
+                    </div>
+                  )}
+                  {q.liveDepth !== undefined && q.liveDepth > 0 && (
+                    <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full">{q.liveDepth} waiting</span>
+                  )}
+                  <button onClick={() => del(q.id)} className="text-xs px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors">Delete</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Security Tab (Phase 4) ────────────────────────────────────────────────────
+
+interface SecurityOverview {
+  totalUsers: number;
+  twoFaEnabledCount: number;
+  twoFaAdoptionPct: number;
+  lockedAccounts: number;
+  pendingVerification: number;
+}
+
+function SecurityTab() {
+  const [overview, setOverview] = useState<SecurityOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [resetUserId, setResetUserId] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    adminFetch("/api/security/overview")
+      .then((r: Response) => r.json())
+      .then((d: SecurityOverview) => setOverview(d))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function resetTotp() {
+    if (!resetUserId.trim()) { setMsg("Enter a user ID first"); return; }
+    if (!confirm(`Force-disable 2FA for user ${resetUserId}?`)) return;
+    setResetting(true); setMsg("");
+    try {
+      const r = await adminFetch(`/api/security/2fa/admin-reset/${resetUserId.trim()}`, { method: "DELETE" });
+      const d: { error?: string } = await r.json();
+      setMsg(r.ok ? "2FA reset successfully." : d.error ?? "Failed");
+      if (r.ok) setResetUserId("");
+    } finally { setResetting(false); }
+  }
+
+  if (loading) return <div className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-400" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <ShieldCheck className="w-6 h-6 text-green-400" />
+        <h2 className="text-xl font-bold text-white">Security & Compliance</h2>
+      </div>
+
+      {overview && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: "Total Users",       value: overview.totalUsers,          icon: Users,         color: "text-blue-400"  },
+            { label: "2FA Enabled",       value: overview.twoFaEnabledCount,   icon: ShieldCheck,   color: "text-green-400" },
+            { label: "2FA Adoption",      value: `${overview.twoFaAdoptionPct}%`, icon: ShieldCheckIcon, color: "text-emerald-400" },
+            { label: "Locked Accounts",   value: overview.lockedAccounts,      icon: ShieldQuestion, color: "text-red-400"   },
+          ].map(stat => (
+            <div key={stat.label} className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+              <stat.icon className={`w-8 h-8 ${stat.color}`} />
+              <div>
+                <p className="text-2xl font-bold text-white">{stat.value}</p>
+                <p className="text-xs text-gray-400">{stat.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-green-400" />Admin: Reset User 2FA</h3>
+          <p className="text-xs text-gray-400">Force-disable TOTP 2FA for a user (e.g. lost authenticator). Use their User ID.</p>
+          {msg && <p className={`text-sm ${msg.includes("success") ? "text-green-400" : "text-red-400"}`}>{msg}</p>}
+          <div className="flex gap-2">
+            <input
+              value={resetUserId}
+              onChange={e => setResetUserId(e.target.value)}
+              placeholder="User ID (UUID)"
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <button
+              onClick={resetTotp}
+              disabled={resetting}
+              className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {resetting ? "Resetting…" : "Reset 2FA"}
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2"><FileText className="w-4 h-4 text-blue-400" />POPIA Compliance</h3>
+          <p className="text-xs text-gray-400">PRaww+ is designed for POPIA compliance (Protection of Personal Information Act, South Africa).</p>
+          <ul className="space-y-2 text-xs text-gray-300">
+            {[
+              "Users can request full data export from their Profile page",
+              "Admin can verify 2FA status per user",
+              "Audit log tracks all admin actions",
+              "Session expiry enforced platform-wide",
+              "IP block list for threat mitigation",
+            ].map(item => (
+              <li key={item} className="flex items-start gap-2">
+                <Check className="w-3 h-3 text-green-400 mt-0.5 shrink-0" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2"><ShieldQuestion className="w-4 h-4 text-yellow-400" />Security Recommendations</h3>
+        {overview && overview.twoFaAdoptionPct < 80 && (
+          <div className="flex items-start gap-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+            <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-yellow-300">Only {overview.twoFaAdoptionPct}% of users have 2FA enabled. Consider enforcing 2FA for admin accounts.</p>
+          </div>
+        )}
+        {overview && overview.lockedAccounts > 0 && (
+          <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-red-300">{overview.lockedAccounts} account{overview.lockedAccounts !== 1 ? "s are" : " is"} currently locked. Review in the Users tab.</p>
+          </div>
+        )}
+        {overview && overview.twoFaAdoptionPct >= 80 && overview.lockedAccounts === 0 && (
+          <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+            <Check className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-green-300">Security posture looks good. 2FA adoption is above 80% and no locked accounts.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Analytics Tab (Phase 8) ──────────────────────────────────────────────────
+
+interface AnalyticsSummary {
+  totalCalls: number;
+  completedCalls: number;
+  missedCalls: number;
+  failedCalls: number;
+  totalBillsec: number;
+  avgBillsec: number;
+  totalCoins: number;
+  answerRate: number;
+  inboundCalls: number;
+  outboundCalls: number;
+  from: number;
+  to: number;
+}
+
+interface DailyBucket {
+  date: string;
+  totalCalls: number;
+  completedCalls: number;
+  missedCalls: number;
+  totalBillsec: number;
+  totalCoins: number;
+  answerRate: number;
+}
+
+interface TopCaller {
+  userId: string;
+  totalCalls: number;
+  totalBillsec: number;
+  totalCoins: number;
+}
+
+interface DestStat {
+  destination: string;
+  count: number;
+  totalBillsec: number;
+  completedCalls: number;
+}
+
+interface AnalyticsAll {
+  summary: AnalyticsSummary;
+  daily: DailyBucket[];
+  topCallers: TopCaller[];
+  destinations: DestStat[];
+}
+
+function fmtSecs(s: number): string {
+  if (s < 60)  return `${s}s`;
+  if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+}
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-ZA", { month: "short", day: "numeric" });
+}
+
+function AnalyticsTab() {
+  const [data, setData] = useState<AnalyticsAll | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(7);
+  const [section, setSection] = useState<"overview" | "daily" | "callers" | "destinations">("overview");
+
+  async function load(d: number) {
+    setLoading(true);
+    try {
+      const r = await adminFetch(`/api/analytics/all?days=${d}`);
+      const res: AnalyticsAll = await r.json();
+      setData(res);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(days); }, [days]);
+
+  const sections: { id: typeof section; label: string }[] = [
+    { id: "overview",     label: "Summary"     },
+    { id: "daily",        label: "Daily Trend" },
+    { id: "callers",      label: "Top Callers" },
+    { id: "destinations", label: "Destinations"},
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <LineChart className="w-6 h-6 text-purple-400" />
+          <h2 className="text-xl font-bold text-white">Analytics & QoS</h2>
+        </div>
+        <div className="flex gap-2">
+          {[7, 14, 30, 90].map(d => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                days === d ? "bg-purple-600 text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        {sections.map(s => (
+          <button
+            key={s.id}
+            onClick={() => setSection(s.id)}
+            className={`px-4 py-2 text-sm rounded-lg font-medium transition-colors ${
+              section === s.id ? "bg-purple-600 text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16"><Loader2 className="w-8 h-8 animate-spin mx-auto text-purple-400" /></div>
+      ) : !data ? (
+        <div className="text-center py-12 text-gray-500 text-sm">Failed to load analytics</div>
+      ) : (
+        <>
+          {section === "overview" && <AnalyticsSummaryPanel summary={data.summary} />}
+          {section === "daily"    && <DailyTrendPanel daily={data.daily} />}
+          {section === "callers"  && <TopCallersPanel callers={data.topCallers} />}
+          {section === "destinations" && <DestinationsPanel destinations={data.destinations} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AnalyticsSummaryPanel({ summary }: { summary: AnalyticsSummary }) {
+  const cards = [
+    { label: "Total Calls",      value: summary.totalCalls,                  icon: Phone,      color: "text-blue-400"   },
+    { label: "Completed",        value: summary.completedCalls,               icon: Check,      color: "text-green-400"  },
+    { label: "Missed",           value: summary.missedCalls,                  icon: PhoneOff,   color: "text-red-400"    },
+    { label: "Answer Rate",      value: `${summary.answerRate?.toFixed(1)}%`, icon: BarChart2,  color: "text-emerald-400" },
+    { label: "Total Talk Time",  value: fmtSecs(summary.totalBillsec),        icon: Clock,      color: "text-purple-400" },
+    { label: "Avg Call Duration",value: fmtSecs(summary.avgBillsec),          icon: TrendingUp, color: "text-yellow-400" },
+    { label: "Coins Used",       value: summary.totalCoins?.toFixed(2),       icon: BadgeDollarSign, color: "text-orange-400" },
+    { label: "Inbound / Out",    value: `${summary.inboundCalls} / ${summary.outboundCalls}`, icon: PhoneForwarded, color: "text-cyan-400" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {cards.map(c => (
+        <div key={c.label} className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+          <c.icon className={`w-8 h-8 ${c.color} shrink-0`} />
+          <div>
+            <p className="text-xl font-bold text-white">{c.value}</p>
+            <p className="text-xs text-gray-400">{c.label}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DailyTrendPanel({ daily }: { daily: DailyBucket[] }) {
+  if (!daily?.length) return <div className="text-center py-12 text-gray-500 text-sm">No daily data available</div>;
+
+  const max = Math.max(...daily.map(d => d.totalCalls), 1);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-400">Total calls per day (bar height = relative volume)</p>
+      <div className="flex items-end gap-1 h-32">
+        {daily.map(d => (
+          <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group relative">
+            <div
+              className="w-full bg-purple-500/60 hover:bg-purple-500 rounded-t transition-colors"
+              style={{ height: `${Math.max(4, (d.totalCalls / max) * 100)}%` }}
+              title={`${d.date}: ${d.totalCalls} calls, ${d.answerRate?.toFixed(0)}% ans`}
+            />
+            <span className="text-[9px] text-gray-600 rotate-45 origin-left whitespace-nowrap absolute -bottom-4">{fmtDate(d.date)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-8 overflow-auto">
+        <table className="w-full text-xs text-gray-300 border-collapse">
+          <thead>
+            <tr className="border-b border-white/10">
+              {["Date","Total","Completed","Missed","Talk Time","Coins","Ans%"].map(h => (
+                <th key={h} className="text-left py-2 px-2 text-gray-400 font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...daily].reverse().map(d => (
+              <tr key={d.date} className="border-b border-white/5 hover:bg-white/5">
+                <td className="py-1.5 px-2">{fmtDate(d.date)}</td>
+                <td className="py-1.5 px-2 font-medium">{d.totalCalls}</td>
+                <td className="py-1.5 px-2 text-green-400">{d.completedCalls}</td>
+                <td className="py-1.5 px-2 text-red-400">{d.missedCalls}</td>
+                <td className="py-1.5 px-2">{fmtSecs(d.totalBillsec)}</td>
+                <td className="py-1.5 px-2 text-yellow-400">{d.totalCoins?.toFixed(2)}</td>
+                <td className="py-1.5 px-2">{d.answerRate?.toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TopCallersPanel({ callers }: { callers: TopCaller[] }) {
+  if (!callers?.length) return <div className="text-center py-12 text-gray-500 text-sm">No caller data available</div>;
+  return (
+    <div className="overflow-auto">
+      <table className="w-full text-xs text-gray-300 border-collapse">
+        <thead>
+          <tr className="border-b border-white/10">
+            {["#","User ID","Total Calls","Talk Time","Coins Used"].map(h => (
+              <th key={h} className="text-left py-2 px-3 text-gray-400 font-medium">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {callers.map((c, i) => (
+            <tr key={c.userId} className="border-b border-white/5 hover:bg-white/5">
+              <td className="py-2 px-3 font-bold text-gray-500">{i + 1}</td>
+              <td className="py-2 px-3 font-mono text-purple-300 max-w-[160px] truncate">{c.userId}</td>
+              <td className="py-2 px-3 font-semibold">{c.totalCalls}</td>
+              <td className="py-2 px-3">{fmtSecs(c.totalBillsec)}</td>
+              <td className="py-2 px-3 text-yellow-400">{c.totalCoins?.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DestinationsPanel({ destinations }: { destinations: DestStat[] }) {
+  if (!destinations?.length) return <div className="text-center py-12 text-gray-500 text-sm">No destination data available</div>;
+  const max = Math.max(...destinations.map(d => d.count), 1);
+  return (
+    <div className="space-y-2">
+      {destinations.map(d => (
+        <div key={d.destination} className="bg-white/5 border border-white/10 rounded-lg p-3 flex items-center gap-4">
+          <Phone className="w-4 h-4 text-gray-500 shrink-0" />
+          <span className="font-mono text-sm text-white w-36 shrink-0">{d.destination || "(unknown)"}</span>
+          <div className="flex-1 bg-white/5 rounded-full h-2 overflow-hidden">
+            <div
+              className="h-full bg-purple-500 rounded-full"
+              style={{ width: `${(d.count / max) * 100}%` }}
+            />
+          </div>
+          <span className="text-xs text-gray-300 w-16 text-right">{d.count} calls</span>
+          <span className="text-xs text-gray-500 w-20 text-right">{fmtSecs(d.totalBillsec)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Commissions Tab (Phase 7) ────────────────────────────────────────────────
+
+interface Commission {
+  id: string;
+  resellerId: string;
+  type: string;
+  amountCents: number;
+  status: "pending" | "approved" | "paid" | "cancelled";
+  description?: string;
+  referenceId?: string;
+  createdAt: string;
+}
+
+interface CommissionSummary {
+  pendingCents: number;
+  approvedCents: number;
+  paidCents: number;
+  lifetimeCents: number;
+  pendingCount: number;
+  approvedCount: number;
+}
+
+function CommissionsTab() {
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [summary, setSummary] = useState<CommissionSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [resellerIdFilter, setResellerIdFilter] = useState("");
+  const [approveId, setApproveId] = useState("");
+  const [approving, setApproving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function load(rid?: string) {
+    setLoading(true);
+    try {
+      const qs = rid ? `?resellerId=${rid}` : "";
+      const r = await adminFetch(`/api/reseller/commissions${qs}`);
+      const d: { commissions?: Commission[]; summary?: CommissionSummary } = await r.json();
+      setCommissions(d.commissions ?? []);
+      setSummary(d.summary ?? null);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function approve() {
+    if (!approveId.trim()) { setMsg("Enter a reseller ID"); return; }
+    setApproving(true); setMsg("");
+    try {
+      const r = await adminFetch("/api/reseller/commissions/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resellerId: approveId.trim() }),
+      });
+      const d: { approved?: number; error?: string } = await r.json();
+      setMsg(r.ok ? `Approved ${d.approved} commission(s).` : d.error ?? "Failed");
+      if (r.ok) await load(approveId.trim());
+    } finally { setApproving(false); }
+  }
+
+  const formatRand = (cents: number) => `R${(cents / 100).toFixed(2)}`;
+  const statusColor: Record<string, string> = {
+    pending:   "text-yellow-400 bg-yellow-400/10",
+    approved:  "text-blue-400 bg-blue-400/10",
+    paid:      "text-green-400 bg-green-400/10",
+    cancelled: "text-gray-500 bg-gray-500/10",
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <TrendingUp className="w-6 h-6 text-orange-400" />
+        <h2 className="text-xl font-bold text-white">Reseller Commissions</h2>
+      </div>
+
+      {summary && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: "Pending",   value: formatRand(summary.pendingCents),   color: "text-yellow-400", note: `${summary.pendingCount} items`  },
+            { label: "Approved",  value: formatRand(summary.approvedCents),  color: "text-blue-400",   note: `${summary.approvedCount} items` },
+            { label: "Paid Out",  value: formatRand(summary.paidCents),      color: "text-green-400",  note: ""                               },
+            { label: "Lifetime",  value: formatRand(summary.lifetimeCents),  color: "text-orange-400", note: ""                               },
+          ].map(s => (
+            <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-gray-400 mt-1">{s.label}{s.note ? ` · ${s.note}` : ""}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-3 flex-wrap items-end">
+        <div>
+          <label className="text-xs text-gray-400 mb-1 block">Filter by Reseller ID</label>
+          <input
+            value={resellerIdFilter}
+            onChange={e => setResellerIdFilter(e.target.value)}
+            placeholder="Reseller user ID"
+            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white w-64"
+          />
+        </div>
+        <button
+          onClick={() => load(resellerIdFilter || undefined)}
+          className="px-4 py-2 bg-orange-600/80 hover:bg-orange-600 text-white text-sm rounded-lg transition-colors"
+        >
+          Filter
+        </button>
+        <button
+          onClick={() => { setResellerIdFilter(""); load(); }}
+          className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+
+      <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-white">Approve Pending Commissions</h3>
+        {msg && <p className={`text-sm ${msg.includes("Approved") ? "text-green-400" : "text-red-400"}`}>{msg}</p>}
+        <div className="flex gap-2">
+          <input
+            value={approveId}
+            onChange={e => setApproveId(e.target.value)}
+            placeholder="Reseller User ID"
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <button
+            onClick={approve}
+            disabled={approving}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {approving ? "Approving…" : "Approve All"}
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8"><Loader2 className="w-6 h-6 animate-spin mx-auto text-orange-400" /></div>
+      ) : commissions.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No commissions found</p>
+        </div>
+      ) : (
+        <div className="overflow-auto">
+          <table className="w-full text-xs text-gray-300 border-collapse">
+            <thead>
+              <tr className="border-b border-white/10">
+                {["Type","Amount","Status","Description","Reference","Date"].map(h => (
+                  <th key={h} className="text-left py-2 px-3 text-gray-400 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {commissions.map(c => (
+                <tr key={c.id} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="py-2 px-3 font-medium capitalize">{c.type.replace(/_/g, " ")}</td>
+                  <td className="py-2 px-3 text-orange-400 font-semibold">{formatRand(c.amountCents)}</td>
+                  <td className="py-2 px-3">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColor[c.status] ?? ""}`}>
+                      {c.status}
+                    </span>
+                  </td>
+                  <td className="py-2 px-3 text-gray-400 max-w-[200px] truncate">{c.description ?? "—"}</td>
+                  <td className="py-2 px-3 font-mono text-gray-500 max-w-[120px] truncate">{c.referenceId ?? "—"}</td>
+                  <td className="py-2 px-3 text-gray-500">{new Date(c.createdAt).toLocaleDateString("en-ZA")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

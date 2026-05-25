@@ -18,6 +18,7 @@ import { startSessionSweeper, setSweepEslCommandFn } from "./sessionSweeper";
 import { setMediaWatchdogEsl } from "./mediaWatchdog";
 import { setSofiaRescanFn } from "./extension";
 import { cleanExpiredSipSessions } from "./callSession";
+import { startInvoiceCron } from "./invoiceCron";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -142,6 +143,7 @@ export async function runStartup(): Promise<void> {
     await connectDB();
     logger.info("MongoDB connected");
     startReconciliationWorker();
+    startInvoiceCron();
   } catch (err) {
     logger.error({ err }, "MongoDB connection failed — server will still start but DB features won't work");
     return;
