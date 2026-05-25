@@ -3640,6 +3640,7 @@ function ObservabilityTab() {
 // ─── Operations Center Tab (Phase 1) ──────────────────────────────────────────
 
 const OP_SECTIONS = [
+  { id: "health",   label: "Platform Health" },
   { id: "infra",    label: "Infrastructure" },
   { id: "regs",     label: "Registrations"  },
   { id: "deploy",   label: "Deploy Info"    },
@@ -3668,6 +3669,35 @@ interface LiveRegs {
 interface TlsInfo { available: boolean; hostname?: string; daysRemaining?: number; issuer?: string; validTo?: string; healthy?: boolean; critical?: boolean; warning?: boolean; reason?: string }
 interface PushStats { fcm: {sent:number;failed:number}; webpush: {sent:number;failed:number}; expo: {sent:number;failed:number}; wakeups: number; totals: {sent:number;failed:number;successRate:number|null} }
 interface SseMetricsEvent { activeCalls: number; activeVertoClients: number; activeSipClients: number; uptimeSeconds: number; callsInitiated: number; callsAnswered: number; callsFailed: number }
+
+interface PlatformHealth {
+  esl: {
+    enabled: boolean;
+    connected: boolean;
+    host: string;
+    port: number;
+    disconnectedMs: number | null;
+    lastConnectedAt: number | null;
+    lastDisconnectedAt: number | null;
+    lastEventAt: number | null;
+    lastDisconnectReason: string | null;
+    reconnectAttempt: number;
+  };
+  eslBuffer: { depth: number };
+  queues: Array<{
+    queueId: string; queueName: string; depth: number;
+    avgWaitSec: number; longestWaitSec: number;
+    agentsAvail: number; agentsBusy: number; agentsPaused: number;
+    callsHandled: number; callsAbandoned: number; callsOverflowed: number;
+  }>;
+  reconciliation: {
+    cycles: number;
+    lastRanAt: number | null;
+    lastStale: { initiated: number; ringing: number; answered: number; bridged: number };
+    lastPending: number;
+  };
+  asOf: string;
+}
 
 function OpsDot({ ok, warn }: { ok: boolean; warn?: boolean }) {
   const color = ok ? "#30d158" : warn ? "#ff9f0a" : "#ff453a";
@@ -3706,12 +3736,13 @@ function fmtUptimeSec(s: number): string {
 }
 
 function OperationsTab() {
-  const [section, setSection] = React.useState<OpSection>("infra");
-  const [sysMetrics, setSysMetrics]   = React.useState<SysMetrics | null>(null);
-  const [gitInfo,    setGitInfo]      = React.useState<GitInfo | null>(null);
-  const [regs,       setRegs]         = React.useState<LiveRegs | null>(null);
-  const [tlsInfo,    setTlsInfo]      = React.useState<TlsInfo | null>(null);
-  const [pushStats,  setPushStats]    = React.useState<PushStats | null>(null);
+  const [section, setSection] = React.useState<OpSection>("health");
+  const [sysMetrics,      setSysMetrics]      = React.useState<SysMetrics | null>(null);
+  const [gitInfo,         setGitInfo]         = React.useState<GitInfo | null>(null);
+  const [regs,            setRegs]            = React.useState<LiveRegs | null>(null);
+  const [tlsInfo,         setTlsInfo]         = React.useState<TlsInfo | null>(null);
+  const [pushStats,       setPushStats]       = React.useState<PushStats | null>(null);
+  const [platformHealth,  setPlatformHealth]  = React.useState<PlatformHealth | null>(null);
   const [sseMetrics, setSseMetrics]   = React.useState<SseMetricsEvent | null>(null);
   const [events,     setEvents]       = React.useState<Array<{type:string;data:string;ts:number}>>([]);
   const [sseStatus,  setSseStatus]    = React.useState<"connecting"|"connected"|"disconnected">("connecting");
@@ -3724,18 +3755,20 @@ function OperationsTab() {
   // Fetch all polling data
   const loadAll = React.useCallback(async () => {
     try {
-      const [sm, gi, r, tls, ps] = await Promise.allSettled([
+      const [sm, gi, r, tls, ps, ph] = await Promise.allSettled([
         adminFetch("/admin/system-metrics"),
         adminFetch("/admin/git-info"),
         adminFetch("/admin/live-registrations"),
         adminFetch("/admin/tls-info"),
         adminFetch("/admin/push-stats"),
+        adminFetch("/admin/platform-health"),
       ]);
       if (sm.status  === "fulfilled") setSysMetrics(sm.value);
       if (gi.status  === "fulfilled") setGitInfo(gi.value);
       if (r.status   === "fulfilled") setRegs(r.value);
       if (tls.status === "fulfilled") setTlsInfo(tls.value);
       if (ps.status  === "fulfilled") setPushStats(ps.value);
+      if (ph.status  === "fulfilled") setPlatformHealth(ph.value);
       setLastRefresh(new Date());
       setError(null);
     } catch (e: any) {
@@ -3845,6 +3878,168 @@ function OperationsTab() {
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {OP_SECTIONS.map((s) => <SectionBtn key={s.id} id={s.id} label={s.label} />)}
       </div>
+
+      {/* ── Platform Health ──────────────────────────────────────── */}
+      {section === "health" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {!platformHealth && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.35)", fontSize: 13 }}>
+              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Loading platform health…
+            </div>
+          )}
+
+          {platformHealth && (() => {
+            const esl = platformHealth.esl;
+            const buf = platformHealth.eslBuffer;
+            const recon = platformHealth.reconciliation;
+            const eslDisconnSec = esl.disconnectedMs != null ? Math.round(esl.disconnectedMs / 1000) : null;
+            const lastEventAgo = esl.lastEventAt ? Math.round((Date.now() - esl.lastEventAt) / 1000) : null;
+            const lastReconAgo = recon.lastRanAt ? Math.round((Date.now() - recon.lastRanAt) / 1000) : null;
+            const totalStale = recon.lastStale.initiated + recon.lastStale.ringing + recon.lastStale.answered + recon.lastStale.bridged;
+
+            return (
+              <>
+                {/* ESL Connection */}
+                <div>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>FreeSWITCH ESL Connection</p>
+                  <div style={{ background: esl.connected ? "rgba(48,209,88,0.06)" : esl.enabled ? "rgba(255,69,58,0.08)" : "rgba(255,255,255,0.04)", border: `1px solid ${esl.connected ? "rgba(48,209,88,0.2)" : esl.enabled ? "rgba(255,69,58,0.25)" : "rgba(255,255,255,0.07)"}`, borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: esl.connected ? "#30d158" : esl.enabled ? "#ff453a" : "#636366", flexShrink: 0 }} />
+                      <span style={{ fontSize: 15, fontWeight: 700, color: esl.connected ? "#30d158" : esl.enabled ? "#ff453a" : "rgba(255,255,255,0.4)" }}>
+                        {!esl.enabled ? "Disabled (FREESWITCH_DOMAIN not set)" : esl.connected ? "Connected" : "Disconnected"}
+                      </span>
+                      {esl.enabled && !esl.connected && eslDisconnSec != null && (
+                        <span style={{ fontSize: 12, color: "#ff9f0a", background: "rgba(255,159,10,0.1)", borderRadius: 8, padding: "2px 8px" }}>
+                          {eslDisconnSec < 60 ? `${eslDisconnSec}s` : `${Math.round(eslDisconnSec / 60)}m`} disconnected
+                        </span>
+                      )}
+                      {esl.reconnectAttempt > 0 && (
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginLeft: "auto" }}>{esl.reconnectAttempt} reconnect attempt{esl.reconnectAttempt !== 1 ? "s" : ""}</span>
+                      )}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Host</span>
+                        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "monospace" }}>{esl.host || "—"}:{esl.port}</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Last Event</span>
+                        <span style={{ fontSize: 12, color: lastEventAgo != null && lastEventAgo > 60 ? "#ff9f0a" : "rgba(255,255,255,0.7)" }}>
+                          {lastEventAgo != null ? (lastEventAgo < 60 ? `${lastEventAgo}s ago` : `${Math.round(lastEventAgo / 60)}m ago`) : "—"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Last Connected</span>
+                        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{esl.lastConnectedAt ? new Date(esl.lastConnectedAt).toLocaleTimeString() : "—"}</span>
+                      </div>
+                      {esl.lastDisconnectReason && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Disconnect Reason</span>
+                          <span style={{ fontSize: 12, color: "#ff9f0a", fontFamily: "monospace" }}>{esl.lastDisconnectReason}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ESL Event Buffer */}
+                <div>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>ESL Event Buffer</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+                    <div style={{ background: buf.depth > 10 ? "rgba(255,159,10,0.07)" : "rgba(255,255,255,0.04)", border: `1px solid ${buf.depth > 10 ? "rgba(255,159,10,0.25)" : "rgba(255,255,255,0.07)"}`, borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Database style={{ width: 12, height: 12, color: "rgba(255,255,255,0.3)" }} />
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>In-Flight Events</span>
+                      </div>
+                      <span style={{ fontSize: 28, fontWeight: 700, color: buf.depth > 10 ? "#ff9f0a" : buf.depth > 0 ? "#1a8cff" : "rgba(255,255,255,0.9)", lineHeight: 1 }}>{buf.depth}</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{buf.depth === 0 ? "No queued ESL events" : buf.depth > 10 ? "High buffer — possible DB lag" : "Events being processed"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reconciliation Worker */}
+                <div>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Reconciliation Worker</p>
+                  <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                      <OpsCard label="Cycles Run"     value={recon.cycles}       icon={RefreshCw}  sub="since server start" />
+                      <OpsCard label="Last Ran"       value={lastReconAgo != null ? (lastReconAgo < 60 ? `${lastReconAgo}s ago` : `${Math.round(lastReconAgo/60)}m ago`) : "not yet"} icon={Clock} />
+                      <OpsCard label="Pending Events" value={recon.lastPending}  icon={Database}   color={recon.lastPending > 5 ? "#ff9f0a" : undefined} sub="persisted ESL events" />
+                      <OpsCard label="Stale (last)"   value={totalStale}         icon={AlertTriangle} color={totalStale > 0 ? "#ff9f0a" : undefined} sub="calls closed by reconciler" />
+                    </div>
+                    {totalStale > 0 && (
+                      <div style={{ background: "rgba(255,159,10,0.07)", border: "1px solid rgba(255,159,10,0.2)", borderRadius: 10, padding: "10px 14px" }}>
+                        <p style={{ fontSize: 11, fontWeight: 600, color: "#ff9f0a", margin: "0 0 6px" }}>Stale calls closed in last cycle</p>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                          {recon.lastStale.initiated > 0  && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>initiated: <strong style={{ color: "#ff9f0a" }}>{recon.lastStale.initiated}</strong></span>}
+                          {recon.lastStale.ringing > 0    && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>ringing: <strong style={{ color: "#ff9f0a" }}>{recon.lastStale.ringing}</strong></span>}
+                          {recon.lastStale.answered > 0   && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>answered: <strong style={{ color: "#ff453a" }}>{recon.lastStale.answered}</strong></span>}
+                          {recon.lastStale.bridged > 0    && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>bridged: <strong style={{ color: "#ff453a" }}>{recon.lastStale.bridged}</strong></span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Active Call Queues */}
+                <div>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
+                    Call Queues ({platformHealth.queues.length} active)
+                  </p>
+                  {platformHealth.queues.length === 0 ? (
+                    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "20px", textAlign: "center", color: "rgba(255,255,255,0.25)", fontSize: 13 }}>
+                      No active queues — callers will appear here once they enter a queue
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {platformHealth.queues.map((q) => (
+                        <div key={q.queueId} style={{ background: q.depth > 0 ? "rgba(26,140,255,0.06)" : "rgba(255,255,255,0.04)", border: `1px solid ${q.depth > 0 ? "rgba(26,140,255,0.2)" : "rgba(255,255,255,0.07)"}`, borderRadius: 12, padding: "14px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.85)" }}>{q.queueName || q.queueId}</span>
+                              {q.depth > 0 && (
+                                <span style={{ fontSize: 11, fontWeight: 700, color: "#1a8cff", background: "rgba(26,140,255,0.15)", borderRadius: 8, padding: "1px 8px" }}>
+                                  {q.depth} waiting
+                                </span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>ID: {q.queueId.slice(0, 8)}…</span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Depth</span>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: q.depth > 0 ? "#1a8cff" : "rgba(255,255,255,0.6)" }}>{q.depth}</span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Avg Wait</span>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: q.avgWaitSec > 120 ? "#ff9f0a" : "rgba(255,255,255,0.6)" }}>{q.avgWaitSec}s</span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Agents</span>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: q.agentsAvail > 0 ? "#30d158" : "#ff453a" }}>{q.agentsAvail}</span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Handled</span>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>{q.callsHandled}</span>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Abandoned</span>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: q.callsAbandoned > 0 ? "#ff9f0a" : "rgba(255,255,255,0.6)" }}>{q.callsAbandoned}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", margin: 0 }}>Refreshes every 15 s · All data is in-memory (no DB round-trip) · as of {new Date(platformHealth.asOf).toLocaleTimeString()}</p>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* ── Infrastructure ────────────────────────────────────────── */}
       {section === "infra" && (

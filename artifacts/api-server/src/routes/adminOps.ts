@@ -20,6 +20,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { metrics } from "../lib/metrics";
 import { getAllSessions, getAllSipSessions } from "../lib/callSession";
 import { eslStatus, getEslTrace } from "../lib/freeswitchESL";
+import { eslBufferDepth } from "../lib/eslEventBuffer";
+import { getAllQueueStats } from "../lib/callQueue";
+import { getReconciliationStats } from "../lib/reconciliationWorker";
 import { connectDB, UserModel } from "@workspace/db";
 import { logger } from "../lib/logger";
 
@@ -330,6 +333,39 @@ router.get("/admin/push-stats", requireAdmin, (_req, res) => {
 // Last 60 concurrent-call samples (1 per minute)
 router.get("/admin/concurrent-history", requireAdmin, (_req, res) => {
   res.json({ samples: concurrentHistory.slice(), asOf: new Date().toISOString() });
+});
+
+// ── Platform Health — ESL, ESL event buffer, call queues, reconciliation ───────
+//
+// Single endpoint surfacing the four real-time subsystem indicators the
+// System Health dashboard needs.  All data is in-memory (no DB query) so
+// response time is always sub-millisecond.
+router.get("/admin/platform-health", requireAdmin, (_req, res) => {
+  const esl    = eslStatus();
+  const recon  = getReconciliationStats();
+  const queues = getAllQueueStats();
+  const bufferDepth = eslBufferDepth();
+
+  res.json({
+    esl: {
+      enabled:            esl.enabled,
+      connected:          esl.connected,
+      host:               esl.host,
+      port:               esl.port,
+      disconnectedMs:     esl.connected ? 0 : (esl.lastDisconnectedAt ? Date.now() - esl.lastDisconnectedAt : null),
+      lastConnectedAt:    esl.lastConnectedAt,
+      lastDisconnectedAt: esl.lastDisconnectedAt,
+      lastEventAt:        esl.lastEventAt,
+      lastDisconnectReason: esl.lastDisconnectReason,
+      reconnectAttempt:   esl.reconnectAttempt,
+    },
+    eslBuffer: {
+      depth: bufferDepth,
+    },
+    queues,
+    reconciliation: recon,
+    asOf: new Date().toISOString(),
+  });
 });
 
 export default router;

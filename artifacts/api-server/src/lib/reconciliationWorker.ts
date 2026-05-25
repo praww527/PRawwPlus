@@ -15,6 +15,31 @@ const STALE_ANSWERED_MS     = 26 * 60 * 60 * 1000;
 const STALE_BRIDGED_MS      = 26 * 60 * 60 * 1000;
 const MAX_PENDING_ATTEMPTS  = 100;
 
+// ── Reconciliation stats (observable via /api/admin/platform-health) ──────────
+
+export interface ReconciliationStats {
+  cycles:       number;
+  lastRanAt:    number | null;
+  lastStale: {
+    initiated: number;
+    ringing:   number;
+    answered:  number;
+    bridged:   number;
+  };
+  lastPending:  number;
+}
+
+const reconciliationStats: ReconciliationStats = {
+  cycles:    0,
+  lastRanAt: null,
+  lastStale: { initiated: 0, ringing: 0, answered: 0, bridged: 0 },
+  lastPending: 0,
+};
+
+export function getReconciliationStats(): ReconciliationStats {
+  return { ...reconciliationStats, lastStale: { ...reconciliationStats.lastStale } };
+}
+
 export async function countPendingEslEvents(): Promise<number> {
   await connectDB();
   return PendingEslEventModel.countDocuments({ status: "pending" });
@@ -196,6 +221,12 @@ async function closeStaleCalls(): Promise<void> {
     ),
   ]);
 
+  // Persist stale counts into observable stats
+  reconciliationStats.lastStale.initiated = rInitiated.modifiedCount;
+  reconciliationStats.lastStale.ringing   = rRing.modifiedCount;
+  reconciliationStats.lastStale.answered  = rAnswered.modifiedCount;
+  reconciliationStats.lastStale.bridged   = rBridged.modifiedCount;
+
   if (rInitiated.modifiedCount > 0) {
     logger.warn({ count: rInitiated.modifiedCount }, "[Reconcile] Closed stale initiated calls (orphaned watchdog — likely a server restart)");
   }
@@ -217,8 +248,12 @@ async function closeStaleCalls(): Promise<void> {
 }
 
 export async function runReconciliationCycle(): Promise<void> {
+  const pendingBefore = await countPendingEslEvents().catch(() => 0);
   await processPendingEslBatch();
   await closeStaleCalls();
+  reconciliationStats.cycles++;
+  reconciliationStats.lastRanAt = Date.now();
+  reconciliationStats.lastPending = pendingBefore;
 }
 
 export function startReconciliationWorker(): void {
