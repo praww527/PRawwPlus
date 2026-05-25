@@ -23,7 +23,9 @@ import { eslStatus, getEslTrace } from "../lib/freeswitchESL";
 import { eslBufferDepth } from "../lib/eslEventBuffer";
 import { getAllQueueStats } from "../lib/callQueue";
 import { getReconciliationStats } from "../lib/reconciliationWorker";
+import { getHealthHistory } from "../lib/healthRingBuffer";
 import { connectDB, UserModel } from "@workspace/db";
+import mongoose from "mongoose";
 import { logger } from "../lib/logger";
 
 const execAsync = promisify(exec);
@@ -335,11 +337,55 @@ router.get("/admin/concurrent-history", requireAdmin, (_req, res) => {
   res.json({ samples: concurrentHistory.slice(), asOf: new Date().toISOString() });
 });
 
+// ── Public health gate — used by pre-deploy.sh and load-balancer probes ───────
+//
+// No auth required.  Returns HTTP 200 when all core subsystems are healthy,
+// HTTP 503 when one or more are unhealthy.  Intentionally fast (<5 ms) —
+// MongoDB readyState is checked in-process with no round-trip query.
+router.get("/health", async (_req, res) => {
+  const esl    = eslStatus();
+  const recon  = getReconciliationStats();
+
+  // MongoDB: check Mongoose connection state (1 = connected)
+  let mongoOk = false;
+  try {
+    await connectDB();
+    mongoOk = mongoose.connection.readyState === 1;
+  } catch {
+    mongoOk = false;
+  }
+
+  // ESL: disabled ESL counts as "ok" — not every deployment has FreeSWITCH
+  const eslOk = !esl.enabled || esl.connected;
+
+  // Reconciliation: must have run at least once in the last 5 minutes
+  const reconOk =
+    recon.lastRanAt !== null &&
+    Date.now() - recon.lastRanAt < 5 * 60 * 1000;
+
+  const healthy = mongoOk && eslOk;
+
+  res.status(healthy ? 200 : 503).json({
+    healthy,
+    services: {
+      mongodb:        { ok: mongoOk,  readyState: mongoose.connection.readyState },
+      esl:            { ok: eslOk,    enabled: esl.enabled, connected: esl.connected },
+      reconciliation: { ok: reconOk,  cycles: recon.cycles, lastRanAt: recon.lastRanAt },
+    },
+    asOf: new Date().toISOString(),
+  });
+});
+
 // ── Platform Health — ESL, ESL event buffer, call queues, reconciliation ───────
 //
 // Single endpoint surfacing the four real-time subsystem indicators the
 // System Health dashboard needs.  All data is in-memory (no DB query) so
 // response time is always sub-millisecond.
+// ── Platform Health History — sparkline data (ring buffer, up to 60 samples) ──
+router.get("/admin/platform-health-history", requireAdmin, (_req, res) => {
+  res.json({ samples: getHealthHistory(), asOf: new Date().toISOString() });
+});
+
 router.get("/admin/platform-health", requireAdmin, (_req, res) => {
   const esl    = eslStatus();
   const recon  = getReconciliationStats();

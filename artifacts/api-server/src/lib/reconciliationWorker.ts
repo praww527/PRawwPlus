@@ -5,7 +5,9 @@
 import { connectDB, PendingEslEventModel, CallModel } from "@workspace/db";
 import { logger } from "./logger";
 import { finalizeCall, answerCall, ringingCall } from "./callOrchestrator";
-import { EventResult } from "./eslEventBuffer";
+import { EventResult, eslBufferDepth } from "./eslEventBuffer";
+import { eslStatus } from "./freeswitchESL";
+import { pushHealthSample } from "./healthRingBuffer";
 
 const STALE_INITIATED_MS    = 30_000;            // 30 s — watchdog is 20 s; give a 10 s buffer
 const STALE_NON_TERMINAL_MS = 15 * 60 * 1000;   // 15 min for ringing/early_media
@@ -254,6 +256,22 @@ export async function runReconciliationCycle(): Promise<void> {
   reconciliationStats.cycles++;
   reconciliationStats.lastRanAt = Date.now();
   reconciliationStats.lastPending = pendingBefore;
+
+  // Push a sample into the health ring buffer for sparkline display
+  const esl = eslStatus();
+  const staleTotal =
+    reconciliationStats.lastStale.initiated +
+    reconciliationStats.lastStale.ringing  +
+    reconciliationStats.lastStale.answered +
+    reconciliationStats.lastStale.bridged;
+
+  pushHealthSample({
+    ts:           Date.now(),
+    eslConnected: esl.connected,
+    bufferDepth:  eslBufferDepth(),
+    staleTotal,
+    pendingCount: pendingBefore,
+  });
 }
 
 export function startReconciliationWorker(): void {

@@ -3670,6 +3670,14 @@ interface TlsInfo { available: boolean; hostname?: string; daysRemaining?: numbe
 interface PushStats { fcm: {sent:number;failed:number}; webpush: {sent:number;failed:number}; expo: {sent:number;failed:number}; wakeups: number; totals: {sent:number;failed:number;successRate:number|null} }
 interface SseMetricsEvent { activeCalls: number; activeVertoClients: number; activeSipClients: number; uptimeSeconds: number; callsInitiated: number; callsAnswered: number; callsFailed: number }
 
+interface HealthSample {
+  ts:           number;
+  eslConnected: boolean;
+  bufferDepth:  number;
+  staleTotal:   number;
+  pendingCount: number;
+}
+
 interface PlatformHealth {
   esl: {
     enabled: boolean;
@@ -3697,6 +3705,79 @@ interface PlatformHealth {
     lastPending: number;
   };
   asOf: string;
+}
+
+// ── Sparkline — pure SVG, no library ─────────────────────────────────────────
+function Sparkline({
+  values,
+  width = 200,
+  height = 36,
+  color = "#1a8cff",
+  fillOpacity = 0.12,
+  strokeWidth = 1.5,
+  label,
+}: {
+  values: number[];
+  width?: number;
+  height?: number;
+  color?: string;
+  fillOpacity?: number;
+  strokeWidth?: number;
+  label?: string;
+}) {
+  if (values.length < 2) {
+    return (
+      <div style={{ width, height, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>{values.length < 2 ? "Collecting data…" : ""}</span>
+      </div>
+    );
+  }
+  const pad = 2;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (width - pad * 2);
+    const y = pad + ((max - v) / range) * (height - pad * 2);
+    return [x, y] as [number, number];
+  });
+  const linePath = "M " + pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L ");
+  const areaPath = linePath +
+    ` L ${pts[pts.length - 1][0].toFixed(1)},${(height - pad).toFixed(1)}` +
+    ` L ${pts[0][0].toFixed(1)},${(height - pad).toFixed(1)} Z`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {label && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>{label}</span>}
+      <svg width={width} height={height} style={{ overflow: "visible" }}>
+        <path d={areaPath} fill={color} fillOpacity={fillOpacity} stroke="none" />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        {/* Last value dot */}
+        <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r={2.5} fill={color} />
+      </svg>
+    </div>
+  );
+}
+
+// ESL connection timeline: coloured segments (green=connected, red=not)
+function EslTimeline({ samples, width = 200, height = 16 }: { samples: Array<{ eslConnected: boolean }>; width?: number; height?: number }) {
+  if (samples.length === 0) return <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>Collecting data…</span>;
+  const segW = width / samples.length;
+  return (
+    <svg width={width} height={height} style={{ borderRadius: 4, overflow: "hidden" }}>
+      {samples.map((s, i) => (
+        <rect
+          key={i}
+          x={i * segW}
+          y={0}
+          width={Math.max(1, segW - 0.5)}
+          height={height}
+          fill={s.eslConnected ? "#30d158" : "#ff453a"}
+          opacity={0.85}
+        />
+      ))}
+    </svg>
+  );
 }
 
 function OpsDot({ ok, warn }: { ok: boolean; warn?: boolean }) {
@@ -3743,6 +3824,7 @@ function OperationsTab() {
   const [tlsInfo,         setTlsInfo]         = React.useState<TlsInfo | null>(null);
   const [pushStats,       setPushStats]       = React.useState<PushStats | null>(null);
   const [platformHealth,  setPlatformHealth]  = React.useState<PlatformHealth | null>(null);
+  const [healthHistory,   setHealthHistory]   = React.useState<HealthSample[]>([]);
   const [sseMetrics, setSseMetrics]   = React.useState<SseMetricsEvent | null>(null);
   const [events,     setEvents]       = React.useState<Array<{type:string;data:string;ts:number}>>([]);
   const [sseStatus,  setSseStatus]    = React.useState<"connecting"|"connected"|"disconnected">("connecting");
@@ -3755,13 +3837,14 @@ function OperationsTab() {
   // Fetch all polling data
   const loadAll = React.useCallback(async () => {
     try {
-      const [sm, gi, r, tls, ps, ph] = await Promise.allSettled([
+      const [sm, gi, r, tls, ps, ph, hh] = await Promise.allSettled([
         adminFetch("/admin/system-metrics"),
         adminFetch("/admin/git-info"),
         adminFetch("/admin/live-registrations"),
         adminFetch("/admin/tls-info"),
         adminFetch("/admin/push-stats"),
         adminFetch("/admin/platform-health"),
+        adminFetch("/admin/platform-health-history"),
       ]);
       if (sm.status  === "fulfilled") setSysMetrics(sm.value);
       if (gi.status  === "fulfilled") setGitInfo(gi.value);
@@ -3769,6 +3852,7 @@ function OperationsTab() {
       if (tls.status === "fulfilled") setTlsInfo(tls.value);
       if (ps.status  === "fulfilled") setPushStats(ps.value);
       if (ph.status  === "fulfilled") setPlatformHealth(ph.value);
+      if (hh.status  === "fulfilled" && Array.isArray(hh.value?.samples)) setHealthHistory(hh.value.samples);
       setLastRefresh(new Date());
       setError(null);
     } catch (e: any) {
@@ -4033,6 +4117,49 @@ function OperationsTab() {
                     </div>
                   )}
                 </div>
+
+                {/* Historical Sparklines (ring buffer — one sample per recon cycle) */}
+                {healthHistory.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
+                      History ({healthHistory.length} samples · 1 per cycle · oldest → newest)
+                    </p>
+                    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+                      {/* ESL connection timeline */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>ESL Connection</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <EslTimeline samples={healthHistory} width={320} height={14} />
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
+                            <span style={{ color: "#30d158" }}>■</span> up &nbsp;
+                            <span style={{ color: "#ff453a" }}>■</span> down
+                          </span>
+                        </div>
+                      </div>
+                      {/* Sparklines row */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
+                        <Sparkline
+                          values={healthHistory.map(s => s.bufferDepth)}
+                          width={220} height={40}
+                          color="#1a8cff"
+                          label="ESL Buffer Depth"
+                        />
+                        <Sparkline
+                          values={healthHistory.map(s => s.staleTotal)}
+                          width={220} height={40}
+                          color="#ff9f0a"
+                          label="Stale Calls Closed"
+                        />
+                        <Sparkline
+                          values={healthHistory.map(s => s.pendingCount)}
+                          width={220} height={40}
+                          color="#bf5af2"
+                          label="Pending ESL Events"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", margin: 0 }}>Refreshes every 15 s · All data is in-memory (no DB round-trip) · as of {new Date(platformHealth.asOf).toLocaleTimeString()}</p>
               </>
