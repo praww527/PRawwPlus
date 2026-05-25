@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { metrics } from "./metrics";
 
 /**
  * sendWebPushToSubscription — sends a web push notification to a browser subscription.
@@ -29,13 +30,16 @@ export async function sendWebPushToSubscription(
       { TTL: 60 },
     );
     logger.info({ endpointPrefix: subscription.endpoint.slice(0, 40), userId }, "[Push] Web push sent OK");
+    metrics.pushWebSent++;
     return { sent: true };
   } catch (err: any) {
     if (err?.statusCode === 410 || err?.statusCode === 404) {
       logger.info({ endpointPrefix: subscription.endpoint.slice(0, 40), userId }, "[Push] Web push subscription expired/gone");
+      metrics.pushWebFailed++;
       return { sent: false, error: "expired" };
     }
     logger.error({ err, userId }, "[Push] Web push send failed");
+    metrics.pushWebFailed++;
     return { sent: false, error: err?.message ?? "Unknown web push error" };
   }
 }
@@ -122,8 +126,10 @@ export async function sendAdminPush(
           );
           if (fcmResp.ok) {
             fcmSent = true;
+            metrics.pushFcmSent++;
           } else {
             logger.warn({ err: await fcmResp.text() }, "[FCM] sendAdminPush FCM error");
+            metrics.pushFcmFailed++;
           }
         }
       } catch (err) {
@@ -137,8 +143,10 @@ export async function sendAdminPush(
       try {
         await sendExpoPush(expoPushToken, title, body, { ...data, title, body });
         expoSent = true;
+        metrics.pushExpoSent++;
       } catch (err) {
         logger.error({ err }, "[Push] sendAdminPush Expo threw");
+        metrics.pushExpoFailed++;
       }
     })());
   }
@@ -244,10 +252,14 @@ export async function sendFcmDataMessage(
       },
     );
 
-    if (!fcmResp.ok) {
+    if (fcmResp.ok) {
+      metrics.pushFcmSent++;
+    } else {
       logger.warn({ err: await fcmResp.text() }, "[FCM] FCM HTTP v1 API returned error");
+      metrics.pushFcmFailed++;
     }
   } catch (err) {
     logger.error({ err }, "[FCM] Failed to send FCM data message");
+    metrics.pushFcmFailed++;
   }
 }

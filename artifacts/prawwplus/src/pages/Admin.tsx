@@ -16,10 +16,12 @@ import {
   BadgeCheck, X, Eye, FileText, Check, Activity, ArrowRight, Phone, PhoneOff,
   Loader2, Bell, BellRing, Send, Users2, Wrench, Info, Server, Database,
   Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff, Building2,
+  Cpu, HardDrive, MemoryStick, Radio, GitBranch, Zap, TrendingUp,
 } from "lucide-react";
 
 const TABS = [
   { id: "overview",      label: "Overview",      icon: BarChart3   },
+  { id: "operations",    label: "Operations",    icon: Cpu         },
   { id: "observability", label: "Observability", icon: Activity    },
   { id: "users",         label: "Users",         icon: Users       },
   { id: "live",          label: "Live Calls",    icon: PhoneCall   },
@@ -3628,6 +3630,442 @@ function ObservabilityTab() {
   );
 }
 
+// ─── Operations Center Tab (Phase 1) ──────────────────────────────────────────
+
+const OP_SECTIONS = [
+  { id: "infra",    label: "Infrastructure" },
+  { id: "regs",     label: "Registrations"  },
+  { id: "deploy",   label: "Deploy Info"    },
+  { id: "events",   label: "Live Events"    },
+  { id: "push",     label: "Push Stats"     },
+] as const;
+type OpSection = typeof OP_SECTIONS[number]["id"];
+
+interface SysMetrics {
+  cpu: { cores: number; model: string; avgUsagePct: number; loadavg: Record<string, string> };
+  memory: { totalMb: number; freeMb: number; usedMb: number; usedPct: number };
+  disk: { totalKb: number; usedKb: number; availKb: number; usedPct: number } | null;
+  process: { rssKb: number; heapUsedKb: number; heapTotalKb: number; pid: number; uptimeS: number };
+  system: { uptimeS: number; platform: string; arch: string; hostname: string };
+}
+interface GitInfo {
+  sha: string; shortSha: string; branch: string;
+  message: string; date: string | null; author: string | null; available: boolean;
+}
+interface LiveRegs {
+  verto: Array<{ extension: number; displayName: string | null; sessId: string; pingAgeMs: number; alive: boolean; connectedAt: number; reconnectCount: number }>;
+  sip:   Array<{ extension: number; displayName: string | null; contact?: string; regAgeMs: number; expiresInMs: number; alive: boolean; expired: boolean }>;
+  totalOnline: number;
+  asOf: string;
+}
+interface TlsInfo { available: boolean; hostname?: string; daysRemaining?: number; issuer?: string; validTo?: string; healthy?: boolean; critical?: boolean; warning?: boolean; reason?: string }
+interface PushStats { fcm: {sent:number;failed:number}; webpush: {sent:number;failed:number}; expo: {sent:number;failed:number}; wakeups: number; totals: {sent:number;failed:number;successRate:number|null} }
+interface SseMetricsEvent { activeCalls: number; activeVertoClients: number; activeSipClients: number; uptimeSeconds: number; callsInitiated: number; callsAnswered: number; callsFailed: number }
+
+function OpsDot({ ok, warn }: { ok: boolean; warn?: boolean }) {
+  const color = ok ? "#30d158" : warn ? "#ff9f0a" : "#ff453a";
+  return <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />;
+}
+
+function OpsCard({ label, value, sub, icon: Icon, color, pct }: { label: string; value: React.ReactNode; sub?: string; icon?: React.ElementType; color?: string; pct?: number }) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {Icon && <Icon style={{ width: 12, height: 12, color: "rgba(255,255,255,0.3)" }} />}
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.07em" }}>{label}</span>
+      </div>
+      <span style={{ fontSize: 24, fontWeight: 700, color: color ?? "rgba(255,255,255,0.9)", lineHeight: 1 }}>{value}</span>
+      {pct !== undefined && (
+        <div style={{ height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${Math.min(100, pct)}%`, background: pct > 85 ? "#ff453a" : pct > 65 ? "#ff9f0a" : "#30d158", transition: "width 0.4s" }} />
+        </div>
+      )}
+      {sub && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{sub}</span>}
+    </div>
+  );
+}
+
+function fmtBytes(kb: number): string {
+  if (kb >= 1_048_576) return `${(kb / 1_048_576).toFixed(1)} TB`;
+  if (kb >= 1_024)     return `${(kb / 1_024).toFixed(1)} GB`;
+  return `${kb} MB`;
+}
+
+function fmtUptimeSec(s: number): string {
+  const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s % 60}s`;
+}
+
+function OperationsTab() {
+  const [section, setSection] = React.useState<OpSection>("infra");
+  const [sysMetrics, setSysMetrics]   = React.useState<SysMetrics | null>(null);
+  const [gitInfo,    setGitInfo]      = React.useState<GitInfo | null>(null);
+  const [regs,       setRegs]         = React.useState<LiveRegs | null>(null);
+  const [tlsInfo,    setTlsInfo]      = React.useState<TlsInfo | null>(null);
+  const [pushStats,  setPushStats]    = React.useState<PushStats | null>(null);
+  const [sseMetrics, setSseMetrics]   = React.useState<SseMetricsEvent | null>(null);
+  const [events,     setEvents]       = React.useState<Array<{type:string;data:string;ts:number}>>([]);
+  const [sseStatus,  setSseStatus]    = React.useState<"connecting"|"connected"|"disconnected">("connecting");
+  const [loading,    setLoading]      = React.useState(true);
+  const [error,      setError]        = React.useState<string | null>(null);
+  const [lastRefresh,setLastRefresh]  = React.useState<Date | null>(null);
+  const [eslRecon,   setEslRecon]     = React.useState<"idle"|"busy"|"done"|"err">("idle");
+  const eventLogRef = React.useRef<HTMLDivElement>(null);
+
+  // Fetch all polling data
+  const loadAll = React.useCallback(async () => {
+    try {
+      const [sm, gi, r, tls, ps] = await Promise.allSettled([
+        adminFetch("/admin/system-metrics"),
+        adminFetch("/admin/git-info"),
+        adminFetch("/admin/live-registrations"),
+        adminFetch("/admin/tls-info"),
+        adminFetch("/admin/push-stats"),
+      ]);
+      if (sm.status  === "fulfilled") setSysMetrics(sm.value);
+      if (gi.status  === "fulfilled") setGitInfo(gi.value);
+      if (r.status   === "fulfilled") setRegs(r.value);
+      if (tls.status === "fulfilled") setTlsInfo(tls.value);
+      if (ps.status  === "fulfilled") setPushStats(ps.value);
+      setLastRefresh(new Date());
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadAll();
+    const t = setInterval(loadAll, 15_000);
+    return () => clearInterval(t);
+  }, [loadAll]);
+
+  // SSE connection for live events
+  React.useEffect(() => {
+    let es: EventSource;
+    const connect = () => {
+      es = new EventSource("/api/admin/events/stream", { withCredentials: true });
+      setSseStatus("connecting");
+      es.addEventListener("connected", () => setSseStatus("connected"));
+      es.addEventListener("metrics",   (e: MessageEvent) => { try { setSseMetrics(JSON.parse(e.data)); } catch {} });
+      es.addEventListener("esl",       (e: MessageEvent) => {
+        setEvents(prev => {
+          const next = [...prev, { type: "esl", data: e.data, ts: Date.now() }];
+          return next.slice(-100);
+        });
+      });
+      es.onerror = () => { setSseStatus("disconnected"); };
+    };
+    connect();
+    return () => { try { es?.close(); } catch {} };
+  }, []);
+
+  // Auto-scroll event log
+  React.useEffect(() => {
+    if (eventLogRef.current) eventLogRef.current.scrollTop = eventLogRef.current.scrollHeight;
+  }, [events]);
+
+  const eslReconnect = async () => {
+    setEslRecon("busy");
+    try {
+      await adminFetch("/admin/esl/reconnect", { method: "POST" });
+      setEslRecon("done");
+      setTimeout(() => setEslRecon("idle"), 3000);
+    } catch {
+      setEslRecon("err");
+      setTimeout(() => setEslRecon("idle"), 3000);
+    }
+  };
+
+  const pushFsConfig = async () => {
+    try { await adminFetch("/admin/freeswitch/push-config", { method: "POST" }); } catch {}
+  };
+
+  const SectionBtn = ({ id, label }: { id: OpSection; label: string }) => (
+    <button
+      onClick={() => setSection(id)}
+      style={{
+        padding: "5px 12px", borderRadius: 16, fontSize: 12, fontWeight: 600,
+        border: "none", cursor: "pointer", transition: "all 0.12s",
+        background: section === id ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+        color: section === id ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
+      }}
+    >{label}</button>
+  );
+
+  if (loading && !sysMetrics) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "20px 0", color: "rgba(255,255,255,0.35)" }}>
+      <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Loading operations data…
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "rgba(255,255,255,0.85)", margin: 0 }}>Operations Center</h2>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sseStatus === "connected" ? "#30d158" : "#ff9f0a", background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "2px 8px" }}>
+            <OpsDot ok={sseStatus === "connected"} warn={sseStatus === "connecting"} />
+            {sseStatus === "connected" ? "Live" : sseStatus === "connecting" ? "Connecting" : "Offline"}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {lastRefresh && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>Refreshed {formatDistanceToNow(lastRefresh, { addSuffix: true })}</span>}
+          <button onClick={loadAll} style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "4px 10px", color: "rgba(255,255,255,0.45)", fontSize: 11, cursor: "pointer" }}>
+            <RefreshCw size={10} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Live metrics bar — always visible */}
+      {(sseMetrics ?? sysMetrics) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px,1fr))", gap: 8 }}>
+          <OpsCard label="Active Calls"    value={sseMetrics?.activeCalls   ?? 0} color={(sseMetrics?.activeCalls ?? 0) > 0 ? "#30d158" : undefined} icon={PhoneCall} />
+          <OpsCard label="Verto Clients"   value={sseMetrics?.activeVertoClients ?? 0} color={(sseMetrics?.activeVertoClients ?? 0) > 0 ? "#1a8cff" : undefined} icon={Wifi} />
+          <OpsCard label="SIP Clients"     value={sseMetrics?.activeSipClients ?? 0} color={(sseMetrics?.activeSipClients ?? 0) > 0 ? "#bf5af2" : undefined} icon={Radio} />
+          <OpsCard label="Uptime"          value={fmtUptimeSec(sseMetrics?.uptimeSeconds ?? 0)} icon={Clock} />
+          <OpsCard label="Calls Today"     value={sseMetrics?.callsInitiated ?? 0} icon={TrendingUp} sub={`${sseMetrics?.callsAnswered ?? 0} answered`} />
+        </div>
+      )}
+
+      {/* Sub-section nav */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {OP_SECTIONS.map((s) => <SectionBtn key={s.id} id={s.id} label={s.label} />)}
+      </div>
+
+      {/* ── Infrastructure ────────────────────────────────────────── */}
+      {section === "infra" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* System resources */}
+          {sysMetrics && (
+            <div>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>System Resources — {sysMetrics.system.hostname}</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 8 }}>
+                <OpsCard label="CPU" value={`${sysMetrics.cpu.avgUsagePct}%`} icon={Cpu} pct={sysMetrics.cpu.avgUsagePct} sub={`${sysMetrics.cpu.cores} cores · ${sysMetrics.cpu.loadavg["1m"]} load`} />
+                <OpsCard label="RAM" value={`${sysMetrics.memory.usedPct}%`} icon={MemoryStick} pct={sysMetrics.memory.usedPct} sub={`${sysMetrics.memory.usedMb} / ${sysMetrics.memory.totalMb} MB`} />
+                {sysMetrics.disk && (
+                  <OpsCard label="Disk" value={`${sysMetrics.disk.usedPct}%`} icon={HardDrive} pct={sysMetrics.disk.usedPct} sub={`${fmtBytes(sysMetrics.disk.usedKb)} / ${fmtBytes(sysMetrics.disk.totalKb)}`} />
+                )}
+                <OpsCard label="Process RSS" value={`${Math.round(sysMetrics.process.rssKb/1024)} MB`} icon={Server} sub={`Heap: ${Math.round(sysMetrics.process.heapUsedKb/1024)} / ${Math.round(sysMetrics.process.heapTotalKb/1024)} MB`} />
+                <OpsCard label="Sys Uptime" value={fmtUptimeSec(sysMetrics.system.uptimeS)} sub={`PID ${sysMetrics.process.pid} · ${sysMetrics.system.platform}/${sysMetrics.system.arch}`} />
+              </div>
+            </div>
+          )}
+
+          {/* Service health status grid */}
+          <div>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Service Health</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
+
+              {/* TLS cert */}
+              {tlsInfo && (
+                <div style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${tlsInfo.critical ? "rgba(255,69,58,0.3)" : tlsInfo.warning ? "rgba(255,159,10,0.3)" : "rgba(255,255,255,0.07)"}`, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <OpsDot ok={!!(tlsInfo.available && tlsInfo.healthy)} warn={tlsInfo.warning} />
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.07em" }}>TLS Certificate</span>
+                  </div>
+                  {tlsInfo.available ? (
+                    <>
+                      <span style={{ fontSize: 20, fontWeight: 700, color: tlsInfo.critical ? "#ff453a" : tlsInfo.warning ? "#ff9f0a" : "#30d158" }}>{tlsInfo.daysRemaining}d left</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{tlsInfo.issuer} · expires {tlsInfo.validTo ? new Date(tlsInfo.validTo).toLocaleDateString() : "unknown"}</span>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{tlsInfo.reason ?? "Not checked"}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Prometheus */}
+              <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <OpsDot ok={true} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Metrics</span>
+                </div>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", fontFamily: "monospace" }}>/api/metrics</span>
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>Prometheus scrape endpoint active</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Service controls */}
+          <div>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Service Controls</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={eslReconnect}
+                disabled={eslRecon === "busy"}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)", background: eslRecon === "done" ? "rgba(48,209,88,0.15)" : eslRecon === "err" ? "rgba(255,69,58,0.15)" : "rgba(255,255,255,0.06)", color: eslRecon === "done" ? "#30d158" : eslRecon === "err" ? "#ff453a" : "rgba(255,255,255,0.7)" }}
+              >
+                {eslRecon === "busy" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <Zap size={12} />}
+                {eslRecon === "done" ? "ESL Reconnected" : eslRecon === "err" ? "Reconnect Failed" : "Reconnect ESL"}
+              </button>
+              <button
+                onClick={pushFsConfig}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)" }}
+              >
+                <Server size={12} /> Push FS Config
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Live Registrations ────────────────────────────────────── */}
+      {section === "regs" && regs && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 22, fontWeight: 700, color: "#30d158" }}>{regs.totalOnline}</span>
+            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>online devices</span>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginLeft: "auto" }}>as of {new Date(regs.asOf).toLocaleTimeString()}</span>
+          </div>
+
+          {/* Verto sessions */}
+          {regs.verto.length > 0 && (
+            <div>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Verto (WebRTC) — {regs.verto.length}</p>
+              <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {regs.verto.map((s, i) => (
+                  <div key={s.sessId} style={{ display: "grid", gridTemplateColumns: "32px 80px 1fr 90px 90px", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: i < regs.verto.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                    <OpsDot ok={s.alive} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#1a8cff" }}>Ext {s.extension}</span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.displayName ?? "—"}</span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{s.alive ? `${Math.round(s.pingAgeMs/1000)}s ago` : "stale"}</span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{s.reconnectCount > 0 ? `${s.reconnectCount} reconnects` : "stable"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SIP sessions */}
+          {regs.sip.length > 0 && (
+            <div>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>SIP (Mobile) — {regs.sip.length}</p>
+              <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {regs.sip.map((s, i) => (
+                  <div key={`${s.extension}-${i}`} style={{ display: "grid", gridTemplateColumns: "32px 80px 1fr 90px 90px", gap: 12, alignItems: "center", padding: "10px 14px", borderBottom: i < regs.sip.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                    <OpsDot ok={s.alive} warn={s.expiresInMs < 300_000 && s.alive} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#bf5af2" }}>Ext {s.extension}</span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.displayName ?? s.contact ?? "—"}</span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{s.alive ? `expires ${Math.floor(s.expiresInMs/60000)}m` : "expired"}</span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{Math.round(s.regAgeMs/60000)}m ago</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {regs.verto.length === 0 && regs.sip.length === 0 && (
+            <div style={{ padding: "24px", textAlign: "center", color: "rgba(255,255,255,0.25)", fontSize: 13 }}>No active registrations</div>
+          )}
+        </div>
+      )}
+
+      {/* ── Deploy Info ───────────────────────────────────────────── */}
+      {section === "deploy" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {gitInfo && (
+            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <GitBranch size={14} style={{ color: "rgba(255,255,255,0.4)" }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.85)" }}>Current Deployment</span>
+                {!gitInfo.available && <span style={{ fontSize: 11, color: "#ff9f0a", background: "rgba(255,159,10,0.1)", borderRadius: 8, padding: "2px 8px" }}>Git not available</span>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8 }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Commit</span>
+                <span style={{ fontSize: 12, color: "#a8ff78", fontFamily: "monospace" }}>{gitInfo.shortSha}</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Branch</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "monospace" }}>{gitInfo.branch}</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Message</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{gitInfo.message}</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Author</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{gitInfo.author ?? "—"}</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Date</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{gitInfo.date ? new Date(gitInfo.date).toLocaleString() : "—"}</span>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Full SHA</span>
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "monospace", wordBreak: "break-all" }}>{gitInfo.sha}</span>
+              </div>
+            </div>
+          )}
+          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px" }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.5)", margin: "0 0 8px" }}>Deploy to VPS</p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "0 0 8px" }}>SSH into your VPS and run:</p>
+            <code style={{ display: "block", fontSize: 11, color: "#a8ff78", fontFamily: "monospace", background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "10px 12px" }}>
+              cd /home/ubuntu/PRawwPlus && bash deploy/update.sh
+            </code>
+          </div>
+        </div>
+      )}
+
+      {/* ── Live Event Stream ─────────────────────────────────────── */}
+      {section === "events" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.7)" }}>SSE Event Stream</span>
+            <span style={{ fontSize: 11, color: sseStatus === "connected" ? "#30d158" : "#ff9f0a", background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "2px 8px" }}>
+              ● {sseStatus}
+            </span>
+            <button onClick={() => setEvents([])} style={{ marginLeft: "auto", fontSize: 11, color: "rgba(255,255,255,0.3)", background: "none", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "2px 8px", cursor: "pointer" }}>Clear</button>
+          </div>
+          <div
+            ref={eventLogRef}
+            style={{ background: "rgba(0,0,0,0.35)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.07)", padding: "12px", height: 360, overflowY: "auto", fontFamily: "monospace", fontSize: 11 }}
+          >
+            {events.length === 0 ? (
+              <span style={{ color: "rgba(255,255,255,0.2)" }}>Waiting for events… (metrics broadcast every 5s)</span>
+            ) : (
+              events.map((ev, i) => (
+                <div key={i} style={{ marginBottom: 4, color: ev.type === "esl" ? "#bf5af2" : "rgba(255,255,255,0.55)" }}>
+                  <span style={{ color: "rgba(255,255,255,0.2)" }}>{new Date(ev.ts).toLocaleTimeString()} </span>
+                  <span style={{ color: "#a8ff78" }}>[{ev.type}] </span>
+                  <span>{ev.data.slice(0, 200)}{ev.data.length > 200 ? "…" : ""}</span>
+                </div>
+              ))
+            )}
+          </div>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: 0 }}>Live SSE feed. Metrics broadcast every 5 s · ESL events broadcast in realtime · Last 100 events retained</p>
+        </div>
+      )}
+
+      {/* ── Push Stats ───────────────────────────────────────────── */}
+      {section === "push" && pushStats && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 8 }}>
+            <OpsCard label="FCM Sent"       value={pushStats.fcm.sent}     color={pushStats.fcm.sent     > 0 ? "#30d158" : undefined} icon={Bell} sub={`${pushStats.fcm.failed} failed`} />
+            <OpsCard label="Web Push Sent"  value={pushStats.webpush.sent} color={pushStats.webpush.sent > 0 ? "#30d158" : undefined} icon={Bell} sub={`${pushStats.webpush.failed} failed`} />
+            <OpsCard label="Expo Sent"      value={pushStats.expo.sent}    color={pushStats.expo.sent    > 0 ? "#30d158" : undefined} icon={Bell} sub={`${pushStats.expo.failed} failed`} />
+            <OpsCard label="Wakeups"        value={pushStats.wakeups}      color={pushStats.wakeups > 0 ? "#ff9f0a" : undefined} icon={Smartphone} sub="mobile wakeup pushes" />
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.5)" }}>Overall Delivery</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 28, fontWeight: 700, color: "#30d158" }}>{pushStats.totals.sent}</span>
+              <span style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>sent · {pushStats.totals.failed} failed</span>
+              {pushStats.totals.successRate !== null && (
+                <span style={{ fontSize: 13, color: "#a8ff78", marginLeft: "auto" }}>{pushStats.totals.successRate}% success rate</span>
+              )}
+            </div>
+            {pushStats.totals.successRate !== null && (
+              <div style={{ height: 6, background: "rgba(255,255,255,0.07)", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pushStats.totals.successRate}%`, background: pushStats.totals.successRate > 90 ? "#30d158" : pushStats.totals.successRate > 70 ? "#ff9f0a" : "#ff453a" }} />
+              </div>
+            )}
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>Counters reset on server restart</span>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -3671,6 +4109,7 @@ export default function Admin() {
       {/* Tab content */}
       <div>
         {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
+        {tab === "operations"    && <OperationsTab />}
         {tab === "observability" && <ObservabilityTab />}
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}

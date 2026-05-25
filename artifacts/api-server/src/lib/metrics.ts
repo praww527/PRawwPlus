@@ -52,6 +52,15 @@ class MetricsStore {
   zombieCallsKilled        = 0;   // orphaned DB calls cleared by sweeper
   voicemailFallbacks       = 0;   // calls routed to voicemail
 
+  // ── Push delivery counters ─────────────────────────────────────────────────
+  pushFcmSent   = 0;   // FCM data messages sent successfully
+  pushFcmFailed = 0;   // FCM send failures
+  pushWebSent   = 0;   // Web Push (VAPID) sent successfully
+  pushWebFailed = 0;   // Web Push send failures
+  pushExpoSent  = 0;   // Expo push sent successfully
+  pushExpoFailed= 0;   // Expo push failures
+  pushWakeups   = 0;   // mobile wakeup pushes triggered (any provider)
+
   // ── Latency samples ────────────────────────────────────────────────────────
   // Ring-buffers of latency measurements (ms).
   private readonly setupLatencySamples:  LatencySample[] = [];
@@ -126,6 +135,13 @@ class MetricsStore {
       staleSweepRuns:          this.staleSweepRuns,
       zombieCallsKilled:       this.zombieCallsKilled,
       voicemailFallbacks:      this.voicemailFallbacks,
+      pushFcmSent:             this.pushFcmSent,
+      pushFcmFailed:           this.pushFcmFailed,
+      pushWebSent:             this.pushWebSent,
+      pushWebFailed:           this.pushWebFailed,
+      pushExpoSent:            this.pushExpoSent,
+      pushExpoFailed:          this.pushExpoFailed,
+      pushWakeups:             this.pushWakeups,
       callSetupLatency:        lat,
       bridgeSetupLatency:      bridge,
     };

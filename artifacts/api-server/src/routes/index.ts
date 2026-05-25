@@ -27,6 +27,7 @@ import logLevelRouter from "./logLevel";
 import tenantsRouter from "./tenants";
 import conferenceRouter from "./conference";
 import setupRouter from "./setup";
+import adminOpsRouter from "./adminOps";
 
 const router: IRouter = Router();
 
@@ -58,5 +59,6 @@ router.use(auditSearchRouter);
 router.use(logLevelRouter);
 router.use(tenantsRouter);
 router.use(conferenceRouter);
+router.use(adminOpsRouter);
 
 export default router;
