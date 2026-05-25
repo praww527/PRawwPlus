@@ -13,7 +13,7 @@ import {
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
   AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
   Moon, Sun, Monitor, Settings, Info, Coins, Camera, BadgeCheck,
-  Upload, Clock, Check, AlertTriangle, Activity,
+  Upload, Clock, Check, AlertTriangle, Activity, FileDown,
 } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { format } from "date-fns";
@@ -340,6 +340,7 @@ export default function Profile() {
   const [totpLoading, setTotpLoading] = useState(false);
   const [totpMsg, setTotpMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [popiaLoading, setPopiaLoading] = useState(false);
+  const [cdrExportLoading, setCdrExportLoading] = useState(false);
   const verifyFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -535,6 +536,19 @@ export default function Profile() {
       a.href = url; a.download = `popia-export-${new Date().toISOString().slice(0,10)}.json`;
       a.click(); URL.revokeObjectURL(url);
     } finally { setPopiaLoading(false); }
+  };
+
+  const downloadCdrExport = async () => {
+    setCdrExportLoading(true);
+    try {
+      const r = await fetch("/api/cdr/export", { credentials: "include" });
+      if (!r.ok) { alert("Failed to generate call records export."); return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `call-records-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    } finally { setCdrExportLoading(false); }
   };
 
   const openPhoneSheet = () => {
@@ -873,6 +887,13 @@ export default function Profile() {
         <Row icon={<Plus size={15} />} iconBg="rgba(48,209,88,0.15)" label="Top Up Coins" onClick={() => setSheet("topup")} />
         <Row icon={<CreditCard size={15} />} iconBg="rgba(128,128,128,0.18)" label="Payment Methods" value="PayFast" chevron={false} />
         <Row icon={<Receipt size={15} />} iconBg="rgba(128,128,128,0.18)" label="Transaction History" onClick={() => setSheet("history")} />
+        <Row
+          icon={<FileDown size={15} />}
+          iconBg="rgba(94,92,230,0.15)"
+          label="Download Call Records"
+          value={cdrExportLoading ? "Downloading…" : "CSV Export"}
+          onClick={cdrExportLoading ? undefined : downloadCdrExport}
+        />
       </Section>
 
       {/* ── Verification ────────────────────── */}

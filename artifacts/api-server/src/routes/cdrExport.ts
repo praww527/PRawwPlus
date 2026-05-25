@@ -8,14 +8,6 @@ import { connectDB, CdrModel } from "@workspace/db";
 
 const router: IRouter = Router();
 
-function requireAuth(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
-
 const CDR_HEADERS = [
   "id","startTime","endTime","billsec","direction","disposition",
   "callerNumber","destinationNumber","coinsUsed","userId","callType",
@@ -38,14 +30,19 @@ function cdrToCsvRow(c: any): string {
     c.direction ?? "",
     c.disposition ?? "",
     c.callerIdNumber ?? c.callerNumber ?? "",
-    c.destinationNumber ?? "",
+    c.destinationNumber ?? c.recipientNumber ?? "",
     c.coinsUsed ?? 0,
     c.userId    ?? "",
     c.callType  ?? "",
   ].map(escapeCsv).join(",");
 }
 
-router.get("/cdr/export", requireAuth, async (req: Request, res: Response) => {
+router.get("/cdr/export", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   await connectDB();
 
   const currentUser  = (req as any).user;

@@ -87,9 +87,14 @@ export async function deductCoins(
 
   const user = await UserModel.findByIdAndUpdate(
     userId,
-    {
-      $inc: { coins: -amount, totalCoinsUsed: amount },
-    },
+    [
+      {
+        $set: {
+          coins:          { $max: [0, { $subtract: ["$coins", amount] }] },
+          totalCoinsUsed: { $add: ["$totalCoinsUsed", amount] },
+        },
+      },
+    ],
     { new: true, select: "coins" },
   ).lean();
 

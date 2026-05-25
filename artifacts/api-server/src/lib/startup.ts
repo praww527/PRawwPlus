@@ -164,7 +164,7 @@ export async function runStartup(): Promise<void> {
   try {
     const now = new Date();
 
-    const [initiatedResult, inProgressResult, answeredResult] = await Promise.all([
+    const [initiatedResult, inProgressResult, answeredResult, ringingResult, bridgedResult] = await Promise.all([
       // ALL "initiated" calls → failed immediately on restart.
       // Their in-memory 20 s watchdog timer died with the process, so they
       // will never be cleaned up otherwise. Any call still in "initiated"
@@ -184,18 +184,35 @@ export async function runStartup(): Promise<void> {
         { status: "answered", endedAt: null },
         { status: "failed", failReason: "Call ended unexpectedly (server restart)", endedAt: now },
       ),
+      // "ringing" — ring-timeout timer died with the process; calls stuck in ringing
+      // will never receive a hangup event since the ESL subscription restarted.
+      CallModel.updateMany(
+        { status: "ringing", endedAt: null },
+        { status: "failed", failReason: "Call not answered (server restart)", endedAt: now },
+      ),
+      // "bridged" — two-way audio was in progress; media watchdog and hangup timers
+      // died with the process. FreeSWITCH may still have the channel alive but we
+      // have lost the ESL session, so the call cannot be billed correctly.
+      CallModel.updateMany(
+        { status: "bridged", endedAt: null },
+        { status: "failed", failReason: "Call ended unexpectedly (server restart)", endedAt: now },
+      ),
     ]);
 
     const total =
       initiatedResult.modifiedCount +
       inProgressResult.modifiedCount +
-      answeredResult.modifiedCount;
+      answeredResult.modifiedCount +
+      ringingResult.modifiedCount +
+      bridgedResult.modifiedCount;
     if (total > 0) {
       logger.info(
         {
           initiated: initiatedResult.modifiedCount,
           inProgress: inProgressResult.modifiedCount,
           answered: answeredResult.modifiedCount,
+          ringing: ringingResult.modifiedCount,
+          bridged: bridgedResult.modifiedCount,
         },
         "Cleaned up stale calls from previous session",
       );

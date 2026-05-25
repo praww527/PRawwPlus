@@ -105,7 +105,8 @@ const PENDING_BUFFER_LIMIT = 50;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 // If the callee's socket receives a verto.invite but we see no JSON-RPC ACK
 // back within this window, log a warning so the issue is visible in server logs.
-const INVITE_ACK_TIMEOUT_MS = 8_000;
+// 15 s gives push-woken devices enough time to wake from background state.
+const INVITE_ACK_TIMEOUT_MS = 15_000;
 
 // Upstream retry — when FreeSWITCH is briefly restarting/unavailable,
 // retry the upstream WS connection before giving up and closing the browser client.

@@ -8,9 +8,11 @@ import { finalizeCall, answerCall, ringingCall } from "./callOrchestrator";
 import { EventResult } from "./eslEventBuffer";
 
 const STALE_INITIATED_MS    = 30_000;            // 30 s — watchdog is 20 s; give a 10 s buffer
-const STALE_NON_TERMINAL_MS = 15 * 60 * 1000;   // 15 min for ringing/other non-terminal
+const STALE_NON_TERMINAL_MS = 15 * 60 * 1000;   // 15 min for ringing/early_media
 /** Longer than MAX_BILLSEC_PER_CALL (24h cap) so legitimate calls are not clipped */
 const STALE_ANSWERED_MS     = 26 * 60 * 60 * 1000;
+/** Same threshold as answered — bridged calls are billable and should not be clipped early */
+const STALE_BRIDGED_MS      = 26 * 60 * 60 * 1000;
 const MAX_PENDING_ATTEMPTS  = 100;
 
 export async function countPendingEslEvents(): Promise<number> {
@@ -115,11 +117,12 @@ async function closeStaleCalls(): Promise<void> {
   const initiatedCutoff = new Date(now - STALE_INITIATED_MS);   // 30 s
   const ringingCutoff   = new Date(now - STALE_NON_TERMINAL_MS); // 15 min
   const answeredCutoff  = new Date(now - STALE_ANSWERED_MS);
+  const bridgedCutoff   = new Date(now - STALE_BRIDGED_MS);
 
   // "initiated" calls are swept fast (30 s) — the in-memory watchdog fires at
   // 20 s so anything still here is an orphan (e.g. from a server restart that
   // cleared the timers).
-  const [rInitiated, rRing, rAnswered] = await Promise.all([
+  const [rInitiated, rRing, rAnswered, rBridged] = await Promise.all([
     CallModel.updateMany(
       {
         endedAt:   null,
@@ -171,6 +174,26 @@ async function closeStaleCalls(): Promise<void> {
         },
       },
     ),
+    // "bridged" — two-way audio was established but CHANNEL_HANGUP_COMPLETE
+    // was never processed. Same 26 h threshold as "answered" to avoid clipping
+    // legitimate long calls while still catching truly stuck records.
+    CallModel.updateMany(
+      {
+        endedAt:   null,
+        status:    "bridged",
+        startedAt: { $lt: bridgedCutoff },
+      },
+      {
+        $set: {
+          status:      "failed",
+          endedAt:     new Date(),
+          failReason:  "Stale bridged call — no FreeSWITCH hangup event received within 26 h (reconciliation safety net)",
+          hangupCause: "RECOVERY_ON_TIMER_EXPIRE",
+          duration:    0,
+          cost:        0,
+        },
+      },
+    ),
   ]);
 
   if (rInitiated.modifiedCount > 0) {
@@ -183,6 +206,12 @@ async function closeStaleCalls(): Promise<void> {
     logger.warn(
       { count: rAnswered.modifiedCount },
       "[Reconcile] Closed stale answered calls — verify ESL / pending hangup reconciliation",
+    );
+  }
+  if (rBridged.modifiedCount > 0) {
+    logger.warn(
+      { count: rBridged.modifiedCount },
+      "[Reconcile] Closed stale bridged calls — CHANNEL_HANGUP_COMPLETE was never processed; verify ESL subscription",
     );
   }
 }
