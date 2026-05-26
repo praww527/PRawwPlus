@@ -75,6 +75,12 @@ let lastDisconnectedAt: number | null = null;
 let lastEventAt: number | null = null;
 let lastDisconnectReason: string | null = null;
 
+// Rolling event-throughput counters — used by the admin health dashboard
+// to detect "event storms" and "silent event drains" in production.
+let eslEventsThisMinute = 0;
+let eslEventsLastMinute = 0;
+let eslEventMinuteStart = Date.now();
+
 // ── In-memory ESL event trace ─────────────────────────────────────────────────
 // Keyed by FreeSWITCH channel UUID. Entries are capped and purged on CHANNEL_DESTROY.
 const MAX_TRACE_ENTRIES = 30;
@@ -365,7 +371,11 @@ class FreeSwitchESL {
       logger.warn("[ESL] FREESWITCH_DOMAIN not set — ESL disabled");
       return;
     }
-    if (this.socket && !this.socket.destroyed) return;
+    // Guard against concurrent connections: during an SSH handshake this.socket
+    // is null but this.sshConn is already assigned.  Without this guard a second
+    // concurrent call to connect() would spawn a duplicate SSH tunnel and cause
+    // a reconnect storm.
+    if ((this.socket && !this.socket.destroyed) || this.sshConn) return;
 
     const sshKey = process.env.FREESWITCH_SSH_KEY;
 
@@ -604,6 +614,12 @@ class FreeSwitchESL {
     return this.reconnectAttempt;
   }
 
+  /** Combined depth of queued bgapi commands + in-flight job map entries.
+   *  Non-zero during heavy call load; persistently non-zero signals backpressure. */
+  getBgapiQueueDepth(): number {
+    return this.bgapiCmdQueue.length + this.bgapiJobMap.size;
+  }
+
   private sendLine(cmd: string) {
     if (!this.socket) return;
     try {
@@ -814,7 +830,14 @@ class FreeSwitchESL {
     }
 
     if (ct === "text/event-plain") {
-      lastEventAt = Date.now();
+      const _evtNow = Date.now();
+      lastEventAt = _evtNow;
+      if (_evtNow - eslEventMinuteStart >= 60_000) {
+        eslEventsLastMinute = eslEventsThisMinute;
+        eslEventsThisMinute = 0;
+        eslEventMinuteStart = _evtNow;
+      }
+      eslEventsThisMinute++;
       const body    = this.parseHeaders(event.body);
       const evtName = body["Event-Name"] ?? "";
       const uuid    = body["Unique-ID"] ?? "";
@@ -1948,6 +1971,9 @@ export function eslStatus(): {
   lastEventAt: number | null;
   lastDisconnectReason: string | null;
   reconnectAttempt: number;
+  eventsLastMinute: number;
+  eventsThisMinute: number;
+  bgapiQueueDepth: number;
 } {
   return {
     enabled:   eslEnabled,
@@ -1958,7 +1984,10 @@ export function eslStatus(): {
     lastDisconnectedAt,
     lastEventAt,
     lastDisconnectReason,
-    reconnectAttempt: eslClient?.getReconnectAttempt() ?? 0,
+    reconnectAttempt:  eslClient?.getReconnectAttempt() ?? 0,
+    eventsLastMinute:  eslEventsLastMinute,
+    eventsThisMinute:  eslEventsThisMinute,
+    bgapiQueueDepth:   eslClient?.getBgapiQueueDepth() ?? 0,
   };
 }
 

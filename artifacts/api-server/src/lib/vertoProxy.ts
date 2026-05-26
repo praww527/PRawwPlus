@@ -291,6 +291,14 @@ export function createVertoProxy(): WebSocketServer {
     // ── attachUpstream ────────────────────────────────────────────────────────
 
     function attachUpstream(ws: WebSocket): void {
+      // Terminate any previous upstream socket before overwriting — on retry
+      // attempts a previous WebSocket may still be in CONNECTING state, and
+      // simply reassigning the variable leaks that socket handle.
+      try {
+        if (upstream && upstream !== ws && upstream.readyState !== WebSocket.CLOSED) {
+          upstream.terminate();
+        }
+      } catch { /* ignore — best-effort cleanup */ }
       upstream             = ws;
       upstreamReadyForData = false;
       authGateActive       = false;
@@ -402,6 +410,17 @@ export function createVertoProxy(): WebSocketServer {
                 const cause = params.cause as string | undefined;
                 if (cause && cause !== "NORMAL_CLEARING" && cause !== "ORIGINATOR_CANCEL") {
                   metrics.callsFailed++;
+                }
+                // Clear any pending INVITE_ACK timer for this call — the call
+                // is now terminated so the 15 s timeout is no longer relevant.
+                if (callID) {
+                  for (const [rpcId, ack] of pendingInviteAcks.entries()) {
+                    if (ack.callID === callID) {
+                      clearTimeout(ack.timer);
+                      pendingInviteAcks.delete(rpcId);
+                      break;
+                    }
+                  }
                 }
                 logger.info({ method, callID, cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
               } else if (method !== "verto.info") {

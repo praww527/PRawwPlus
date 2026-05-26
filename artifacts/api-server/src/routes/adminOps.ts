@@ -404,6 +404,9 @@ router.get("/admin/platform-health", requireAdmin, (_req, res) => {
       lastEventAt:        esl.lastEventAt,
       lastDisconnectReason: esl.lastDisconnectReason,
       reconnectAttempt:   esl.reconnectAttempt,
+      eventsLastMinute:   esl.eventsLastMinute,
+      eventsThisMinute:   esl.eventsThisMinute,
+      bgapiQueueDepth:    esl.bgapiQueueDepth,
     },
     eslBuffer: {
       depth: bufferDepth,

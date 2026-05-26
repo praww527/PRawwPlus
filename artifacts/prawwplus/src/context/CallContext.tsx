@@ -114,6 +114,8 @@ interface CallContextValue {
   endCall:          (durationSecs?: number) => void;
   setMuted:         (muted: boolean) => void;
   setSpeaker:       (enabled: boolean) => void;
+  holdCall:         () => void;
+  resumeCall:       () => void;
   setVertoConfig:   (cfg: VertoConfig) => void;
   makeVertoCall:    (to: string, callId?: string) => Promise<string | null>;
   answerVertoCall:  (callId: string, sdp: string) => Promise<void>;
@@ -310,6 +312,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           try { incomingNotificationRef.current.close(); } catch {}
           incomingNotificationRef.current = null;
         }
+        // Clear stale incoming SDP so a fresh offer from the next call is
+        // never confused with a held reference from the ended one.
+        incomingSdpRef.current = "";
         const epochAtHangup = callEpochRef.current;
         const info = resolveHangupInfo(hc);
         setHangupInfo(info);
@@ -335,6 +340,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       client.disconnect();
       clientRef.current = null;
       setIsVertoConnected(false);
+      // Ensure any pending hangup-to-idle timer is cleared so we never call
+      // setState on an unmounted component if the user navigates away within
+      // 3 seconds of a call ending.
+      if (hangupTimerRef.current) {
+        clearTimeout(hangupTimerRef.current);
+        hangupTimerRef.current = null;
+      }
     };
   }, [vertoConfig, rankedServers]);
 
@@ -569,9 +581,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }, 1500);
   }, []);
 
-  const setMuted   = useCallback((muted: boolean)    => { clientRef.current?.setMuted(muted); }, []);
-  const setSpeaker = useCallback((enabled: boolean)  => { clientRef.current?.setSpeakerEnabled(enabled); }, []);
-  const sendDtmf   = useCallback((digit: string)     => { clientRef.current?.sendDtmf(digit); }, []);
+  const setMuted    = useCallback((muted: boolean)    => { clientRef.current?.setMuted(muted); }, []);
+  const setSpeaker  = useCallback((enabled: boolean)  => { clientRef.current?.setSpeakerEnabled(enabled); }, []);
+  const holdCall    = useCallback(() => { clientRef.current?.holdCall(); }, []);
+  const resumeCall  = useCallback(() => { clientRef.current?.resumeCall(); }, []);
+  const sendDtmf    = useCallback((digit: string)     => { clientRef.current?.sendDtmf(digit); }, []);
 
   return (
     <CallContext.Provider value={{
@@ -579,7 +593,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       vertoConfig, isVertoConnected, vertoError,
       startOutgoing, updateCallId, updateCallType, connectCall,
       acceptCall, declineCall, endCall,
-      setMuted, setSpeaker,
+      setMuted, setSpeaker, holdCall, resumeCall,
       setVertoConfig, makeVertoCall, answerVertoCall, sendDtmf,
     }}>
       {children}

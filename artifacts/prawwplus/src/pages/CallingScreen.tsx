@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X, PhoneMissed, PhoneCall, WifiOff, Voicemail, Users } from "lucide-react";
+import { PhoneOff, Mic, MicOff, Keyboard, Volume2, VolumeX, X, PhoneMissed, PhoneCall, WifiOff, Voicemail, Users, PauseCircle, PlayCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCall } from "@/context/CallContext";
 import { useEndCall, getGetMeQueryKey, type EndCallRequestStatus } from "@workspace/api-client-react";
@@ -39,13 +39,14 @@ function avatarInitials(info: { number: string; name?: string } | null) {
 }
 
 export default function CallingScreen() {
-  const { callInfo, callPhase, hangupInfo, endCall, setMuted, setSpeaker, sendDtmf } = useCall();
+  const { callInfo, callPhase, hangupInfo, endCall, setMuted, setSpeaker, holdCall, resumeCall, sendDtmf } = useCall();
   const { mutateAsync: signalEndCall } = useEndCall();
   const queryClient = useQueryClient();
 
   const [elapsed, setElapsed] = useState(0);
   const [muted, setMutedState] = useState(false);
   const [speaker, setSpeakerState] = useState(true);
+  const [onHold, setOnHold] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
   const [dtmfBuffer, setDtmfBuffer] = useState("");
 
@@ -183,6 +184,17 @@ export default function CallingScreen() {
     const next = !speaker;
     setSpeakerState(next);
     setSpeaker(next);
+  };
+
+  const handleHold = () => {
+    if (callPhase !== "connected") return;
+    const next = !onHold;
+    setOnHold(next);
+    if (next) {
+      holdCall();
+    } else {
+      resumeCall();
+    }
   };
 
   const handleDtmf = (digit: string) => {
@@ -329,6 +341,12 @@ export default function CallingScreen() {
       label: "Speaker",
       active: speaker,
       onPress: handleSpeaker,
+    },
+    {
+      icon: onHold ? PlayCircle : PauseCircle,
+      label: onHold ? "Resume" : "Hold",
+      active: onHold,
+      onPress: handleHold,
     },
     {
       icon: Users,
@@ -571,7 +589,7 @@ export default function CallingScreen() {
         </div>
       )}
 
-      <div className="flex gap-10 mb-8">
+      <div className="flex gap-6 mb-8 flex-wrap justify-center px-4">
         {controls.map(({ icon: Icon, label, active, onPress }) => (
           <div key={label} className="flex flex-col items-center gap-2">
             <button

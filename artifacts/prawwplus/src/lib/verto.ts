@@ -250,6 +250,26 @@ export class VertoClient {
     this.remoteSdpSet  = false;
   }
 
+  /** Signal FreeSWITCH to place the current call on hold (music-on-hold). */
+  holdCall() {
+    if (!this.currentCallId) return;
+    this.sendNotify("verto.hold", {
+      callID: this.currentCallId,
+      sessid: this.sessId,
+    });
+    console.info("[Verto] holdCall sent for", this.currentCallId);
+  }
+
+  /** Resume a held call. */
+  resumeCall() {
+    if (!this.currentCallId) return;
+    this.sendNotify("verto.unhold", {
+      callID: this.currentCallId,
+      sessid: this.sessId,
+    });
+    console.info("[Verto] resumeCall sent for", this.currentCallId);
+  }
+
   setMuted(muted: boolean) {
     if (!this.localStream) return;
     for (const t of this.localStream.getAudioTracks()) t.enabled = !muted;
@@ -746,6 +766,13 @@ export class VertoClient {
         } else {
           console.error("[Verto] ICE failed permanently — RTP will not flow. Check firewall / TURN server config.");
           this.callbacks.onError("Call audio lost. Check your network connection.");
+          // Auto-hangup: leaving the UI "connected" with dead audio is worse
+          // than a clean hangup.  Send verto.bye so FreeSWITCH releases the leg.
+          const deadCallId = this.currentCallId;
+          if (deadCallId) {
+            this.hangup(deadCallId, "MEDIA_TIMEOUT", 127);
+            this.callbacks.onHangup(deadCallId, { cause: "MEDIA_TIMEOUT", causeCode: 127 });
+          }
         }
       }
       if (pc.iceConnectionState === "disconnected") {
@@ -767,10 +794,15 @@ export class VertoClient {
   private waitForIce(pc: RTCPeerConnection): Promise<void> {
     return new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") { resolve(); return; }
-      const done = () => { pc.removeEventListener("icegatheringstatechange", check); resolve(); };
+      let iceTimer: ReturnType<typeof setTimeout>;
+      const done = () => {
+        clearTimeout(iceTimer);
+        pc.removeEventListener("icegatheringstatechange", check);
+        resolve();
+      };
       const check = () => { if (pc.iceGatheringState === "complete") done(); };
       pc.addEventListener("icegatheringstatechange", check);
-      setTimeout(done, ICE_TIMEOUT_MS);
+      iceTimer = setTimeout(done, ICE_TIMEOUT_MS);
     });
   }
 
