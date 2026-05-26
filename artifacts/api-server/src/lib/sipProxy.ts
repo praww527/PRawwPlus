@@ -15,14 +15,23 @@
  *   Client → Upstream:  REGISTER with Expires: 0     → immediate deregister
  *   Client disconnect:                                → deregister cleanup
  *
- * The ESL sofia::register/unregister events in freeswitchESL.ts act as an
- * authoritative second source and will overwrite whatever this proxy sets,
- * so both can safely coexist without coordination.
+ * Hardening implemented:
+ *   1. Per-client configurable buffer size cap (PROXY_BUFFER_LIMIT / env)
+ *   2. Message TTL — stale REGISTER/INVITE packets evicted before replay
+ *   3. Auth-gated flush — queue replayed only after FreeSWITCH confirms
+ *      REGISTER (200 OK), not merely on WebSocket OPEN
+ *   4. Metrics — buffered-drop count, reconnect duration, flush latency
+ *   5. Reconnect storm protection — global cap on concurrent upstream reconnects
+ *   6. Structured disconnect reasons — freeswitch_restart / network_loss /
+ *      auth_rejection / upstream_timeout / normal_close
+ *   7. Ordered replay — REGISTER sorted first in buffer so it always
+ *      precedes SIP INVITE / re-INVITE on reconnect
  */
 
 import { WebSocketServer, WebSocket } from "ws";
+import type { Server }          from "http";
 import type { IncomingMessage } from "http";
-import type { Duplex } from "stream";
+import type { Duplex }          from "stream";
 import { logger } from "./logger";
 import { getSshForwardUrl } from "./sshForwardServer";
 import { metrics } from "./metrics";
@@ -31,12 +40,40 @@ import {
   unregisterSipSession,
   buildSipSession,
 } from "./callSession";
+import {
+  type BufferedMessage,
+  type DisconnectReason,
+  readProxyBufferConfig,
+  enqueueMessage,
+  evictStaleMessages,
+  sortBufferForReplay,
+  acquireReconnectSlot,
+  releaseReconnectSlot,
+  classifyDisconnectReason,
+} from "./proxyBuffer";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 
 function safeCloseCode(code: number): number {
   return RECEIVE_ONLY_CODES.has(code) ? 1001 : code;
 }
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+const MAX_UPSTREAM_RETRIES   = 4;
+const UPSTREAM_RETRY_BASE_MS = 2_000; // 2 s, 4 s, 6 s, 8 s
+
+// Safety timeout: if no REGISTER 200 OK arrives within this window after
+// sending the REGISTER frame, flush the buffer anyway so the session isn't stuck.
+const AUTH_GATE_TIMEOUT_MS = 8_000;
+
+// Buffer config — reads PROXY_BUFFER_LIMIT_SIP / PROXY_BUFFER_LIMIT /
+// PROXY_BUFFER_TTL_MS_SIP / PROXY_BUFFER_TTL_MS from the environment.
+const bufCfg = readProxyBufferConfig("sip");
+
+// ── URL helpers ───────────────────────────────────────────────────────────────
 
 function isLocalWsUrl(raw: string): boolean {
   try {
@@ -57,39 +94,20 @@ function wsPort(raw: string, fallback: number): number {
 }
 
 async function getSipWsUrl(): Promise<string> {
-  // Priority:
-  // 1. FREESWITCH_SIP_WS_URL — explicit internal WS URL (e.g. ws://127.0.0.1:5066)
-  // 2. Derive from FREESWITCH_ESL_HOST:FREESWITCH_SIP_WS_PORT (both internal)
-  //    Never use FREESWITCH_DOMAIN — that may be the public IP, but FreeSWITCH
-  //    WS profile only listens on 127.0.0.1 inside the VPS.
   const explicit = process.env.FREESWITCH_SIP_WS_URL?.trim();
   if (explicit) {
     if (isLocalWsUrl(explicit)) return (await getSshForwardUrl(wsPort(explicit, 5066))) ?? explicit;
     return explicit;
   }
-
-  const host = process.env.FREESWITCH_ESL_HOST?.trim() || "127.0.0.1";
-  const port = process.env.FREESWITCH_SIP_WS_PORT?.trim() ?? "5066";
+  const host      = process.env.FREESWITCH_ESL_HOST?.trim() || "127.0.0.1";
+  const port      = process.env.FREESWITCH_SIP_WS_PORT?.trim() ?? "5066";
   const configured = `ws://${host}:${port}/`;
   if (isLocalWsUrl(configured)) return (await getSshForwardUrl(wsPort(configured, 5066))) ?? configured;
   return configured;
 }
 
-const PENDING_BUFFER_LIMIT = 50;
-const HEARTBEAT_INTERVAL_MS = 30_000;
-
-// Upstream retry — mirrors the Verto proxy retry strategy.
-// When FreeSWITCH's SIP/WS profile is briefly unavailable (e.g. config reload),
-// retry the upstream connection before closing the mobile client.
-const MAX_UPSTREAM_RETRIES   = 4;
-const UPSTREAM_RETRY_BASE_MS = 2_000; // 2 s, 4 s, 6 s, 8 s
-
 // ── SIP message inspection helpers ───────────────────────────────────────────
 
-/**
- * Extract the SIP extension (4-digit, 1000–9999) from the From: header.
- * Handles both `From: <sip:1001@domain>` and `From: "Name" <sip:1001@domain>`.
- */
 function parseSipFromExtension(msg: string): number | null {
   const m = msg.match(/^From:\s*(?:"[^"]*"\s*)?<sip:(\d+)@/im);
   if (!m) return null;
@@ -97,10 +115,6 @@ function parseSipFromExtension(msg: string): number | null {
   return ext >= 1000 && ext <= 9999 ? ext : null;
 }
 
-/**
- * Parse the Expires value from a SIP message.
- * Checks the top-level `Expires:` header first, then the Contact `expires=` param.
- */
 function parseSipExpires(msg: string): number {
   const hdr = msg.match(/^Expires:\s*(\d+)/im);
   if (hdr) return parseInt(hdr[1], 10);
@@ -109,12 +123,10 @@ function parseSipExpires(msg: string): number {
   return 3600;
 }
 
-/** True when the SIP message is a REGISTER request. */
 function isSipRegister(msg: string): boolean {
   return /^REGISTER\s+sip:/i.test(msg.trimStart());
 }
 
-/** True when the SIP message is a 200 OK response to a REGISTER (CSeq method check). */
 function isSip200OkToRegister(msg: string): boolean {
   return (
     /^SIP\/2\.0\s+200\b/i.test(msg.trimStart()) &&
@@ -122,26 +134,34 @@ function isSip200OkToRegister(msg: string): boolean {
   );
 }
 
-/** True when this is a de-registration (REGISTER with Expires: 0). */
 function isSipDeregister(msg: string): boolean {
   return isSipRegister(msg) && /^Expires:\s*0\b/im.test(msg);
 }
 
-/**
- * Extract the SIP Contact URI from a message.
- * Returns just the URI inside the angle brackets, e.g. "sip:1001@ws.client".
- */
 function parseSipContact(msg: string): string | undefined {
   const m = msg.match(/^Contact:\s*<([^>]+)>/im);
   return m?.[1];
 }
 
+/**
+ * Returns priority=1 if data is a SIP REGISTER frame.
+ * Priority=1 messages are sorted first in the replay queue so REGISTER
+ * always reaches FreeSWITCH before any SIP INVITE on reconnect.
+ */
+function sipMessagePriority(data: BufferedMessage["data"], isBinary: boolean): 0 | 1 {
+  if (isBinary) return 0;
+  try {
+    const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+    return isSipRegister(text) && !isSipDeregister(text) ? 1 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Per-connection SIP session state ─────────────────────────────────────────
 
 interface SipConnectionState {
-  /** Extension extracted from the most recent REGISTER From: header. */
   pendingExt: number | null;
-  /** Extension whose session is currently active (post-200 OK confirmation). */
   activeExt:  number | null;
 }
 
@@ -161,63 +181,153 @@ export function createSipProxy(): WebSocketServer {
       return;
     }
     metrics.activeSipClients++;
-    logger.info({ upstreamUrl, activeClients: metrics.activeSipClients }, "SIP proxy: client connected, opening upstream");
+    logger.info(
+      { upstreamUrl, activeClients: metrics.activeSipClients, bufLimit: bufCfg.limit, bufTtlMs: bufCfg.ttlMs },
+      "SIP proxy: client connected, opening upstream",
+    );
 
-    // Per-connection state for SIP registration tracking
+    // Per-connection SIP registration tracking.
     const sipState: SipConnectionState = { pendingExt: null, activeExt: null };
 
-    // Buffer messages that arrive from the mobile client while the upstream
-    // WebSocket is still in CONNECTING state.  Without this the SIP REGISTER
-    // sent immediately on connect is silently dropped, causing registration
-    // failures (the primary "mobile SIP not connecting" bug).
-    // Capped at PENDING_BUFFER_LIMIT to prevent OOM from misbehaving clients.
-    const pendingToUpstream: Array<{ data: Parameters<WebSocket["send"]>[0]; isBinary: boolean }> = [];
+    // Per-client upstream message buffer.  Timestamped + priority-tagged so
+    // we can evict stale frames and sort REGISTER to the front on replay.
+    const pendingToUpstream: BufferedMessage[] = [];
 
     // Ping/pong heartbeat — detects zombie half-open sockets on mobile networks.
     const heartbeat = setInterval(() => {
       if (client.readyState === WebSocket.OPEN) client.ping();
     }, HEARTBEAT_INTERVAL_MS);
-    client.on("pong", () => { /* connection alive — no-op */ });
+    client.on("pong", () => { /* connection alive */ });
     const cleanup = () => clearInterval(heartbeat);
 
-    // Mutable upstream reference — updated each retry so the client message
-    // handler always sends to the active upstream WebSocket.
+    // ── Per-connection upstream state ─────────────────────────────────────────
     let upstream: WebSocket;
-    let upstreamRetryCount = 0;
-    let clientDestroyed    = false;
-    let retryScheduled     = false;
+    let upstreamRetryCount  = 0;
+    let clientDestroyed     = false;
+    let retryScheduled      = false;
+
+    // Auth-gate state: prevent flushing the buffer until FreeSWITCH confirms
+    // the REGISTER (200 OK) so SIP INVITE cannot arrive before registration.
+    let upstreamReadyForData = false;
+    let authGateActive       = false;
+    let authGateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Reconnect duration tracking.
+    let reconnectStartedAt   = 0;
+    let lastUpstreamErr: Error | undefined;
+    let lastDisconnectReason: DisconnectReason = "unknown";
+
+    // ── Buffer helpers ────────────────────────────────────────────────────────
+
+    function flushBuffer(): void {
+      if (upstream.readyState !== WebSocket.OPEN) return;
+      const staleDropped = evictStaleMessages(pendingToUpstream, bufCfg.ttlMs, "sip");
+      if (staleDropped > 0) metrics.proxyMessagesDroppedSip += staleDropped;
+
+      const flushStart = Date.now();
+      const messages   = pendingToUpstream.splice(0);
+      for (const msg of messages) {
+        if (upstream.readyState === WebSocket.OPEN) {
+          upstream.send(msg.data, { binary: msg.isBinary });
+        }
+      }
+      const flushMs = Date.now() - flushStart;
+      if (messages.length > 0) {
+        metrics.recordProxyFlushLatency("sip", flushMs);
+        logger.debug(
+          { count: messages.length, flushMs },
+          "SIP proxy: buffer flushed to upstream",
+        );
+      }
+    }
+
+    function activateAuthGate(): void {
+      authGateActive = true;
+      authGateTimer  = setTimeout(() => {
+        authGateTimer = null;
+        if (authGateActive) {
+          logger.warn(
+            { timeoutMs: AUTH_GATE_TIMEOUT_MS, upstreamUrl },
+            "SIP proxy: auth gate timed out waiting for REGISTER 200 OK — flushing buffer anyway",
+          );
+          authGateActive       = false;
+          upstreamReadyForData = true;
+          flushBuffer();
+        }
+      }, AUTH_GATE_TIMEOUT_MS);
+    }
+
+    function clearAuthGate(): void {
+      if (authGateTimer) {
+        clearTimeout(authGateTimer);
+        authGateTimer = null;
+      }
+      authGateActive       = false;
+      upstreamReadyForData = true;
+    }
+
+    // ── attachUpstream ────────────────────────────────────────────────────────
 
     function attachUpstream(ws: WebSocket): void {
-      upstream = ws;
+      upstream             = ws;
+      upstreamReadyForData = false;
+      authGateActive       = false;
+      if (authGateTimer) { clearTimeout(authGateTimer); authGateTimer = null; }
 
       ws.on("open", () => {
+        const reconnectMs  = reconnectStartedAt > 0 ? Date.now() - reconnectStartedAt : 0;
         upstreamRetryCount = 0;
         retryScheduled     = false;
-        logger.debug({ attempt: upstreamRetryCount + 1 }, "SIP proxy: upstream connected");
-        // Flush any messages buffered while we were connecting / retrying.
-        for (const msg of pendingToUpstream.splice(0)) {
-          if (upstream.readyState === WebSocket.OPEN) {
-            upstream.send(msg.data, { binary: msg.isBinary });
-          }
+
+        if (reconnectMs > 0) {
+          metrics.recordProxyReconnectDuration("sip", reconnectMs);
+          metrics.reconnectSuccesses++;
+          logger.info(
+            { reconnectMs, disconnectReason: lastDisconnectReason, upstreamUrl },
+            "SIP proxy: upstream reconnected to FreeSWITCH",
+          );
+        } else {
+          logger.debug({ upstreamUrl }, "SIP proxy: upstream connected");
+        }
+
+        releaseReconnectSlot("sip");
+
+        // Sort buffer: REGISTER first (priority=1) for ordering guarantee.
+        sortBufferForReplay(pendingToUpstream);
+
+        // Auth-gated flush:
+        //   If the buffer's first entry is a REGISTER frame, send it alone
+        //   and wait for FreeSWITCH's 200 OK before flushing the rest.
+        //   This guarantees the client is registered before any INVITE arrives.
+        const first = pendingToUpstream[0];
+        if (first && first.priority === 1) {
+          pendingToUpstream.shift();
+          upstream.send(first.data, { binary: first.isBinary });
+          activateAuthGate();
+          logger.debug(
+            { queuedAfterRegister: pendingToUpstream.length },
+            "SIP proxy: REGISTER sent; auth gate active — remaining messages held",
+          );
+        } else {
+          upstreamReadyForData = true;
+          flushBuffer();
         }
       });
 
-      // ── Upstream → Client (responses from FreeSWITCH) ──────────────────────
+      // ── Upstream → client ─────────────────────────────────────────────────
       ws.on("message", (data, isBinary) => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(data, { binary: isBinary });
         }
 
-        // Inspect text frames only — binary SIP over WS is uncommon but possible
         if (!isBinary) {
           try {
             const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
 
             if (isSip200OkToRegister(text) && sipState.pendingExt !== null) {
-              // FreeSWITCH confirmed the registration
-              const ext = sipState.pendingExt;
+              const ext        = sipState.pendingExt;
               const expiresSec = parseSipExpires(text);
-              const contact = parseSipContact(text);
+              const contact    = parseSipContact(text);
 
               if (expiresSec > 0) {
                 registerSipSession(buildSipSession(ext, { contact, expiresSec }));
@@ -225,11 +335,21 @@ export function createSipProxy(): WebSocketServer {
                 sipState.pendingExt = null;
                 logger.info({ ext, expiresSec, contact }, "SIP proxy: registration confirmed via 200 OK");
               } else {
-                // 200 OK to a de-REGISTER
                 unregisterSipSession(ext);
                 sipState.activeExt  = null;
                 sipState.pendingExt = null;
                 logger.info({ ext }, "SIP proxy: de-registration confirmed via 200 OK Expires=0");
+              }
+
+              // Auth gate: REGISTER 200 OK confirms FS has the session —
+              // now safe to flush the remaining queued messages.
+              if (authGateActive) {
+                clearAuthGate();
+                logger.info(
+                  { ext, expiresSec },
+                  "SIP proxy: REGISTER 200 OK — auth gate cleared, flushing buffer",
+                );
+                flushBuffer();
               }
             }
           } catch {
@@ -239,15 +359,18 @@ export function createSipProxy(): WebSocketServer {
       });
 
       ws.on("error", (err) => {
+        lastUpstreamErr = err;
         if (!clientDestroyed && upstreamRetryCount < MAX_UPSTREAM_RETRIES) {
           upstreamRetryCount++;
           retryScheduled = true;
+          metrics.reconnectAttempts++;
           logger.warn(
             { err: err.message, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES, upstreamUrl },
             "SIP proxy: upstream error — will retry after delay",
           );
         } else {
           retryScheduled = false;
+          metrics.reconnectFailures++;
           logger.warn(
             { err: err.message, attempt: upstreamRetryCount, upstreamUrl },
             "SIP proxy: upstream error — all retries exhausted, closing client",
@@ -256,49 +379,74 @@ export function createSipProxy(): WebSocketServer {
       });
 
       ws.on("close", (code, reason) => {
+        const disconnectReason = classifyDisconnectReason(code, reason.toString(), lastUpstreamErr);
+        lastDisconnectReason   = disconnectReason;
+        lastUpstreamErr        = undefined;
+
         if (retryScheduled && !clientDestroyed) {
-          const delayMs = UPSTREAM_RETRY_BASE_MS * upstreamRetryCount;
+          const gotSlot = acquireReconnectSlot("sip");
+          const delayMs = UPSTREAM_RETRY_BASE_MS * upstreamRetryCount * (gotSlot ? 1 : 2);
+          reconnectStartedAt = Date.now();
+
           logger.info(
-            { delayMs, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES },
+            {
+              delayMs,
+              attempt:          upstreamRetryCount,
+              max:              MAX_UPSTREAM_RETRIES,
+              disconnectReason,
+              code,
+              stormSlotGranted: gotSlot,
+            },
             "SIP proxy: upstream closed — scheduling retry",
           );
+
           setTimeout(() => {
             if (!clientDestroyed) {
               attachUpstream(new WebSocket(upstreamUrl, ["sip"]));
+            } else {
+              releaseReconnectSlot("sip");
             }
           }, delayMs);
           retryScheduled = false;
         } else {
+          releaseReconnectSlot("sip");
           metrics.upstreamDisconnectsSip++;
           const safe = safeCloseCode(code);
-          logger.info({ code, safe, reason: reason.toString() }, "SIP proxy: upstream closed");
+          logger.info(
+            { code, safe, disconnectReason, reason: reason.toString() },
+            "SIP proxy: upstream closed",
+          );
           if (client.readyState === WebSocket.OPEN) client.close(safe, reason);
         }
       });
     }
 
     // Kick off the first upstream connection.
+    acquireReconnectSlot("sip");
+    reconnectStartedAt = Date.now();
     attachUpstream(new WebSocket(upstreamUrl, ["sip"]));
 
-    // ── Client → Upstream (requests from JsSIP/mobile) ───────────────────────
+    // ── Client → upstream ─────────────────────────────────────────────────────
     client.on("message", (data, isBinary) => {
-      if (upstream.readyState === WebSocket.OPEN) {
+      if (upstream.readyState === WebSocket.OPEN && upstreamReadyForData) {
+        // Fast path: upstream is open and auth is confirmed.
         upstream.send(data, { binary: isBinary });
-      } else if (
-        upstream.readyState === WebSocket.CONNECTING ||
-        upstream.readyState === WebSocket.CLOSING    ||
-        upstream.readyState === WebSocket.CLOSED
-      ) {
-        // Buffer when upstream is not yet open OR during the retry-delay window
-        // (upstream still points at the old CLOSED socket, new socket hasn't been
-        // created yet).  Without this branch, any SIP message sent during the
-        // 2–8 s retry gap — including SIP REGISTER — is silently dropped.
-        // Drop oldest when cap is reached to prevent OOM.
-        if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
-        pendingToUpstream.push({ data, isBinary });
+      } else {
+        // Buffer: upstream not yet open, auth gate active, or retry window.
+        // Priority=1 (REGISTER) frames are sorted to the front on flush so
+        // REGISTER always precedes SIP INVITE on reconnect.
+        const priority = sipMessagePriority(data, isBinary);
+        const result   = enqueueMessage(pendingToUpstream, { data, isBinary, priority }, bufCfg.limit);
+        if (result === "dropped_overflow") {
+          metrics.proxyMessagesDroppedSip++;
+          logger.warn(
+            { queueLen: pendingToUpstream.length, limit: bufCfg.limit },
+            "SIP proxy: buffer overflow — oldest message evicted",
+          );
+        }
       }
 
-      // Inspect text frames for SIP REGISTER messages
+      // Inspect text frames for SIP REGISTER messages.
       if (!isBinary) {
         try {
           const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
@@ -307,15 +455,11 @@ export function createSipProxy(): WebSocketServer {
             const ext = parseSipFromExtension(text);
             if (ext !== null) {
               if (isSipDeregister(text)) {
-                // Client is explicitly de-registering — remove immediately.
-                // The 200 OK handler will also fire and is idempotent.
                 unregisterSipSession(ext);
                 sipState.activeExt  = null;
                 sipState.pendingExt = null;
                 logger.info({ ext }, "SIP proxy: REGISTER Expires:0 — immediate deregister");
               } else {
-                // Normal registration or refresh — record pending extension;
-                // session is only confirmed when FreeSWITCH responds 200 OK.
                 sipState.pendingExt = ext;
                 logger.debug({ ext }, "SIP proxy: REGISTER seen — awaiting 200 OK from FS");
               }
@@ -330,17 +474,16 @@ export function createSipProxy(): WebSocketServer {
     client.on("close", (code, reason) => {
       clientDestroyed = true;
       cleanup();
+      clearAuthGate();
       metrics.wsDisconnectsSip++;
       metrics.activeSipClients = Math.max(0, metrics.activeSipClients - 1);
       const safe = safeCloseCode(code);
-      logger.info({ code, safe, reason: reason.toString(), activeClients: metrics.activeSipClients }, "SIP proxy: client closed");
+      logger.info(
+        { code, safe, reason: reason.toString(), activeClients: metrics.activeSipClients },
+        "SIP proxy: client closed",
+      );
       if (upstream.readyState === WebSocket.OPEN) upstream.close(safe, reason);
 
-      // Clean up SIP session on disconnect — covers cases where:
-      //   - Client closed the tab/app without sending de-REGISTER
-      //   - Network was cut (keepalive detected disconnect)
-      // The ESL sofia::expire event will also fire when FS detects the
-      // registration has lapsed, providing a redundant cleanup path.
       if (sipState.activeExt !== null) {
         unregisterSipSession(sipState.activeExt);
         logger.info({ ext: sipState.activeExt }, "SIP proxy: client disconnected — SIP session removed");
@@ -352,6 +495,7 @@ export function createSipProxy(): WebSocketServer {
     client.on("error", (err) => {
       clientDestroyed = true;
       cleanup();
+      clearAuthGate();
       logger.warn({ err: err.message }, "SIP proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) upstream.close(1011, Buffer.from("client error"));
     });
@@ -361,7 +505,7 @@ export function createSipProxy(): WebSocketServer {
 }
 
 export function attachSipProxy(
-  server: import("http").Server,
+  server: Server,
   wss: WebSocketServer,
 ): void {
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {

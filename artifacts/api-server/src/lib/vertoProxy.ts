@@ -7,15 +7,23 @@
  * front of this server handles TLS termination, so we proxy:
  *   browser → wss://rtc.PRaww.co.za/api/verto/ws → ws://fs:8081
  *
- * Close-code bug fixed: WebSocket code 1006 (Abnormal Closure) is a
- * "receive-only" code — the spec forbids sending it. When a client disconnects
- * abnormally (code 1006 or 1015), we substitute 1001 (Going Away) before
- * forwarding the close to the upstream FreeSWITCH connection.
+ * Hardening implemented:
+ *   1. Per-client configurable buffer size cap (PROXY_BUFFER_LIMIT / env)
+ *   2. Message TTL — stale login/invite packets evicted before replay
+ *   3. Auth-gated flush — queue replayed only after FreeSWITCH confirms login
+ *      (verto.login response with sessid), not merely on WebSocket OPEN
+ *   4. Metrics — buffered-drop count, reconnect duration, flush latency
+ *   5. Reconnect storm protection — global cap on concurrent upstream reconnects
+ *   6. Structured disconnect reasons — freeswitch_restart / network_loss /
+ *      auth_rejection / upstream_timeout / normal_close
+ *   7. Ordered replay — auth messages (login) sorted first in buffer so
+ *      verto.login always precedes verto.attach / verto.invite on reconnect
  */
 
 import { WebSocketServer, WebSocket } from "ws";
+import type { Server }          from "http";
 import type { IncomingMessage } from "http";
-import type { Duplex } from "stream";
+import type { Duplex }          from "stream";
 import { logger } from "./logger";
 import { getSshForwardUrl } from "./sshForwardServer";
 import { metrics } from "./metrics";
@@ -25,6 +33,19 @@ import {
   touchVertoSession,
 } from "./callSession";
 import { notifyALegSessionDropped } from "./aLegManager";
+import {
+  type BufferedMessage,
+  type DisconnectReason,
+  readProxyBufferConfig,
+  enqueueMessage,
+  evictStaleMessages,
+  sortBufferForReplay,
+  acquireReconnectSlot,
+  releaseReconnectSlot,
+  classifyDisconnectReason,
+} from "./proxyBuffer";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 // Close codes that are "receive-only" — cannot be sent per RFC 6455 §7.4.2
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
@@ -32,6 +53,28 @@ const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 function safeCloseCode(code: number): number {
   return RECEIVE_ONLY_CODES.has(code) ? 1001 : code;
 }
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
+// If the callee's socket receives a verto.invite but we see no JSON-RPC ACK
+// back within this window, log a warning so the issue is visible in server logs.
+// 15 s gives push-woken devices enough time to wake from background state.
+const INVITE_ACK_TIMEOUT_MS = 15_000;
+
+// Upstream retry — when FreeSWITCH is briefly restarting/unavailable,
+// retry the upstream WS connection before giving up and closing the browser client.
+const MAX_UPSTREAM_RETRIES   = 4;
+const UPSTREAM_RETRY_BASE_MS = 2_000; // 2 s, 4 s, 6 s, 8 s
+
+// Safety timeout: if no login confirmation arrives within this window after
+// sending the login frame, flush the buffer anyway so the session isn't stuck.
+const AUTH_GATE_TIMEOUT_MS = 5_000;
+
+// Buffer config — reads PROXY_BUFFER_LIMIT_VERTO / PROXY_BUFFER_LIMIT /
+// PROXY_BUFFER_TTL_MS_VERTO / PROXY_BUFFER_TTL_MS from the environment.
+const bufCfg = readProxyBufferConfig("verto");
+
+// ── URL helpers ───────────────────────────────────────────────────────────────
 
 function isLocalWsUrl(raw: string): boolean {
   try {
@@ -52,30 +95,20 @@ function wsPort(raw: string, fallback: number): number {
 }
 
 async function getInternalWsUrl(): Promise<string> {
-  // Explicit overrides always take priority (can be set in .env on any env).
   if (process.env.FREESWITCH_INTERNAL_WS_URL?.trim()) {
     return process.env.FREESWITCH_INTERNAL_WS_URL.trim();
   }
 
-  const fsDomain = (process.env.FREESWITCH_DOMAIN ?? "").trim();
-  // Use FREESWITCH_ESL_HOST (if explicitly set) to determine whether FreeSWITCH
-  // is local to this server. On the production VPS, ESL_HOST=127.0.0.1 (explicitly
-  // set in .env), indicating FS is on the same machine. On a dev machine only
-  // FREESWITCH_DOMAIN (the public IP) is set, indicating FS is remote.
-  // FREESWITCH_DOMAIN is the public-facing IP used in SDP/config — not locality.
+  const fsDomain      = (process.env.FREESWITCH_DOMAIN ?? "").trim();
   const eslHostExplicit = process.env.FREESWITCH_ESL_HOST?.trim();
-  const eslHost = eslHostExplicit ?? "127.0.0.1";
-
-  const remoteHost = fsDomain || eslHost;
-  const localityHost = eslHostExplicit ?? fsDomain;
+  const eslHost       = eslHostExplicit ?? "127.0.0.1";
+  const remoteHost    = fsDomain || eslHost;
+  const localityHost  = eslHostExplicit ?? fsDomain;
   const remoteIsLocal =
     !localityHost || localityHost === "127.0.0.1" || localityHost === "localhost";
 
   if (process.env.FREESWITCH_WS_URL?.trim()) {
     const wsUrl = process.env.FREESWITCH_WS_URL.trim();
-
-    // If FREESWITCH_WS_URL points to localhost but we are on a remote host,
-    // rewrite it to use the public IP.
     if (isLocalWsUrl(wsUrl) && !remoteIsLocal) {
       const port = wsPort(wsUrl, 8081);
       logger.info(
@@ -87,33 +120,61 @@ async function getInternalWsUrl(): Promise<string> {
     return wsUrl;
   }
 
-  if (remoteIsLocal) {
-    // FreeSWITCH is on the SAME machine (VPS production).
-    return "ws://127.0.0.1:8081/";
-  }
+  if (remoteIsLocal) return "ws://127.0.0.1:8081/";
 
-  // FreeSWITCH is on a REMOTE host.
-  // Try SSH tunnel first (port 8081 is often firewalled); fall back to direct.
   const tunnelUrl = await getSshForwardUrl(8081);
   if (tunnelUrl) return tunnelUrl;
-
-  // Fallback: direct connection — works if port 8081 is publicly reachable.
   return `ws://${remoteHost}:8081/`;
 }
 
-const PENDING_BUFFER_LIMIT = 50;
-const HEARTBEAT_INTERVAL_MS = 15_000;
-// If the callee's socket receives a verto.invite but we see no JSON-RPC ACK
-// back within this window, log a warning so the issue is visible in server logs.
-// 15 s gives push-woken devices enough time to wake from background state.
-const INVITE_ACK_TIMEOUT_MS = 15_000;
+// ── Message classifiers ───────────────────────────────────────────────────────
 
-// Upstream retry — when FreeSWITCH is briefly restarting/unavailable,
-// retry the upstream WS connection before giving up and closing the browser client.
-// This prevents the browser needing to do a full 5s–60s exponential-backoff cycle
-// every time FreeSWITCH is momentarily unreachable (e.g. config reload, crash recovery).
-const MAX_UPSTREAM_RETRIES    = 4;
-const UPSTREAM_RETRY_BASE_MS  = 2_000;  // 2 s, 4 s, 6 s, 8 s
+/**
+ * Returns priority=1 if data is a Verto login frame (method === "login").
+ * Priority=1 messages are sorted first in the replay queue so the login
+ * always reaches FreeSWITCH before any verto.attach / verto.invite.
+ */
+function vertoMessagePriority(data: BufferedMessage["data"], isBinary: boolean): 0 | 1 {
+  if (isBinary) return 0;
+  try {
+    const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+    return msg.method === "login" ? 1 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Detect a successful Verto login response from FreeSWITCH.
+ * FS sends: { "jsonrpc":"2.0", "id": N, "result": { "message":"logged in", "sessid":"..." } }
+ */
+function isVertoLoginResponse(data: BufferedMessage["data"], isBinary: boolean, loginId: number | null): boolean {
+  if (isBinary || loginId === null) return false;
+  try {
+    const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+    if (msg.id !== loginId) return false;
+    const result = msg.result as Record<string, unknown> | undefined;
+    return result != null && typeof result.sessid === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect any JSON-RPC response to our login request (success OR error).
+ * Used to unblock the auth gate even on auth failure so the client sees the error.
+ */
+function isVertoLoginResponseAny(data: BufferedMessage["data"], isBinary: boolean, loginId: number | null): boolean {
+  if (isBinary || loginId === null) return false;
+  try {
+    const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+    return msg.id === loginId && (msg.result != null || msg.error != null);
+  } catch {
+    return false;
+  }
+}
+
+// ── Proxy factory ─────────────────────────────────────────────────────────────
 
 export function createVertoProxy(): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -129,30 +190,27 @@ export function createVertoProxy(): WebSocketServer {
       return;
     }
     metrics.activeVertoClients++;
-    logger.info({ upstreamUrl, activeClients: metrics.activeVertoClients }, "Verto proxy: browser connected, opening upstream");
+    logger.info(
+      { upstreamUrl, activeClients: metrics.activeVertoClients, bufLimit: bufCfg.limit, bufTtlMs: bufCfg.ttlMs },
+      "Verto proxy: browser connected, opening upstream",
+    );
 
-    // Track which extension this client logged in as so we can update the
-    // callSession map on disconnect.  Populated when we see a verto login message.
+    // Extension / session tracked once the browser sends a verto login.
     let sessionExtension: number | null = null;
     let sessionSessId:    string | null = null;
 
-    // Buffer messages that arrive from the browser while the upstream WebSocket
-    // is still in CONNECTING state.  Without this the Verto login message sent
-    // immediately on browser-open is silently dropped, causing a 10 s RPC
-    // timeout → reconnect loop (the primary "Verto WebSocket not connecting" bug).
-    // Capped at PENDING_BUFFER_LIMIT to prevent OOM from misbehaving clients.
-    const pendingToUpstream: Array<{ data: Parameters<WebSocket["send"]>[0]; isBinary: boolean }> = [];
+    // Per-client upstream message buffer.  Timestamped + priority-tagged so we
+    // can evict stale frames and sort auth messages to the front on replay.
+    const pendingToUpstream: BufferedMessage[] = [];
 
-    // Ping/pong heartbeat — detects half-open (zombie) TCP connections that
-    // would otherwise accumulate indefinitely on mobile/flaky networks.
+    // Ping/pong heartbeat — detects half-open (zombie) TCP connections.
     const heartbeat = setInterval(() => {
       if (client.readyState === WebSocket.OPEN) client.ping();
     }, HEARTBEAT_INTERVAL_MS);
-    client.on("pong", () => { /* connection is alive — no-op */ });
+    client.on("pong", () => { /* connection is alive */ });
 
-    // Track pending verto.invite requests sent from FS → client so we can
-    // detect when the client fails to send the JSON-RPC ACK within the timeout.
-    // Map: numeric RPC id → { callID, sentAt, ackTimer }
+    // Track pending verto.invite requests sent FS → client so we can warn
+    // when the client fails to send the JSON-RPC ACK within the timeout.
     const pendingInviteAcks = new Map<number, { callID: string; timer: ReturnType<typeof setTimeout> }>();
 
     const cleanup = () => {
@@ -161,45 +219,165 @@ export function createVertoProxy(): WebSocketServer {
       pendingInviteAcks.clear();
     };
 
-    // ── upstream → client ────────────────────────────────────────────────────
-    // Mutable upstream reference — updated each retry attempt so the client
-    // message handler always sends to the active upstream WebSocket.
+    // ── Per-connection upstream state ─────────────────────────────────────────
+    // All of these reset inside attachUpstream() on every retry attempt.
+
     let upstream: WebSocket;
-    let upstreamRetryCount = 0;
-    let clientDestroyed    = false;
-    let retryScheduled     = false;
+    let upstreamRetryCount  = 0;
+    let clientDestroyed     = false;
+    let retryScheduled      = false;
+
+    // Auth-gate state: prevent flushing the buffer until FreeSWITCH confirms
+    // login so verto.attach / verto.invite cannot arrive before the session.
+    let upstreamReadyForData = false;
+    let authGateActive       = false;
+    let loginRequestId: number | null = null;
+    let authGateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Reconnect duration tracking (storm guard + latency metric).
+    let reconnectStartedAt   = 0;
+    let lastUpstreamErr: Error | undefined;
+    let lastDisconnectReason: DisconnectReason = "unknown";
+
+    // ── Buffer helpers ────────────────────────────────────────────────────────
+
+    function flushBuffer(): void {
+      if (upstream.readyState !== WebSocket.OPEN) return;
+      const staleDropped = evictStaleMessages(pendingToUpstream, bufCfg.ttlMs, "verto");
+      if (staleDropped > 0) metrics.proxyMessagesDroppedVerto += staleDropped;
+
+      const flushStart = Date.now();
+      const messages   = pendingToUpstream.splice(0);
+      for (const msg of messages) {
+        if (upstream.readyState === WebSocket.OPEN) {
+          upstream.send(msg.data, { binary: msg.isBinary });
+        }
+      }
+      const flushMs = Date.now() - flushStart;
+      if (messages.length > 0) {
+        metrics.recordProxyFlushLatency("verto", flushMs);
+        logger.debug(
+          { count: messages.length, flushMs },
+          "Verto proxy: buffer flushed to upstream",
+        );
+      }
+    }
+
+    function activateAuthGate(): void {
+      authGateActive = true;
+      authGateTimer  = setTimeout(() => {
+        authGateTimer = null;
+        if (authGateActive) {
+          logger.warn(
+            { timeoutMs: AUTH_GATE_TIMEOUT_MS, upstreamUrl },
+            "Verto proxy: auth gate timed out waiting for login response — flushing buffer anyway",
+          );
+          authGateActive       = false;
+          upstreamReadyForData = true;
+          flushBuffer();
+        }
+      }, AUTH_GATE_TIMEOUT_MS);
+    }
+
+    function clearAuthGate(): void {
+      if (authGateTimer) {
+        clearTimeout(authGateTimer);
+        authGateTimer = null;
+      }
+      authGateActive       = false;
+      upstreamReadyForData = true;
+    }
+
+    // ── attachUpstream ────────────────────────────────────────────────────────
 
     function attachUpstream(ws: WebSocket): void {
-      upstream = ws;
+      upstream             = ws;
+      upstreamReadyForData = false;
+      authGateActive       = false;
+      loginRequestId       = null;
+      if (authGateTimer) { clearTimeout(authGateTimer); authGateTimer = null; }
 
       ws.on("open", () => {
+        const reconnectMs = reconnectStartedAt > 0 ? Date.now() - reconnectStartedAt : 0;
         upstreamRetryCount = 0;
         retryScheduled     = false;
-        logger.info({ upstreamUrl, attempt: upstreamRetryCount + 1 }, "Verto proxy: upstream connected to FreeSWITCH");
-        // Flush any messages buffered while we were connecting / retrying.
-        for (const msg of pendingToUpstream.splice(0)) {
-          if (upstream.readyState === WebSocket.OPEN) {
-            upstream.send(msg.data, { binary: msg.isBinary });
+
+        if (reconnectMs > 0) {
+          metrics.recordProxyReconnectDuration("verto", reconnectMs);
+          metrics.reconnectSuccesses++;
+          logger.info(
+            { reconnectMs, disconnectReason: lastDisconnectReason, upstreamUrl },
+            "Verto proxy: upstream reconnected to FreeSWITCH",
+          );
+        } else {
+          logger.info({ upstreamUrl }, "Verto proxy: upstream connected to FreeSWITCH");
+        }
+
+        releaseReconnectSlot("verto");
+
+        // Sort buffer: auth (login) messages first for ordering guarantee.
+        sortBufferForReplay(pendingToUpstream);
+
+        // Auth-gated flush:
+        //   If the buffer's first entry is a login frame, send it alone and
+        //   wait for FreeSWITCH's response before flushing the rest.
+        //   This guarantees FreeSWITCH has an authenticated session before
+        //   any verto.attach / verto.invite arrives.
+        const first = pendingToUpstream[0];
+        if (first && first.priority === 1) {
+          // Extract the RPC id so we can match the response precisely.
+          if (!first.isBinary) {
+            try {
+              const parsed = JSON.parse(first.data.toString()) as Record<string, unknown>;
+              if (typeof parsed.id === "number") loginRequestId = parsed.id;
+            } catch { /* ignore */ }
           }
+          pendingToUpstream.shift();
+          upstream.send(first.data, { binary: first.isBinary });
+          activateAuthGate();
+          logger.debug(
+            { loginRequestId, queuedAfterLogin: pendingToUpstream.length },
+            "Verto proxy: login sent; auth gate active — remaining messages held",
+          );
+        } else {
+          // No login in buffer — session may already be known to FS,
+          // or client will send login as its next real-time message.
+          upstreamReadyForData = true;
+          flushBuffer();
         }
       });
 
+      // ── Upstream → client ────────────────────────────────────────────────────
       ws.on("message", (data, isBinary) => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(data, { binary: isBinary });
         }
-        // Log Verto method names and hangup causes (not SDPs) for diagnostics
+
         if (!isBinary) {
           try {
-            const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+            const msg    = JSON.parse(data.toString()) as Record<string, unknown>;
             const method = msg.method as string | undefined;
+
+            // Auth gate: unblock buffer once FS responds to the login
+            // (either success with sessid, or any error response).
+            if (authGateActive && isVertoLoginResponseAny(data, isBinary, loginRequestId)) {
+              const success = isVertoLoginResponse(data, isBinary, loginRequestId);
+              clearAuthGate();
+              logger.info(
+                { loginRequestId, success },
+                "Verto proxy: login response received — auth gate cleared, flushing buffer",
+              );
+              flushBuffer();
+            }
+
             if (method) {
               const params = (msg.params ?? {}) as Record<string, unknown>;
               const callID = params.callID as string | undefined;
+
               if (method === "verto.invite") {
                 metrics.callsInitiated++;
                 metrics.activeCalls++;
-                const rpcId = typeof msg.id === "number" ? msg.id : null;
+                const rpcId      = typeof msg.id === "number" ? msg.id : null;
                 const clientOpen = client.readyState === WebSocket.OPEN;
                 logger.info(
                   { method, callID, rpcId, CALLEE_SOCKET_FOUND: clientOpen },
@@ -222,7 +400,9 @@ export function createVertoProxy(): WebSocketServer {
               } else if (method === "verto.bye") {
                 metrics.activeCalls = Math.max(0, metrics.activeCalls - 1);
                 const cause = params.cause as string | undefined;
-                if (cause && cause !== "NORMAL_CLEARING" && cause !== "ORIGINATOR_CANCEL") metrics.callsFailed++;
+                if (cause && cause !== "NORMAL_CLEARING" && cause !== "ORIGINATOR_CANCEL") {
+                  metrics.callsFailed++;
+                }
                 logger.info({ method, callID, cause, causeCode: params.causeCode }, "Verto ← FS [hangup]");
               } else if (method !== "verto.info") {
                 logger.info({ method, callID }, "Verto ← FS");
@@ -243,18 +423,18 @@ export function createVertoProxy(): WebSocketServer {
       });
 
       ws.on("error", (err) => {
-        // On upstream connection error, retry before giving up.
-        // The error event always precedes the close event, so we set
-        // retryScheduled here and let the close handler do the actual retry.
+        lastUpstreamErr = err;
         if (!clientDestroyed && upstreamRetryCount < MAX_UPSTREAM_RETRIES) {
           upstreamRetryCount++;
           retryScheduled = true;
+          metrics.reconnectAttempts++;
           logger.warn(
             { err: err.message, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES, upstreamUrl },
             "Verto proxy: upstream error — will retry after delay",
           );
         } else {
           retryScheduled = false;
+          metrics.reconnectFailures++;
           logger.warn(
             { err: err.message, attempt: upstreamRetryCount, upstreamUrl },
             "Verto proxy: upstream error — all retries exhausted, closing client",
@@ -263,24 +443,45 @@ export function createVertoProxy(): WebSocketServer {
       });
 
       ws.on("close", (code, reason) => {
+        const disconnectReason = classifyDisconnectReason(code, reason.toString(), lastUpstreamErr);
+        lastDisconnectReason   = disconnectReason;
+        lastUpstreamErr        = undefined;
+
         if (retryScheduled && !clientDestroyed) {
-          // Schedule retry — upstream was unavailable, give FreeSWITCH time to recover.
-          const delayMs = UPSTREAM_RETRY_BASE_MS * upstreamRetryCount;
+          // Storm protection: acquire a slot; double the jitter if unavailable.
+          const gotSlot = acquireReconnectSlot("verto");
+          const delayMs = UPSTREAM_RETRY_BASE_MS * upstreamRetryCount * (gotSlot ? 1 : 2);
+          reconnectStartedAt = Date.now();
+
           logger.info(
-            { delayMs, attempt: upstreamRetryCount, max: MAX_UPSTREAM_RETRIES },
+            {
+              delayMs,
+              attempt:          upstreamRetryCount,
+              max:              MAX_UPSTREAM_RETRIES,
+              disconnectReason,
+              code,
+              stormSlotGranted: gotSlot,
+            },
             "Verto proxy: upstream closed — scheduling retry",
           );
+
           setTimeout(() => {
             if (!clientDestroyed) {
               attachUpstream(new WebSocket(upstreamUrl, ["verto"]));
+            } else {
+              releaseReconnectSlot("verto");
             }
           }, delayMs);
           retryScheduled = false;
         } else {
           // Normal close or retries exhausted — propagate to client.
+          releaseReconnectSlot("verto");
           metrics.upstreamDisconnectsVerto++;
           const safe = safeCloseCode(code);
-          logger.info({ code, safe, reason: reason.toString() }, "Verto proxy: upstream closed");
+          logger.info(
+            { code, safe, disconnectReason, reason: reason.toString() },
+            "Verto proxy: upstream closed",
+          );
           if (client.readyState === WebSocket.OPEN) {
             client.close(safe, reason);
           }
@@ -289,41 +490,43 @@ export function createVertoProxy(): WebSocketServer {
     }
 
     // Kick off the first upstream connection.
+    acquireReconnectSlot("verto");
+    reconnectStartedAt = Date.now();
     attachUpstream(new WebSocket(upstreamUrl, ["verto"]));
 
-    // ── client → upstream ────────────────────────────────────────────────────
+    // ── Client → upstream ─────────────────────────────────────────────────────
     client.on("message", (data, isBinary) => {
-      if (upstream.readyState === WebSocket.OPEN) {
+      if (upstream.readyState === WebSocket.OPEN && upstreamReadyForData) {
+        // Fast path: upstream is open and auth is confirmed.
         upstream.send(data, { binary: isBinary });
-      } else if (
-        upstream.readyState === WebSocket.CONNECTING ||
-        upstream.readyState === WebSocket.CLOSING    ||
-        upstream.readyState === WebSocket.CLOSED
-      ) {
-        // Buffer when upstream is not yet open OR during the retry-delay window
-        // (upstream still points at the old CLOSED socket, new socket hasn't been
-        // created yet).  Without this branch, any message sent during the 2–8 s
-        // retry gap — including the Verto login — is silently dropped.
-        // Drop oldest message when the cap is reached to prevent OOM.
-        if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
-        pendingToUpstream.push({ data, isBinary });
+      } else {
+        // Buffer: upstream not yet open, auth gate active, or retry window.
+        // Priority=1 (login) frames are sorted to the front of the queue on
+        // flush so login always precedes verto.attach / verto.invite.
+        const priority = vertoMessagePriority(data, isBinary);
+        const result   = enqueueMessage(pendingToUpstream, { data, isBinary, priority }, bufCfg.limit);
+        if (result === "dropped_overflow") {
+          metrics.proxyMessagesDroppedVerto++;
+          logger.warn(
+            { queueLen: pendingToUpstream.length, limit: bufCfg.limit },
+            "Verto proxy: buffer overflow — oldest message evicted",
+          );
+        }
       }
-      // Log what the browser is sending (method names, not SDPs).
-      // Also detect JSON-RPC ACKs from the client for pending verto.invite requests.
+
+      // Log method names and detect login / ACK / invite (not SDPs).
       if (!isBinary) {
         try {
-          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+          const msg    = JSON.parse(data.toString()) as Record<string, unknown>;
           const method = msg.method as string | undefined;
           if (method && method !== "verto.clientReady" && method !== "verto.info") {
             const params = (msg.params ?? {}) as Record<string, unknown>;
             const callID = params.callID as string | undefined;
-            const to = (params.dialogParams as Record<string, unknown> | undefined)?.to;
-            if (method === "verto.invite") {
-              metrics.callsInitiated++;
-              metrics.activeCalls++;
-            }
-            // Detect Verto login — extract extension + sessId and register session
+            const to     = (params.dialogParams as Record<string, unknown> | undefined)?.to;
+
             if (method === "login") {
+              // Store the RPC id so we can match FreeSWITCH's response exactly.
+              if (typeof msg.id === "number") loginRequestId = msg.id;
               const loginStr = params.login as string | undefined;
               const sessId   = params.sessid as string | undefined;
               const extMatch = loginStr?.match(/^(\d+)@/);
@@ -343,12 +546,14 @@ export function createVertoProxy(): WebSocketServer {
                   "Verto proxy: [SESSION_REGISTERED] extension logged in via Verto",
                 );
               }
+            } else if (method === "verto.invite") {
+              metrics.callsInitiated++;
+              metrics.activeCalls++;
             }
+
             logger.info({ method, callID, to }, "Verto → FS");
           } else if (!method && typeof msg.id === "number") {
-            // This is a JSON-RPC response from the client — it could be the ACK
-            // for a previously forwarded verto.invite. Resolve the pending ACK
-            // timer so we don't false-alarm on a healthy invite delivery.
+            // JSON-RPC response from the client — may be an ACK for a verto.invite.
             const pending = pendingInviteAcks.get(msg.id);
             if (pending) {
               clearTimeout(pending.timer);
@@ -363,32 +568,29 @@ export function createVertoProxy(): WebSocketServer {
       }
     });
 
-    // Update lastPingAt whenever the client sends a pong — the browser responds
-    // to our WebSocket ping frames, not to Verto-level keepalives.
+    // Update lastPingAt whenever the client pongs — the browser responds to
+    // our WebSocket ping frames, not to Verto-level keepalives.
     client.on("pong", () => {
-      if (sessionExtension !== null) {
-        touchVertoSession(sessionExtension);
-      }
+      if (sessionExtension !== null) touchVertoSession(sessionExtension);
     });
 
     client.on("close", (code, reason) => {
       clientDestroyed = true;
       cleanup();
+      clearAuthGate();
       metrics.wsDisconnectsVerto++;
       metrics.activeVertoClients = Math.max(0, metrics.activeVertoClients - 1);
       const safe = safeCloseCode(code);
-      logger.info({ code, safe, reason: reason.toString(), activeClients: metrics.activeVertoClients }, "Verto proxy: client closed");
-      // Unregister session so callers know this extension is offline
+      logger.info(
+        { code, safe, reason: reason.toString(), activeClients: metrics.activeVertoClients },
+        "Verto proxy: client closed",
+      );
       if (sessionExtension !== null) {
         unregisterVertoSession(sessionExtension, sessionSessId ?? undefined);
         logger.info(
           { extension: sessionExtension },
           "Verto proxy: [SESSION_UNREGISTERED] extension disconnected",
         );
-        // Notify the A-leg manager so it can arm the disconnect watchdog for any
-        // active call on this extension.  This fires uuid_kill on the FS channel
-        // if the caller doesn't reconnect within ALEG_DISCONNECT_GRACE_MS (default 8 s),
-        // reducing zombie-call lifetime from 30–45 s to < 10 s.
         notifyALegSessionDropped(sessionExtension);
       }
       if (upstream.readyState === WebSocket.OPEN) {
@@ -399,6 +601,7 @@ export function createVertoProxy(): WebSocketServer {
     client.on("error", (err) => {
       clientDestroyed = true;
       cleanup();
+      clearAuthGate();
       logger.warn({ err: err.message }, "Verto proxy: client error");
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.close(1011, Buffer.from("client error"));
@@ -415,11 +618,10 @@ export function createVertoProxy(): WebSocketServer {
  *
  * IMPORTANT: Do NOT call socket.destroy() for unrecognised paths here.
  * Other upgrade handlers (e.g. SIP proxy at /api/sip/ws) are registered on
- * the same server and will handle their own paths. Destroying the socket in
- * an else-branch would kill those connections before they can be handled.
+ * the same server and will handle their own paths.
  */
 export function attachVertoProxy(
-  server: import("http").Server,
+  server: Server,
   wss: WebSocketServer,
 ): void {
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -433,7 +635,5 @@ export function attachVertoProxy(
         socket.destroy();
       }
     }
-    // For all other paths: do nothing — let the next registered upgrade
-    // handler (SIP proxy, etc.) take over.
   });
 }
