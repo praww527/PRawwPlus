@@ -217,6 +217,10 @@ export function createVertoProxy(): WebSocketServer {
       clearInterval(heartbeat);
       for (const { timer } of pendingInviteAcks.values()) clearTimeout(timer);
       pendingInviteAcks.clear();
+      // Clear auth-gate timer so it never fires on a disconnected client and
+      // attempts to flush the buffer into a closed upstream socket.
+      if (authGateTimer) { clearTimeout(authGateTimer); authGateTimer = null; }
+      authGateActive = false;
     };
 
     // ── Per-connection upstream state ─────────────────────────────────────────

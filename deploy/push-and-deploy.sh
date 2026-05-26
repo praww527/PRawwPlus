@@ -14,7 +14,9 @@ set -euo pipefail
 
 GITHUB_REPO="praww527/PRawwPlus"
 VPS_USER="ubuntu"
-VPS_HOST="praww.co.za"
+# Use the real VPS public IP directly — NOT the CDN/proxy edge (216.24.57.1).
+# SSH must reach the actual server; the proxy layer does not forward port 22.
+VPS_HOST="158.180.29.84"
 VPS_DIR="/home/ubuntu/PRawwPlus"
 BRANCH="master"
 

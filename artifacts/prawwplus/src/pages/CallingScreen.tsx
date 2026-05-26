@@ -56,6 +56,25 @@ export default function CallingScreen() {
   const [confStatus, setConfStatus] = useState<string | null>(null);
   const [confBusy, setConfBusy] = useState(false);
 
+  // Reset per-call UI state whenever a brand-new call starts (callPhase → "calling").
+  // Without this, onHold/muted/DTMF state from a previous call persists into the next
+  // one — e.g. the UI shows "Held" at the start of a fresh outbound call.
+  const prevCallIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (callPhase === "calling" && callInfo?.callId !== prevCallIdRef.current) {
+      prevCallIdRef.current = callInfo?.callId;
+      setMutedState(false);
+      setOnHold(false);
+      setDtmfBuffer("");
+      setShowKeypad(false);
+      setShowConference(false);
+      setConfRoomId(null);
+      setConfStatus(null);
+      setConfExtInput("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callPhase, callInfo?.callId]);
+
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const elapsedRef   = useRef<number>(0);

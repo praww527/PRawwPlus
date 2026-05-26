@@ -93,6 +93,21 @@ export interface EslTraceEntry {
 
 const eslTraceMap = new Map<string, EslTraceEntry[]>();
 
+// Safety-net: cap the map to at most 5 000 UUIDs every 10 minutes.
+// Normal cleanup happens per-channel (60 s after CHANNEL_DESTROY), but a
+// crashed channel that never fires CHANNEL_DESTROY would leak an entry.
+// This periodic purge evicts the oldest entries when the map grows too large.
+const ESL_TRACE_MAP_MAX = 5_000;
+setInterval(() => {
+  if (eslTraceMap.size <= ESL_TRACE_MAP_MAX) return;
+  const excess = eslTraceMap.size - ESL_TRACE_MAP_MAX;
+  let evicted = 0;
+  for (const key of eslTraceMap.keys()) {
+    eslTraceMap.delete(key);
+    if (++evicted >= excess) break;
+  }
+}, 10 * 60_000).unref();
+
 function recordEslTrace(uuid: string, event: string, cause?: string): void {
   if (!uuid) return;
   const entries = eslTraceMap.get(uuid) ?? [];
