@@ -483,6 +483,22 @@ class FreeSwitchESL {
     this.heartbeatTimer = setInterval(() => {
       if (!this.authenticated) return;
       const staleSec = lastEventAt ? Math.round((Date.now() - lastEventAt) / 1000) : null;
+
+      if (staleSec !== null && staleSec > 90) {
+        // No ESL event in >90 s despite three bgapi keepalive attempts — the
+        // connection is a zombie (TCP half-open: appears alive at OS level, but
+        // FreeSWITCH stopped delivering events through it).  Force a full
+        // reconnect so the event subscription is re-established and call routing
+        // works again.  This is the primary fix for "USER_NOT_REGISTERED" failures
+        // caused by a silent ESL disconnect that the OS keepalive never detected.
+        logger.error(
+          { staleSec, host: ESL_HOST },
+          "[ESL] Heartbeat: no ESL event in >90 s — zombie connection detected; forcing reconnect",
+        );
+        this.scheduleReconnect("heartbeat_zombie_90s");
+        return;
+      }
+
       if (staleSec !== null && staleSec > 60) {
         logger.warn(
           { staleSec, host: ESL_HOST },
@@ -750,6 +766,7 @@ class FreeSwitchESL {
         // and detect premature bridge loss (e.g. transfer failure, mid-call partition).
         this.sendLine(
           "event plain " +
+          "HEARTBEAT " +
           "CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_PROGRESS_MEDIA " +
           "CHANNEL_ORIGINATE CHANNEL_ANSWER CHANNEL_BRIDGE CHANNEL_UNBRIDGE " +
           "CHANNEL_HANGUP CHANNEL_HANGUP_COMPLETE " +

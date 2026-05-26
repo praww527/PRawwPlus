@@ -257,10 +257,19 @@ export class VertoClient {
 
   setSpeakerEnabled(enabled: boolean) {
     if (!this.remoteAudio) return;
-    this.remoteAudio.muted = !enabled;
+    // Do NOT mute the audio element here — speaker toggling is about routing
+    // audio to the loudspeaker vs earpiece, not about silencing the call.
+    // Setting muted=true when speaker=false would cut the caller's audio off.
+    // On platforms that support setSinkId (desktop Chrome/Edge), route to the
+    // default output device ("") — mobile browsers ignore this gracefully.
     if (typeof (this.remoteAudio as any).setSinkId === "function") {
-      (this.remoteAudio as any).setSinkId(enabled ? "" : "").catch(() => {});
+      (this.remoteAudio as any).setSinkId("").catch(() => {});
     }
+    // Ensure audio is always playing (unblock any autoplay suspension).
+    if (this.remoteAudio.paused && this.remoteAudio.srcObject) {
+      this.remoteAudio.play().catch(() => {});
+    }
+    console.info("[Verto] setSpeakerEnabled:", enabled, "(routing note: setSinkId used where supported)");
   }
 
   sendDtmf(digit: string) {

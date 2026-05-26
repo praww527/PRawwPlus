@@ -45,7 +45,7 @@ export default function CallingScreen() {
 
   const [elapsed, setElapsed] = useState(0);
   const [muted, setMutedState] = useState(false);
-  const [speaker, setSpeakerState] = useState(false);
+  const [speaker, setSpeakerState] = useState(true);
   const [showKeypad, setShowKeypad] = useState(false);
   const [dtmfBuffer, setDtmfBuffer] = useState("");
 
