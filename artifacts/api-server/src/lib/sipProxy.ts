@@ -284,8 +284,15 @@ export function createSipProxy(): WebSocketServer {
     client.on("message", (data, isBinary) => {
       if (upstream.readyState === WebSocket.OPEN) {
         upstream.send(data, { binary: isBinary });
-      } else if (upstream.readyState === WebSocket.CONNECTING) {
-        // Upstream not yet open — buffer so the SIP REGISTER isn't lost.
+      } else if (
+        upstream.readyState === WebSocket.CONNECTING ||
+        upstream.readyState === WebSocket.CLOSING    ||
+        upstream.readyState === WebSocket.CLOSED
+      ) {
+        // Buffer when upstream is not yet open OR during the retry-delay window
+        // (upstream still points at the old CLOSED socket, new socket hasn't been
+        // created yet).  Without this branch, any SIP message sent during the
+        // 2–8 s retry gap — including SIP REGISTER — is silently dropped.
         // Drop oldest when cap is reached to prevent OOM.
         if (pendingToUpstream.length >= PENDING_BUFFER_LIMIT) pendingToUpstream.shift();
         pendingToUpstream.push({ data, isBinary });
