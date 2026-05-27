@@ -48,17 +48,19 @@ jobs:
       - name: Web app — build
         run: pnpm --filter @workspace/prawwplus run build
 
-  # ─── 2. Deploy to Oracle VPS ──────────────────────────────────────────────
+  # ─── 2. Deploy to Oracle VPS (158.180.29.84) ──────────────────────────────
   #
   # Required GitHub Secrets (Settings → Secrets and variables → Actions):
-  #   VPS_HOST       — VPS IP            (158.180.29.84)
-  #   VPS_USER       — SSH user          (ubuntu)
-  #   VPS_SSH_KEY    — OpenSSH private key (-----BEGIN OPENSSH PRIVATE KEY-----)
-  #   VPS_PORT       — SSH port          (22)
-  #   VPS_DEPLOY_DIR — repo path         (/home/ubuntu/PRawwPlus)
+  #   VPS_HOST       — 158.180.29.84
+  #   VPS_USER       — ubuntu
+  #   VPS_SSH_KEY    — OpenSSH private key (full content, NO passphrase)
+  #                    Must start with:  -----BEGIN OPENSSH PRIVATE KEY-----
+  #                    Must end with:    -----END OPENSSH PRIVATE KEY-----
+  #   VPS_PORT       — 22
+  #   VPS_DEPLOY_DIR — /home/ubuntu/PRawwPlus
   #
   # Optional:
-  #   VPS_HEALTH_URL — health endpoint   (https://rtc.praww.co.za/api/healthz)
+  #   VPS_HEALTH_URL — https://rtc.praww.co.za/api/healthz
   deploy:
     needs: verify
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -72,10 +74,9 @@ jobs:
           if [[ -z "$HOST" || -z "$KEY" ]]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "⚠️  VPS_HOST or VPS_SSH_KEY not set — skipping deploy."
-            echo "   Add secrets at: GitHub repo → Settings → Secrets and variables → Actions"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "✓ Deployment secrets found — host: $HOST"
+            echo "✓ Deployment secrets found"
           fi
 
       - name: Write SSH key + deploy
@@ -87,36 +88,65 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
         run: |
-          # ── Write and validate the SSH private key ──────────────────────
+          set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Normalize key: fix CRLF → LF, strip stray spaces, ensure trailing newline
-          printf '%s\n' "$VPS_SSH_KEY_RAW" \
-            | sed 's/\r//g' \
-            | sed 's/[[:space:]]*$//' \
-            > ~/.ssh/deploy_key
+          # ── Write SSH private key robustly ───────────────────────────────
+          # Python handles: literal \n escapes, CRLF, missing trailing newline,
+          # extra blank lines, BOM, and other encoding artifacts.
+          python3 - <<'PYEOF'
+          import os, sys, re
+
+          raw = os.environ.get('VPS_SSH_KEY_RAW', '')
+
+          # If stored as single line with literal \n escapes (common mistake)
+          if '\n' not in raw and '\\n' in raw:
+              raw = raw.replace('\\n', '\n')
+
+          # Strip Windows CRLF
+          raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+
+          # Extract only the key block (handles extra surrounding whitespace/text)
+          match = re.search(
+              r'(-----BEGIN [A-Z ]+ PRIVATE KEY-----.*?-----END [A-Z ]+ PRIVATE KEY-----)',
+              raw, re.DOTALL
+          )
+          if match:
+              key = match.group(1).strip() + '\n'
+          else:
+              key = raw.strip() + '\n'
+
+          key_path = os.path.expanduser('~/.ssh/deploy_key')
+          with open(key_path, 'w') as f:
+              f.write(key)
+
+          print(f'Key written: {len(key)} bytes, {key.count(chr(10))} lines')
+          print(f'First line: {key.splitlines()[0]}')
+          print(f'Last line:  {key.splitlines()[-1]}')
+          PYEOF
+
           chmod 600 ~/.ssh/deploy_key
 
-          echo "── Key file first/last lines ──────────────────────────────"
-          head -1 ~/.ssh/deploy_key
-          tail -1 ~/.ssh/deploy_key
-          wc -l ~/.ssh/deploy_key
+          # ── Validate key can be parsed ────────────────────────────────────
+          echo "── ssh-keygen fingerprint ────────────────────────────────"
+          if ssh-keygen -l -f ~/.ssh/deploy_key 2>&1; then
+            echo "✓ Key fingerprint OK"
+          else
+            echo "⚠️  ssh-keygen -l failed (key may have passphrase or unusual format)"
+            echo "   File size: $(wc -c < ~/.ssh/deploy_key) bytes, $(wc -l < ~/.ssh/deploy_key) lines"
+            echo "   First bytes (hex): $(head -c 64 ~/.ssh/deploy_key | xxd | head -4)"
+          fi
 
-          echo "── Verify key parses (ssh-keygen -y) ─────────────────────"
-          ssh-keygen -y -f ~/.ssh/deploy_key > ~/.ssh/deploy_key.pub \
-            && echo "✓ Key is valid — public key:" \
-            && cat ~/.ssh/deploy_key.pub \
-            || { echo "✗ Key failed to parse — check VPS_SSH_KEY secret format"; exit 1; }
-
-          # ── Configure SSH ───────────────────────────────────────────────
+          # ── Configure SSH client ──────────────────────────────────────────
           PORT="${VPS_PORT:-22}"
           HOST="$VPS_HOST"
+          USER="${VPS_USER:-ubuntu}"
 
           cat > ~/.ssh/config <<EOF
           Host deploy_target
             HostName $HOST
-            User ${VPS_USER:-ubuntu}
+            User $USER
             Port $PORT
             IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
@@ -124,39 +154,47 @@ jobs:
             UserKnownHostsFile /dev/null
             ServerAliveInterval 30
             ServerAliveCountMax 6
+            ConnectTimeout 15
           EOF
           chmod 600 ~/.ssh/config
 
-          echo "── Test SSH connectivity (verbose) ────────────────────────"
-          ssh -vvv -o BatchMode=yes deploy_target 'echo "✓ SSH connection OK — $(uname -a)"' \
-            2>&1 | grep -E "^(debug1|Warning|Authenticated|Permission|Connection|✓)" | head -30
+          # ── Test SSH connectivity ─────────────────────────────────────────
+          echo "── Testing SSH to ${HOST}:${PORT} as ${USER} ──────────────"
+          ssh -vvv deploy_target 'echo "✓ SSH OK — $(uname -n) — $(date)"' 2>&1 \
+            | grep -E "^(debug1: |Warning|Authenticated|Permission|Connection|✓)" \
+            | head -40 \
+            || {
+              echo "SSH FAILED — raw verbose output:"
+              ssh -vvv deploy_target 'true' 2>&1 | tail -30
+              exit 1
+            }
 
-          echo "── Begin remote deployment ────────────────────────────────"
+          # ── Remote deployment script ──────────────────────────────────────
           DEPLOY_DIR="${VPS_DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
-          DEPLOY_DIR="${DEPLOY_DIR%/}"   # strip trailing slash
+          DEPLOY_DIR="${DEPLOY_DIR%/}"
+          echo "── Deploying to $HOST:$DEPLOY_DIR ──────────────────────────"
 
-          ssh deploy_target bash -s -- "$DEPLOY_DIR" <<'REMOTE'
+          ssh deploy_target bash -s <<REMOTE
           set -euo pipefail
-          DEPLOY_DIR="$1"
-
+          DEPLOY_DIR="${DEPLOY_DIR}"
           echo "==> [1/8] Pull latest code"
-          git -C "$DEPLOY_DIR" fetch origin
-          git -C "$DEPLOY_DIR" reset --hard "origin/$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
-          echo "  HEAD: $(git -C "$DEPLOY_DIR" log --oneline -1)"
+          git -C "\$DEPLOY_DIR" fetch origin
+          git -C "\$DEPLOY_DIR" reset --hard "origin/\$(git -C "\$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
+          echo "  HEAD: \$(git -C "\$DEPLOY_DIR" log --oneline -1)"
 
           echo "==> [2/8] Fix file ownership"
-          sudo chown -R ubuntu:ubuntu "$DEPLOY_DIR" 2>/dev/null || true
+          sudo chown -R ubuntu:ubuntu "\$DEPLOY_DIR" 2>/dev/null || true
 
           echo "==> [3/8] Enable pnpm"
           corepack enable 2>/dev/null || sudo npm install -g pnpm@10.26.1 --loglevel=error
           corepack prepare pnpm@10.26.1 --activate 2>/dev/null || true
-          echo "  pnpm: $(pnpm --version)"
+          echo "  pnpm: \$(pnpm --version)"
 
           echo "==> [4/8] Install dependencies"
-          cd "$DEPLOY_DIR"
+          cd "\$DEPLOY_DIR"
           pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
 
-          echo "==> [5/8] Build libraries"
+          echo "==> [5/8] Build shared libraries"
           pnpm --filter @workspace/db \
                --filter @workspace/api-zod \
                --filter @workspace/auth-web \
@@ -167,37 +205,35 @@ jobs:
           pnpm --filter @workspace/prawwplus run build
           pnpm --filter @workspace/api-server run build
 
-          echo "==> [7/8] Install & restart systemd service"
-          sudo cp "$DEPLOY_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
+          echo "==> [7/8] Restart systemd service"
+          sudo cp "\$DEPLOY_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
           sudo systemctl daemon-reload
           sudo systemctl enable prawwplus-api
           sudo systemctl restart prawwplus-api
           echo "  Waiting for service to become active..."
-          for i in $(seq 1 24); do
+          for i in \$(seq 1 24); do
             sleep 5
             if systemctl is-active --quiet prawwplus-api; then
-              echo "  ✓ Service active after $((i*5))s"
+              echo "  ✓ Service active after \$((i*5))s"
               break
             fi
-            if [ "$i" -eq 24 ]; then
-              echo "  ✗ Service failed to start after 120s"
+            if [ "\$i" -eq 24 ]; then
+              echo "  ✗ Service failed after 120s"
               journalctl -u prawwplus-api -n 80 --no-pager
               exit 1
             fi
-            echo "  ... still waiting ($((i*5))s)"
+            echo "  ... \$((i*5))s"
           done
 
-          echo "==> [8/8] Zombie / orphan cleanup"
-          # Kill stale FreeSWITCH ESL watchers or orphaned node processes (best-effort)
-          pgrep -f "tsx.*index" | grep -v "^$$" | xargs kill -SIGTERM 2>/dev/null || true
-          # Remove zombie (defunct) child processes by reaping their parents
-          for PPID in $(ps -eo ppid,stat | awk '$2~/^Z/{print $1}' | sort -u); do
-            [ "$PPID" -le 1 ] && continue
-            kill -SIGCHLD "$PPID" 2>/dev/null || true
+          echo "==> [8/8] Cleanup stale processes"
+          pgrep -f "tsx.*index" | grep -v "^\$\$" | xargs kill -SIGTERM 2>/dev/null || true
+          for PPID in \$(ps -eo ppid,stat | awk '\$2~/^Z/{print \$1}' | sort -u); do
+            [ "\$PPID" -le 1 ] && continue
+            kill -SIGCHLD "\$PPID" 2>/dev/null || true
           done
 
-          echo "==> Deploy complete at $(date)"
-          echo "    Commit: $(git -C "$DEPLOY_DIR" log --oneline -1)"
+          echo "==> Deploy complete: \$(date)"
+          echo "    \$(git -C "\$DEPLOY_DIR" log --oneline -1)"
           systemctl status prawwplus-api --no-pager --lines=5
           REMOTE
 
@@ -212,8 +248,7 @@ jobs:
           fi
           echo "Checking $HEALTH_URL"
           for i in 1 2 3 4 5 6; do
-            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 15 "$HEALTH_URL" \
-              --resolve "${HEALTH_URL#https://}" || echo "000")
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 15 "$HEALTH_URL" || echo "000")
             echo "  Attempt $i: HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
               echo "✓ Health check passed"
