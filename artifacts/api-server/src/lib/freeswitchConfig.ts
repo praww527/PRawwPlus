@@ -193,6 +193,10 @@ export function dialplanXml(fsDomain: string): string {
   // FS_VAR is used to produce literal "${" in the generated XML so FreeSWITCH
   // evaluates channel/global variables at call-time rather than at generation-time.
   const FS_VAR = "${";
+  // Port the API server listens on — FreeSWITCH calls this from localhost.
+  const apiPort = (process.env.PORT ?? "8080").toString().trim();
+  const lookupUrl = `http://127.0.0.1:${apiPort}/api/freeswitch/lookup`;
+
   const gateway = pstnGatewayName();
   const externalRoute = gateway
     ? `
@@ -544,6 +548,40 @@ export function dialplanXml(fsDomain: string): string {
         <action application="speak" data="flite|kal|The call could not be completed. Please try again later."/>
         <action application="sleep" data="300"/>
         <action application="hangup" data="${FS_VAR}_orig_bridge_cause}"/>
+      </condition>
+    </extension>
+
+    <!--
+      Phone-number-to-extension lookup.
+
+      When the caller dials a South African mobile number in local format
+      (0XXXXXXXXX), this extension queries the PRaww+ API to check whether
+      the destination number belongs to a registered user.  If it does, the
+      call is transparently redirected to that user's internal extension so
+      it travels over WebRTC/SIP and is billed as an internal call.
+
+      If the lookup returns nothing (user not found or API unreachable), this
+      extension continues and the call falls through to the PSTN route below.
+
+      continue="true"  — always falls through when the lookup yields no match.
+      break="never"    — first condition (number match + curl) always runs.
+      break="on-true"  — second condition transfers only when a valid extension
+                         was returned; otherwise execution continues.
+    -->
+    <extension name="phone_number_lookup" continue="true">
+      <condition field="destination_number" expression="^(0[0-9]{9})$" break="never">
+        <!--
+          Call the lookup API.  mod_curl sets curl_response_data to the
+          response body (the extension number as plain text) and
+          curl_response_code to the HTTP status.
+        -->
+        <action application="curl" data="${lookupUrl}?number=$1"/>
+        <action application="set" data="target_ext=${FS_VAR}curl_response_data}"/>
+        <action application="log" data="INFO [LOOKUP] ${FS_VAR}destination_number} → target_ext=${FS_VAR}target_ext} (http ${FS_VAR}curl_response_code})"/>
+      </condition>
+      <!-- Transfer to the resolved internal extension when the lookup succeeded. -->
+      <condition field="${FS_VAR}target_ext}" expression="^([1-9][0-9]{3})$" break="on-true">
+        <action application="transfer" data="${FS_VAR}target_ext} XML prawwplus"/>
       </condition>
     </extension>
 
