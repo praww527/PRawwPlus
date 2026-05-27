@@ -238,6 +238,7 @@ jobs:
           REMOTE
 
       - name: HTTP health check
+        id: health_check
         if: steps.secrets_check.outputs.configured == 'true'
         env:
           HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
@@ -258,3 +259,98 @@ jobs:
           done
           echo "✗ Health check failed after 6 attempts"
           exit 1
+
+      # ── Automatic rollback on health check failure ────────────────────────
+      # When the health check fails, SSH to the VPS, revert to the previous
+      # git HEAD, rebuild, and restart the service. The prior commit is
+      # recorded with `git rev-parse HEAD~1` before the new code is deployed.
+      # This step runs ONLY when health_check failed — it does not run when
+      # the deploy script itself fails (the service would still be up then).
+      - name: Rollback on health check failure
+        if: failure() && steps.health_check.conclusion == 'failure' && steps.secrets_check.outputs.configured == 'true'
+        env:
+          VPS_SSH_KEY_RAW: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          echo "⚠️  Health check failed — initiating automatic rollback"
+
+          # Reuse the key written in the deploy step (still present in $HOME/.ssh)
+          # In case the runner is fresh, re-write it.
+          if [ ! -f ~/.ssh/deploy_key ]; then
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            python3 - <<'PYEOF'
+          import os, re
+          raw = os.environ.get('VPS_SSH_KEY_RAW', '')
+          if '\n' not in raw and '\\n' in raw:
+              raw = raw.replace('\\n', '\n')
+          raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+          match = re.search(r'(-----BEGIN [A-Z ]+ PRIVATE KEY-----.*?-----END [A-Z ]+ PRIVATE KEY-----)', raw, re.DOTALL)
+          key = (match.group(1).strip() if match else raw.strip()) + '\n'
+          with open(os.path.expanduser('~/.ssh/deploy_key'), 'w') as f:
+              f.write(key)
+          PYEOF
+            chmod 600 ~/.ssh/deploy_key
+            PORT="${VPS_PORT:-22}"
+            cat > ~/.ssh/config <<EOF
+          Host deploy_target
+            HostName $VPS_HOST
+            User ${VPS_USER:-ubuntu}
+            Port $PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 30
+            ServerAliveCountMax 6
+            ConnectTimeout 15
+          EOF
+            chmod 600 ~/.ssh/config
+          fi
+
+          DEPLOY_DIR="${VPS_DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
+          DEPLOY_DIR="${DEPLOY_DIR%/}"
+
+          ssh deploy_target bash -s <<ROLLBACK
+          set -euo pipefail
+          DEPLOY_DIR="${DEPLOY_DIR}"
+          echo "==> [Rollback 1/4] Identify previous commit"
+          PREV=\$(git -C "\$DEPLOY_DIR" rev-parse HEAD~1 2>/dev/null || echo "")
+          if [ -z "\$PREV" ]; then
+            echo "  ✗ Cannot determine previous commit — rollback aborted"
+            exit 1
+          fi
+          echo "  Previous HEAD: \$PREV"
+          echo "  Current HEAD:  \$(git -C "\$DEPLOY_DIR" rev-parse HEAD)"
+
+          echo "==> [Rollback 2/4] Reset to previous commit"
+          git -C "\$DEPLOY_DIR" reset --hard "\$PREV"
+          echo "  Now at: \$(git -C "\$DEPLOY_DIR" log --oneline -1)"
+
+          echo "==> [Rollback 3/4] Rebuild API server from previous code"
+          cd "\$DEPLOY_DIR"
+          pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+          pnpm --filter @workspace/db --filter @workspace/api-zod --filter @workspace/auth-web --filter @workspace/api-client-react run build
+          pnpm --filter @workspace/api-server run build
+
+          echo "==> [Rollback 4/4] Restart service with previous build"
+          sudo systemctl restart prawwplus-api
+          for i in \$(seq 1 12); do
+            sleep 5
+            if systemctl is-active --quiet prawwplus-api; then
+              echo "  ✓ Rollback complete — service active after \$((i*5))s"
+              break
+            fi
+            if [ "\$i" -eq 12 ]; then
+              echo "  ✗ Service failed to start even after rollback — MANUAL INTERVENTION REQUIRED"
+              journalctl -u prawwplus-api -n 60 --no-pager
+              exit 1
+            fi
+          done
+          echo "  Rollback to \$PREV completed at \$(date)"
+          systemctl status prawwplus-api --no-pager --lines=5
+          ROLLBACK
+          echo "✓ Rollback SSH completed — check VPS logs for final status"
