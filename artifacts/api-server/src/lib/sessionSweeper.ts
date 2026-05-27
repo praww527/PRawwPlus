@@ -12,7 +12,7 @@
  */
 
 import { connectDB, CallModel } from "@workspace/db";
-import { getAllSessions, unregisterVertoSession } from "./callSession";
+import { getAllSessions, unregisterVertoSession, getAllSipSessions, unregisterSipSession } from "./callSession";
 import { metrics } from "./metrics";
 import { logger } from "./logger";
 import { appendCallEvent } from "./callEventLog";
@@ -53,6 +53,41 @@ function sweepStaleSessions(): number {
       logger.info(
         { extension: s.extension, sessId: s.sessId, ageMs: age, maxAgeMs: SESSION_MAX_AGE_MS },
         "[Sweeper] Removed stale Verto session",
+      );
+    }
+  }
+
+  return cleaned;
+}
+
+// ── Expired SIP session cleanup ───────────────────────────────────────────────
+// SIP registrations have a hard expiry (expiresAt). If the UA stopped sending
+// re-REGISTERs (e.g. mobile app killed, network dropped without a REGISTER/0),
+// the session stays in the map past its expiry and isExtensionOnline() returns
+// false for it — but it still occupies memory and pollutes the SIP session count.
+// Sweep them periodically so the in-memory table reflects only live registrations.
+
+const SIP_EXPIRED_GRACE_MS = parseInt(
+  process.env.SIP_EXPIRED_GRACE_MS ?? "120000", // 2 min grace after expiry
+  10,
+);
+
+function sweepExpiredSipSessions(): number {
+  const now = Date.now();
+  const sessions = getAllSipSessions();
+  let cleaned = 0;
+
+  for (const s of sessions) {
+    if (s.expiresAt < now - SIP_EXPIRED_GRACE_MS) {
+      unregisterSipSession(s.extension);
+      cleaned++;
+      logger.info(
+        {
+          extension: s.extension,
+          expiresAt: new Date(s.expiresAt).toISOString(),
+          expiredMsAgo: now - s.expiresAt,
+        },
+        "[Sweeper] Removed expired SIP registration (orphaned — no re-REGISTER received)",
       );
     }
   }
@@ -138,15 +173,17 @@ async function sweepZombieCalls(): Promise<number> {
 async function runSweep(): Promise<void> {
   metrics.staleSweepRuns++;
 
-  const sessionsCleaned = sweepStaleSessions();
-  const zombiesKilled   = await sweepZombieCalls();
+  const sessionsCleaned    = sweepStaleSessions();
+  const sipSessionsCleaned = sweepExpiredSipSessions();
+  const zombiesKilled      = await sweepZombieCalls();
 
-  metrics.staleSessionCleanups += sessionsCleaned;
+  metrics.staleSessionCleanups += sessionsCleaned + sipSessionsCleaned;
   metrics.zombieCallsKilled    += zombiesKilled;
 
-  if (sessionsCleaned > 0 || zombiesKilled > 0) {
+  const totalCleaned = sessionsCleaned + sipSessionsCleaned + zombiesKilled;
+  if (totalCleaned > 0) {
     logger.info(
-      { sessionsCleaned, zombiesKilled, sweepRun: metrics.staleSweepRuns },
+      { sessionsCleaned, sipSessionsCleaned, zombiesKilled, sweepRun: metrics.staleSweepRuns },
       "[Sweeper] Sweep complete",
     );
   } else {
