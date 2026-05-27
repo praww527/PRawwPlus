@@ -1,0 +1,160 @@
+name: Post-Deploy Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "Validation phase to run"
+        required: true
+        default: "metrics"
+        type: choice
+        options:
+          - metrics
+          - security
+          - calls
+          - chaos
+          - soak-short
+          - all-except-soak
+      chaos_target:
+        description: "Chaos target (for chaos phase)"
+        required: false
+        default: "websocket"
+      soak_duration:
+        description: "Soak duration in seconds (for soak-short; default 300)"
+        required: false
+        default: "300"
+
+  # Also run lightweight validation automatically after every successful deploy
+  workflow_run:
+    workflows: ["Deploy"]
+    types: [completed]
+
+env:
+  BASE_URL:      ${{ secrets.BASE_URL || 'https://rtc.praww.co.za' }}
+  ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+  VPS_HOST:      ${{ secrets.VPS_HOST || '158.180.29.84' }}
+  VPS_USER:      ${{ secrets.VPS_USER || 'ubuntu' }}
+
+jobs:
+  # ── Quick sanity check (runs automatically after every deploy) ─────────────
+  smoke:
+    name: Smoke — Metrics Cross-Check
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Wait for deployment to stabilise
+        run: sleep 30
+
+      - name: Metrics cross-check
+        run: |
+          pnpm exec tsx tools/validation/metrics-crosscheck.ts \
+            --base-url  "$BASE_URL" \
+            --admin-key "$ADMIN_API_KEY"
+
+  # ── On-demand validation (manual trigger) ─────────────────────────────────
+  validate:
+    name: Validation — ${{ github.event.inputs.phase || 'metrics' }}
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up SSH key
+        if: ${{ github.event.inputs.phase == 'chaos' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # ── metrics ──────────────────────────────────────────────────────────
+      - name: Phase — Metrics cross-check
+        if: ${{ github.event.inputs.phase == 'metrics' || github.event.inputs.phase == 'all-except-soak' }}
+        run: |
+          pnpm exec tsx tools/validation/metrics-crosscheck.ts \
+            --base-url  "$BASE_URL" \
+            --admin-key "$ADMIN_API_KEY"
+
+      # ── security ─────────────────────────────────────────────────────────
+      - name: Phase — Security fuzz
+        if: ${{ github.event.inputs.phase == 'security' || github.event.inputs.phase == 'all-except-soak' }}
+        run: |
+          pnpm exec tsx tools/validation/security-fuzz.ts \
+            --base-url  "$BASE_URL" \
+            --admin-key "$ADMIN_API_KEY" \
+            ${TEST_SESSION:+--session-id "$TEST_SESSION"}
+        env:
+          TEST_SESSION: ${{ secrets.TEST_SESSION_SID }}
+
+      # ── calls ─────────────────────────────────────────────────────────────
+      - name: Phase — Call event validation
+        if: ${{ github.event.inputs.phase == 'calls' || github.event.inputs.phase == 'all-except-soak' }}
+        run: |
+          pnpm exec tsx tools/validation/call-validator.ts \
+            --base-url   "$BASE_URL" \
+            --admin-key  "$ADMIN_API_KEY" \
+            --session-id "${{ secrets.TEST_SESSION_SID }}" \
+            --to-number  "${{ secrets.TEST_TO_NUMBER }}" \
+            --iterations 2
+        env:
+          TEST_SESSION: ${{ secrets.TEST_SESSION_SID }}
+          TEST_TO_NUM:  ${{ secrets.TEST_TO_NUMBER }}
+
+      # ── chaos ─────────────────────────────────────────────────────────────
+      - name: Phase — Chaos / failure injection
+        if: ${{ github.event.inputs.phase == 'chaos' }}
+        run: |
+          pnpm exec tsx tools/validation/chaos.ts \
+            --base-url    "$BASE_URL" \
+            --admin-key   "$ADMIN_API_KEY" \
+            --ssh-host    "$VPS_HOST" \
+            --ssh-user    "$VPS_USER" \
+            --ssh-key     "$HOME/.ssh/id_rsa" \
+            --target      "${{ github.event.inputs.chaos_target }}" \
+            --recovery-timeout 120
+
+      # ── soak-short ────────────────────────────────────────────────────────
+      - name: Phase — Short soak test
+        if: ${{ github.event.inputs.phase == 'soak-short' }}
+        run: |
+          pnpm exec tsx tools/validation/soak-test.ts \
+            --base-url  "$BASE_URL" \
+            --admin-key "$ADMIN_API_KEY" \
+            --duration  "${{ github.event.inputs.soak_duration || '300' }}"
+
+      # ── Upload logs ───────────────────────────────────────────────────────
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs-${{ github.run_id }}
+          path: |
+            soak-*.ndjson
+            validation-logs/
+          retention-days: 14
