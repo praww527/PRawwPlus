@@ -6,6 +6,7 @@
  * Prometheus text format is rendered on demand by the /api/metrics route.
  */
 import { getActiveReconnectCount } from "./proxyBuffer";
+import { getProcessMetrics } from "./processMetrics";
 
 interface LatencySample {
   value: number;
@@ -52,6 +53,18 @@ class MetricsStore {
   staleSweepRuns           = 0;
   zombieCallsKilled        = 0;
   voicemailFallbacks       = 0;
+
+  // ── Security / rate-limit counters ────────────────────────────────────────
+  /** WebSocket connections dropped because the per-IP slot cap was reached. */
+  wsConnectionsRejectedIpLimit = 0;
+  /** SIP registration bursts flagged as flood (>threshold per minute per IP). */
+  sipFloodBlocked              = 0;
+  /** Call attempts rejected by the per-user throttle guard. */
+  callThrottleRejections       = 0;
+  /** Times the ESL event throughput dropped below the stall threshold while connected. */
+  eslStalledThroughputCount    = 0;
+  /** Times a bgapi command was dropped because the queue was at the depth cap. */
+  bgapiQueueDropped            = 0;
 
   // ── Push delivery counters ─────────────────────────────────────────────────
   pushFcmSent    = 0;
@@ -146,6 +159,7 @@ class MetricsStore {
     const reconSip    = this.proxyReconnectDurationPercentiles("sip");
     const flushVerto  = this.proxyFlushLatencyPercentiles("verto");
     const flushSip    = this.proxyFlushLatencyPercentiles("sip");
+    const proc        = getProcessMetrics();
     return {
       startedAt:               this.startedAt.toISOString(),
       uptimeSeconds:           this.uptimeSeconds(),
@@ -189,6 +203,22 @@ class MetricsStore {
       proxyFlushLatency:       { verto: flushVerto, sip: flushSip },
       callSetupLatency:        lat,
       bridgeSetupLatency:      bridge,
+      // Security / resilience counters
+      wsConnectionsRejectedIpLimit: this.wsConnectionsRejectedIpLimit,
+      sipFloodBlocked:              this.sipFloodBlocked,
+      callThrottleRejections:       this.callThrottleRejections,
+      eslStalledThroughputCount:    this.eslStalledThroughputCount,
+      bgapiQueueDropped:            this.bgapiQueueDropped,
+      // Process-level metrics (sampled by processMetrics.ts)
+      process: {
+        heapUsedMb:  proc.heapUsedMb,
+        heapTotalMb: proc.heapTotalMb,
+        rssMb:       proc.rssMb,
+        cpuUserMs:   proc.cpuUserMs,
+        cpuSysMs:    proc.cpuSysMs,
+        loopLagMs:   proc.loopLagMs,
+        sampledAt:   proc.sampledAt,
+      },
     };
   }
 
@@ -253,6 +283,20 @@ class MetricsStore {
     counter("prawwplus_voicemail_fallbacks",    "Total calls routed to voicemail",                      this.voicemailFallbacks);
     counter("prawwplus_proxy_messages_dropped_verto", "Verto buffer messages dropped (overflow + TTL)", this.proxyMessagesDroppedVerto);
     counter("prawwplus_proxy_messages_dropped_sip",   "SIP buffer messages dropped (overflow + TTL)",   this.proxyMessagesDroppedSip);
+
+    counter("prawwplus_ws_connections_rejected_ip_limit", "WS connections dropped — per-IP cap reached",            this.wsConnectionsRejectedIpLimit);
+    counter("prawwplus_sip_flood_blocked",                "SIP registration bursts flagged as flood events",         this.sipFloodBlocked);
+    counter("prawwplus_call_throttle_rejections",         "Call attempts rejected by per-user throttle guard",       this.callThrottleRejections);
+    counter("prawwplus_esl_stalled_throughput",           "Times ESL event throughput stalled below threshold",      this.eslStalledThroughputCount);
+    counter("prawwplus_bgapi_queue_dropped",              "bgapi commands dropped because queue was at depth cap",   this.bgapiQueueDropped);
+
+    const proc = getProcessMetrics();
+    gauge("prawwplus_process_heap_used_mb",   "Node.js heap used in MiB",                     proc.heapUsedMb);
+    gauge("prawwplus_process_heap_total_mb",  "Node.js heap total allocated in MiB",           proc.heapTotalMb);
+    gauge("prawwplus_process_rss_mb",         "Node.js resident set size in MiB",              proc.rssMb);
+    gauge("prawwplus_process_cpu_user_ms",    "Node.js CPU user time (delta, ms)",             proc.cpuUserMs);
+    gauge("prawwplus_process_cpu_sys_ms",     "Node.js CPU system time (delta, ms)",           proc.cpuSysMs);
+    gauge("prawwplus_process_loop_lag_ms",    "Event-loop lag in ms (setImmediate delay)",     proc.loopLagMs);
 
     summary("prawwplus_call_setup_latency_ms",       "Call setup latency percentiles in milliseconds",          lat);
     summary("prawwplus_bridge_setup_latency_ms",     "Time from call initiation to CHANNEL_BRIDGE in ms",       bridge);
