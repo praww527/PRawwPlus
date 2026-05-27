@@ -7,6 +7,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  LineChart as RLineChart, Line,
 } from "recharts";
 import {
   Users, DollarSign, PhoneCall, ShieldAlert, Lock, Unlock, UserCheck,
@@ -30,6 +31,7 @@ const TABS = [
   { id: "live",          label: "Live Calls",    icon: PhoneCall   },
   { id: "errors",        label: "Errors",        icon: AlertTriangle },
   { id: "system",        label: "System",        icon: Server      },
+  { id: "platform-health", label: "Platform Health", icon: Activity   },
   { id: "push",          label: "Push",          icon: Bell        },
   { id: "referrals",     label: "Referrals",     icon: Link2       },
   { id: "earnings",      label: "Earnings",      icon: BadgeDollarSign },
@@ -4443,7 +4445,8 @@ export default function Admin() {
         {tab === "users"         && <UsersTab />}
         {tab === "live"          && <LiveCallsTab />}
         {tab === "errors"        && <ErrorsTab onSwitchTab={setTab} />}
-        {tab === "system"        && <SystemTab />}
+        {tab === "system"           && <SystemTab />}
+        {tab === "platform-health"  && <PlatformHealthTab />}
         {tab === "push"          && <PushTab />}
         {tab === "referrals"     && <ReferralsTab />}
         {tab === "earnings"      && <EarningsTab />}
@@ -4460,6 +4463,284 @@ export default function Admin() {
         {tab === "analytics"     && <AnalyticsTab />}
         {tab === "commissions"   && <CommissionsTab />}
       </div>
+    </div>
+  );
+}
+
+// ─── Platform Health Tab ────────────────────────────────────────────────────────
+
+interface PlatformHealthData {
+  status:        string;
+  ts:            string;
+  uptimeSeconds: number;
+  db:            { ok: boolean; latencyMs: number; state: number };
+  esl:           { connected: boolean; lastEventStaleSec: number | null; eventsThisMin: number; eventsLastMin: number; bgapiQueueDepth: number; reconnects: number; stalledCount: number };
+  websocket:     { vertoClients: number; sipClients: number; sipSessions: number; wsRejectedIpLimit: number; vertoReconnects: number };
+  calls:         { active: number; initiated: number; answered: number; failed: number; answerRatePct: number };
+  security:      { sipFloodBlocked: number; callThrottleRejections: number; registrationFailures: number; bgapiQueueDropped: number };
+  sweeper:       { runs: number; staleCleaned: number; zombiesKilled: number; sipExpiredCleaned: number };
+  push:          { fcmSent: number; fcmFailed: number; webSent: number; expoSent: number; wakeupCount: number };
+  process:       { heapUsedMiB: number; heapTotalMiB: number; rssMiB: number; cpuUserMs: number; cpuSysMs: number; eventLoopLagMs: number; sampledAt: string };
+  history:       Array<{ ts: number; heapUsedMiB: number; rssMiB: number; eventLoopLagMs: number; activeCalls: number; wsVertoClients: number }>;
+}
+
+function PhStatusDot({ ok }: { ok: boolean }) {
+  return (
+    <span style={{
+      display: "inline-block",
+      width: 8, height: 8, borderRadius: "50%",
+      background: ok ? "#22c55e" : "#ef4444",
+      marginRight: 6, flexShrink: 0,
+    }} />
+  );
+}
+
+function PhMetric({ label, value, unit, warn }: { label: string; value: string | number; unit?: string; warn?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 90 }}>
+      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+      <span style={{ fontSize: 18, fontWeight: 700, color: warn ? "#fbbf24" : "#f8fafc", lineHeight: 1 }}>
+        {value}<span style={{ fontSize: 11, fontWeight: 400, color: "rgba(255,255,255,0.5)", marginLeft: 2 }}>{unit}</span>
+      </span>
+    </div>
+  );
+}
+
+function PhCard({ title, icon: Icon, children, borderColor }: { title: string; icon: React.ElementType; children: React.ReactNode; borderColor?: string }) {
+  return (
+    <div style={{
+      background: "rgba(255,255,255,0.04)",
+      border: `1px solid ${borderColor ?? "rgba(255,255,255,0.08)"}`,
+      borderRadius: 10,
+      padding: "16px 18px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 14 }}>
+        <Icon size={14} style={{ color: "rgba(255,255,255,0.5)" }} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SparkLine({ data, dataKey, color }: { data: PlatformHealthData["history"]; dataKey: keyof PlatformHealthData["history"][0]; color: string }) {
+  if (!data || data.length < 2) return <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>no data</span>;
+  return (
+    <ResponsiveContainer width="100%" height={48}>
+      <RLineChart data={data} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+        <Line type="monotone" dataKey={dataKey as string} stroke={color} dot={false} strokeWidth={1.5} isAnimationActive={false} />
+        <Tooltip
+          contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, fontSize: 11 }}
+          labelStyle={{ display: "none" }}
+          formatter={(v: number) => [typeof v === "number" ? v.toFixed(1) : v, dataKey as string]}
+        />
+      </RLineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function PlatformHealthTab() {
+  const [data,    setData]    = useState<PlatformHealthData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const [lastOk,  setLastOk]  = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const d = await adminFetch("/admin/platform-health");
+      setData(d);
+      setError(null);
+      setLastOk(new Date().toLocaleTimeString());
+    } catch (e: any) {
+      setError(e.message ?? "fetch failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 5_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 32, color: "rgba(255,255,255,0.4)" }}>
+      <Loader2 size={16} className="animate-spin" />
+      <span>Loading platform health…</span>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ padding: 24, color: "#f87171", fontSize: 13 }}>
+      <AlertTriangle size={14} style={{ display: "inline", marginRight: 6 }} />
+      {error}
+    </div>
+  );
+
+  if (!data) return null;
+
+  const healthy     = data.status === "ok";
+  const hist        = data.history ?? [];
+  const loopLagWarn = data.process?.eventLoopLagMs > 100;
+  const heapWarn    = data.process?.heapUsedMiB > 400;
+
+  return (
+    <div style={{ padding: "20px 0", display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "6px 14px", borderRadius: 20,
+          background: healthy ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+          border: `1px solid ${healthy ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+          color: healthy ? "#4ade80" : "#f87171",
+          fontSize: 12, fontWeight: 700, letterSpacing: "0.05em",
+        }}>
+          <PhStatusDot ok={healthy} />
+          {healthy ? "HEALTHY" : "DEGRADED"}
+        </div>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
+          Uptime {Math.floor(data.uptimeSeconds / 3600)}h {Math.floor((data.uptimeSeconds % 3600) / 60)}m
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
+          Updated {lastOk ?? "—"}
+        </span>
+        <button
+          onClick={() => { setLoading(true); refresh(); }}
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: "rgba(255,255,255,0.6)", fontSize: 11 }}
+        >
+          <RefreshCw size={11} style={{ display: "inline", marginRight: 4 }} />Refresh
+        </button>
+      </div>
+
+      {/* Row 1: DB / ESL / WS */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+
+        <PhCard title="Database" icon={Database} borderColor={data.db.ok ? undefined : "rgba(239,68,68,0.4)"}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <PhStatusDot ok={data.db.ok} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: data.db.ok ? "#f8fafc" : "#f87171" }}>
+              {data.db.ok ? "Connected" : "Disconnected"}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 16 }}>
+            <PhMetric label="Latency" value={data.db.latencyMs} unit="ms" warn={data.db.latencyMs > 50} />
+            <PhMetric label="State" value={["Disconnected","Connected","Connecting","Disconnecting","Uninitialized"][data.db.state] ?? data.db.state} />
+          </div>
+        </PhCard>
+
+        <PhCard title="FreeSWITCH ESL" icon={Radio} borderColor={data.esl.connected ? undefined : "rgba(239,68,68,0.4)"}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <PhStatusDot ok={data.esl.connected} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: data.esl.connected ? "#f8fafc" : "#f87171" }}>
+              {data.esl.connected ? "Connected" : "Disconnected"}
+            </span>
+            {data.esl.stalledCount > 0 && (
+              <span style={{ fontSize: 10, color: "#fbbf24", marginLeft: 4 }}>
+                ⚠ {data.esl.stalledCount} stall{data.esl.stalledCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <PhMetric label="Events/min" value={data.esl.eventsThisMin} />
+            <PhMetric label="Stale" value={data.esl.lastEventStaleSec === null ? "—" : `${data.esl.lastEventStaleSec}s`} warn={(data.esl.lastEventStaleSec ?? 0) > 60} />
+            <PhMetric label="Reconnects" value={data.esl.reconnects} />
+            <PhMetric label="BgAPI Q" value={data.esl.bgapiQueueDepth} warn={data.esl.bgapiQueueDepth > 50} />
+          </div>
+        </PhCard>
+
+        <PhCard title="WebSocket" icon={Wifi}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <PhMetric label="Verto" value={data.websocket.vertoClients} />
+            <PhMetric label="SIP WS" value={data.websocket.sipClients} />
+            <PhMetric label="SIP Reg" value={data.websocket.sipSessions} />
+            <PhMetric label="Rejected" value={data.websocket.wsRejectedIpLimit} warn={data.websocket.wsRejectedIpLimit > 0} />
+          </div>
+        </PhCard>
+
+      </div>
+
+      {/* Row 2: Calls / Security / Sweeper */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+
+        <PhCard title="Calls" icon={PhoneCall}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <PhMetric label="Active"    value={data.calls.active} />
+            <PhMetric label="Initiated" value={data.calls.initiated} />
+            <PhMetric label="Answered"  value={data.calls.answered} />
+            <PhMetric label="Answer %" value={`${(data.calls.answerRatePct ?? 0).toFixed(1)}%`} warn={(data.calls.answerRatePct ?? 100) < 80} />
+          </div>
+        </PhCard>
+
+        <PhCard title="Security" icon={ShieldCheck} borderColor={
+          (data.security.sipFloodBlocked > 0 || data.security.callThrottleRejections > 0)
+            ? "rgba(251,191,36,0.3)" : undefined
+        }>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <PhMetric label="SIP Flood"  value={data.security.sipFloodBlocked}       warn={data.security.sipFloodBlocked > 0} />
+            <PhMetric label="Throttled"  value={data.security.callThrottleRejections} warn={data.security.callThrottleRejections > 0} />
+            <PhMetric label="Reg Fails"  value={data.security.registrationFailures}   warn={data.security.registrationFailures > 10} />
+            <PhMetric label="BgAPI Drop" value={data.security.bgapiQueueDropped}      warn={data.security.bgapiQueueDropped > 0} />
+          </div>
+        </PhCard>
+
+        <PhCard title="Session Sweeper" icon={Zap}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <PhMetric label="Runs"    value={data.sweeper.runs} />
+            <PhMetric label="Stale"   value={data.sweeper.staleCleaned} />
+            <PhMetric label="Zombies" value={data.sweeper.zombiesKilled} warn={data.sweeper.zombiesKilled > 0} />
+            <PhMetric label="SIP Exp" value={data.sweeper.sipExpiredCleaned} />
+          </div>
+        </PhCard>
+
+      </div>
+
+      {/* Row 3: Process */}
+      <PhCard title="Process" icon={Cpu} borderColor={loopLagWarn || heapWarn ? "rgba(251,191,36,0.3)" : undefined}>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <PhMetric label="Heap Used"  value={data.process.heapUsedMiB.toFixed(1)} unit="MiB" warn={heapWarn} />
+          <PhMetric label="Heap Total" value={data.process.heapTotalMiB.toFixed(1)} unit="MiB" />
+          <PhMetric label="RSS"        value={data.process.rssMiB.toFixed(1)}        unit="MiB" />
+          <PhMetric label="Loop Lag"   value={data.process.eventLoopLagMs.toFixed(1)} unit="ms" warn={loopLagWarn} />
+        </div>
+      </PhCard>
+
+      {/* Row 4: Sparklines */}
+      {hist.length > 1 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+
+          <PhCard title="Heap (MiB) — 15 min" icon={MemoryStick}>
+            <SparkLine data={hist} dataKey="heapUsedMiB" color="#60a5fa" />
+          </PhCard>
+
+          <PhCard title="Event-Loop Lag (ms) — 15 min" icon={Activity}>
+            <SparkLine data={hist} dataKey="eventLoopLagMs" color={loopLagWarn ? "#fbbf24" : "#4ade80"} />
+          </PhCard>
+
+          <PhCard title="Active Calls — 15 min" icon={PhoneCall}>
+            <SparkLine data={hist} dataKey="activeCalls" color="#a78bfa" />
+          </PhCard>
+
+          <PhCard title="WS Verto Clients — 15 min" icon={Wifi}>
+            <SparkLine data={hist} dataKey="wsVertoClients" color="#fb923c" />
+          </PhCard>
+
+        </div>
+      )}
+
+      {/* Row 5: Push */}
+      <PhCard title="Push Notifications" icon={Bell}>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <PhMetric label="FCM Sent"   value={data.push.fcmSent} />
+          <PhMetric label="FCM Failed" value={data.push.fcmFailed} warn={data.push.fcmFailed > 0} />
+          <PhMetric label="Web Sent"   value={data.push.webSent} />
+          <PhMetric label="Expo Sent"  value={data.push.expoSent} />
+          <PhMetric label="Wakeups"    value={data.push.wakeupCount} />
+        </div>
+      </PhCard>
+
     </div>
   );
 }
