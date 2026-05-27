@@ -21,6 +21,7 @@ import CallHistory     from "@/pages/CallHistory";
 import Contacts        from "@/pages/Contacts";
 import Profile         from "@/pages/Profile";
 import Admin           from "@/pages/Admin";
+import AdminDashboard  from "@/pages/AdminDashboard";
 import ResellerDashboard from "@/pages/ResellerDashboard";
 import CallingScreen      from "@/pages/CallingScreen";
 import IncomingCallScreen from "@/pages/IncomingCallScreen";
@@ -151,6 +152,7 @@ function Router() {
       <Route path="/numbers"         component={() => <Redirect to="/profile" />} />
       <Route path="/compliance"      component={() => <ProtectedRoute component={CompliancePage} />} />
       <Route path="/diagnostics"     component={() => <ProtectedRoute component={DiagnosticsPage} />} />
+      <Route path="/admin/dashboard"  component={() => <AdminRoute     component={AdminDashboard} />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
       <Route path="/reseller"        component={() => <ResellerRoute  component={ResellerDashboard} />} />
     </Switch>

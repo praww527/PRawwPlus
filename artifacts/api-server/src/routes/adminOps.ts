@@ -417,4 +417,35 @@ router.get("/admin/platform-health", requireAdmin, (_req, res) => {
   });
 });
 
+/**
+ * GET /api/admin/db-info
+ *
+ * Returns the MongoDB connection state and the actual database name being used.
+ * Used by the admin dashboard to warn when the wrong database is connected
+ * (e.g. "test" instead of "prawwplus") — which would cause phone lookups to fail.
+ */
+router.get("/admin/db-info", requireAdmin, async (_req, res) => {
+  try {
+    await connectDB();
+    const conn   = mongoose.connection;
+    const dbName = conn.db?.databaseName ?? conn.name ?? null;
+    res.json({
+      connected:   conn.readyState === 1,
+      readyState:  conn.readyState,
+      dbName,
+      correctDb:   dbName === "prawwplus",
+      asOf:        new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.json({
+      connected:   false,
+      readyState:  0,
+      dbName:      null,
+      correctDb:   false,
+      error:       err?.message ?? "DB check failed",
+      asOf:        new Date().toISOString(),
+    });
+  }
+});
+
 export default router;
