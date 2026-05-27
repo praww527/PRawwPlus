@@ -38,16 +38,50 @@ if [ -z "${FREESWITCH_SSH_KEY:-}" ]; then
 fi
 
 KEY_FILE="$(mktemp)"
-# Key may be stored as raw PEM or as base64-encoded PEM.
-# Try base64 decode first; if it yields a valid PEM header, use it.
-# Otherwise write the secret directly as-is (already PEM).
-DECODED="$(echo "${FREESWITCH_SSH_KEY}" | base64 -d 2>/dev/null || true)"
-if echo "$DECODED" | grep -q "BEGIN"; then
-  printf '%s\n' "$DECODED" > "$KEY_FILE"
-else
-  printf '%s\n' "${FREESWITCH_SSH_KEY}" > "$KEY_FILE"
-fi
+# Normalise the key — handles three storage formats:
+#   1. Proper PEM (real newlines)          → use as-is
+#   2. Single-line PEM (spaces not \n)     → reformat with fold
+#   3. Base64-encoded PEM                  → decode first, then reformat
+normalize_key() {
+  local raw="$1"
+  # Try base64 decode first
+  local decoded
+  decoded="$(printf '%s' "$raw" | base64 -d 2>/dev/null || true)"
+  if printf '%s' "$decoded" | grep -q "BEGIN"; then
+    raw="$decoded"
+  fi
+  # If the key is all on one line (header/body/footer separated by spaces),
+  # split it back into proper PEM lines.
+  # A properly formatted key has many lines (header + body + footer).
+  # A single-line key pasted from a secret manager has 0 embedded newlines.
+  local line_count
+  line_count="$(printf '%s' "$raw" | wc -l)"
+  if [ "$line_count" -gt 2 ]; then
+    # Already has real newlines — use as-is
+    printf '%s\n' "$raw"
+  else
+    # Single-line: "-----BEGIN X----- <base64> -----END X-----"
+    # 1. Insert newline after opening header
+    # 2. Insert newline before closing footer
+    # 3. fold body at 70 chars
+    local header body footer
+    header="$(printf '%s' "$raw" | sed 's/\(-----BEGIN [^-]*-----\).*/\1/')"
+    footer="$(printf '%s' "$raw" | sed 's/.*\(-----END [^-]*-----\)/\1/')"
+    body="$(printf '%s' "$raw" \
+      | sed 's/-----BEGIN [^-]*----- //; s/ -----END [^-]*-----//' \
+      | tr -d ' \r\n')"
+    printf '%s\n%s\n%s\n' "$header" "$(printf '%s' "$body" | fold -w 70)" "$footer"
+  fi
+}
+normalize_key "${FREESWITCH_SSH_KEY}" > "$KEY_FILE"
 chmod 600 "$KEY_FILE"
+
+# Validate the key can be parsed before attempting SSH
+if ! ssh-keygen -y -f "$KEY_FILE" > /dev/null 2>&1; then
+  echo "ERROR: FREESWITCH_SSH_KEY cannot be parsed as a valid SSH private key."
+  echo "       Please paste the full key (-----BEGIN ... through -----END ...)."
+  exit 1
+fi
 
 cleanup() { rm -f "$KEY_FILE"; }
 trap cleanup EXIT
@@ -58,7 +92,7 @@ ssh -i "$KEY_FILE" \
     -o StrictHostKeyChecking=no \
     -o ConnectTimeout=30 \
     "${VPS_USER}@${VPS_HOST}" \
-    "cd ${VPS_DIR} && bash deploy/update.sh"
+    "cd ${VPS_DIR} && git stash 2>/dev/null || true && bash deploy/update.sh"
 
 echo ""
 echo "✓ Deploy complete — https://rtc.praww.co.za"
