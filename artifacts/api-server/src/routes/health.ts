@@ -276,15 +276,22 @@ router.get("/healthz/turn", async (_req, res) => {
 // Returns 200 when all critical subsystems are healthy, 503 when degraded.
 
 router.get("/admin/platform-health", async (req, res) => {
+  // Accept either:
+  //   a) Authorization: Bearer <ADMIN_API_KEY>   — machine-to-machine / CI
+  //   b) Authenticated admin session (cookie)     — in-app admin dashboard
   const adminKey = process.env.ADMIN_API_KEY;
-  if (!adminKey) {
-    res.status(501).json({ error: "ADMIN_API_KEY not configured" });
-    return;
-  }
-  const auth = req.headers["authorization"] ?? req.headers["x-admin-key"] ?? "";
-  const token = auth.toString().replace(/^Bearer\s+/i, "").trim();
-  if (token !== adminKey) {
-    res.status(401).json({ error: "unauthorized" });
+  const auth     = req.headers["authorization"] ?? req.headers["x-admin-key"] ?? "";
+  const token    = auth.toString().replace(/^Bearer\s+/i, "").trim();
+
+  const bearerOk  = adminKey && token === adminKey;
+  const sessionOk = (req as any).isAuthenticated?.() && (req as any).user?.isAdmin;
+
+  if (!bearerOk && !sessionOk) {
+    if (!adminKey && !sessionOk) {
+      res.status(501).json({ error: "ADMIN_API_KEY not configured and no admin session" });
+    } else {
+      res.status(401).json({ error: "unauthorized" });
+    }
     return;
   }
 
