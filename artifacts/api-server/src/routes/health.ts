@@ -4,6 +4,10 @@ import net from "net";
 import { eslStatus } from "../lib/freeswitchESL";
 import { eslBufferDepth } from "../lib/eslEventBuffer";
 import { countPendingEslEvents } from "../lib/reconciliationWorker";
+import { metrics } from "../lib/metrics";
+import { getProcessMetrics } from "../lib/processMetrics";
+import { getHealthHistory } from "../lib/healthRingBuffer";
+import { getSessionCount, getSipSessionCount } from "../lib/callSession";
 
 const router: IRouter = Router();
 
@@ -260,6 +264,146 @@ router.get("/healthz/turn", async (_req, res) => {
     // Expose whether managed TURN mode (HMAC credentials) is active
     managedTurn: Boolean(process.env.TURN_SECRET && process.env.TURN_HOST),
     turnHost: process.env.TURN_HOST ?? null,
+  });
+});
+
+// ─── /admin/platform-health — comprehensive operator dashboard endpoint ───────
+//
+// Aggregates all subsystem health indicators into a single JSON response.
+// Protected by a bearer token (ADMIN_API_KEY env var). If ADMIN_API_KEY is
+// not set the endpoint responds 501 — do not expose unauthenticated in prod.
+//
+// Returns 200 when all critical subsystems are healthy, 503 when degraded.
+
+router.get("/admin/platform-health", async (req, res) => {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) {
+    res.status(501).json({ error: "ADMIN_API_KEY not configured" });
+    return;
+  }
+  const auth = req.headers["authorization"] ?? req.headers["x-admin-key"] ?? "";
+  const token = auth.toString().replace(/^Bearer\s+/i, "").trim();
+  if (token !== adminKey) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+
+  const esl     = eslStatus();
+  const proc    = getProcessMetrics();
+  const history = getHealthHistory();
+  const snap    = metrics.snapshot();
+
+  const [dbResult, pendingEslEvents] = await Promise.all([
+    dbPing(),
+    Promise.race([
+      countPendingEslEvents(),
+      new Promise<number>((resolve) => setTimeout(() => resolve(-1), 500)),
+    ]).catch(() => -1),
+  ]);
+
+  // --- Derive overall health status ---
+  const eslStaleSec = esl.lastEventAt
+    ? Math.round((Date.now() - esl.lastEventAt) / 1000)
+    : null;
+
+  const healthy =
+    dbResult.ok &&
+    esl.connected &&
+    (eslStaleSec === null || eslStaleSec < 120) &&
+    proc.loopLagMs < 500;
+
+  const status = healthy ? "ok" : "degraded";
+  const httpCode = healthy ? 200 : 503;
+
+  res.status(httpCode).json({
+    status,
+    ts:          new Date().toISOString(),
+    uptimeSeconds: snap.uptimeSeconds,
+
+    db: {
+      ok:        dbResult.ok,
+      latencyMs: dbResult.latencyMs,
+      state:     mongoose.connection.readyState,
+    },
+
+    esl: {
+      enabled:              esl.enabled,
+      connected:            esl.connected,
+      host:                 esl.host,
+      port:                 esl.port,
+      lastConnectedAt:      esl.lastConnectedAt,
+      lastDisconnectedAt:   esl.lastDisconnectedAt,
+      lastEventAt:          esl.lastEventAt,
+      lastEventStaleSec:    eslStaleSec,
+      lastDisconnectReason: esl.lastDisconnectReason,
+      reconnectAttempt:     esl.reconnectAttempt,
+      disconnectedMs:       snap.eslDisconnectedMs,
+      eventsThisMinute:     esl.eventsThisMinute,
+      eventsLastMinute:     esl.eventsLastMinute,
+      bgapiQueueDepth:      esl.bgapiQueueDepth,
+      bufferedEvents:       eslBufferDepth(),
+      pendingDbEvents:      pendingEslEvents,
+      stalledThroughputEvents: snap.eslStalledThroughputCount,
+    },
+
+    websocket: {
+      activeVertoClients:           snap.activeVertoClients,
+      activeSipClients:             snap.activeSipClients,
+      activeUpstreamReconnectsVerto: snap.activeUpstreamReconnectsVerto,
+      activeUpstreamReconnectsSip:   snap.activeUpstreamReconnectsSip,
+      vertoSessionsInMemory:        getSessionCount(),
+      sipRegistrationsInMemory:     getSipSessionCount(),
+      wsConnectionsRejectedIpLimit: snap.wsConnectionsRejectedIpLimit,
+    },
+
+    calls: {
+      activeCalls:       snap.activeCalls,
+      callsInitiated:    snap.callsInitiated,
+      callsAnswered:     snap.callsAnswered,
+      callsFailed:       snap.callsFailed,
+      failedOriginates:  snap.failedOriginates,
+      rtpFailures:       snap.rtpFailures,
+      noBridgeTimeouts:  snap.noBridgeTimeouts,
+      iceFailures:       snap.iceFailures,
+      voicemailFallbacks: snap.voicemailFallbacks,
+      answerRatePct:     snap.callsInitiated > 0
+        ? Math.round((snap.callsAnswered / snap.callsInitiated) * 1000) / 10
+        : null,
+      callSetupLatency:  snap.callSetupLatency,
+      bridgeSetupLatency: snap.bridgeSetupLatency,
+    },
+
+    security: {
+      sipFloodBlocked:       snap.sipFloodBlocked,
+      callThrottleRejections: snap.callThrottleRejections,
+      registrationFailures:  snap.registrationFailures,
+      bgapiQueueDropped:     snap.bgapiQueueDropped,
+    },
+
+    sweeper: {
+      staleSweepRuns:       snap.staleSweepRuns,
+      staleSessionCleanups: snap.staleSessionCleanups,
+      zombieCallsKilled:    snap.zombieCallsKilled,
+    },
+
+    push: {
+      fcm:   { sent: snap.pushFcmSent,   failed: snap.pushFcmFailed   },
+      web:   { sent: snap.pushWebSent,   failed: snap.pushWebFailed   },
+      expo:  { sent: snap.pushExpoSent,  failed: snap.pushExpoFailed  },
+      wakeups: snap.pushWakeups,
+    },
+
+    process: {
+      heapUsedMb:  proc.heapUsedMb,
+      heapTotalMb: proc.heapTotalMb,
+      rssMb:       proc.rssMb,
+      cpuUserMs:   proc.cpuUserMs,
+      cpuSysMs:    proc.cpuSysMs,
+      loopLagMs:   proc.loopLagMs,
+      sampledAt:   proc.sampledAt ? new Date(proc.sampledAt).toISOString() : null,
+    },
+
+    history: history.slice(-15),  // last 15 samples (≈15 min of sparkline data)
   });
 });
 
