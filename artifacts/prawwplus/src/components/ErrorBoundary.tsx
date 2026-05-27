@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
     if (import.meta.env.PROD) {
       console.error("[ErrorBoundary]", error.message);
@@ -36,7 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.href = "/dashboard";
   };
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
 

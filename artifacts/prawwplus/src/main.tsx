@@ -115,12 +115,12 @@ function showUpdateBanner() {
 
 // ── React error boundary ──────────────────────────────────────────────────────
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state = { error: null };
+  override state = { error: null };
   static getDerivedStateFromError(error: Error) { return { error }; }
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ErrorBoundary]", error, info);
   }
-  render() {
+  override render() {
     if (this.state.error) {
       const e = this.state.error as Error;
       return (

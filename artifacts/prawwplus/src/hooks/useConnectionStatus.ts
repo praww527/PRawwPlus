@@ -8,7 +8,7 @@
  *   lastSeen     – Date when the connection was last confirmed live
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export interface ConnectionStatus {
   isOnline:       boolean;

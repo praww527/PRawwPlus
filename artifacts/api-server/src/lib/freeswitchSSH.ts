@@ -65,7 +65,11 @@ function cleanKey(raw: string): string {
       const footer = footerMatch[1];
       const contentStart = s.indexOf(header) + header.length;
       const contentEnd = s.indexOf(footer);
-      const body = s.slice(contentStart, contentEnd).trim().replace(/\s+/g, "\n");
+      // Strip ALL whitespace from the body and re-fold at 64 chars (standard PEM).
+      // Simply replacing spaces with newlines produces ragged line lengths that
+      // the ssh2 parser rejects with "Unsupported key format".
+      const rawBody = s.slice(contentStart, contentEnd).replace(/\s+/g, "");
+      const body    = rawBody.match(/.{1,64}/g)?.join("\n") ?? rawBody;
       s = `${header}\n${body}\n${footer}`;
     }
   }

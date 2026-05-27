@@ -19,8 +19,7 @@ import {
   Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff, Building2,
   Cpu, HardDrive, MemoryStick, Radio, GitBranch, Zap, TrendingUp,
   LineChart, BarChart2, ShieldCheckIcon, PhoneForwarded, List, Network,
-  Download, PieChart, MessageSquare, UserCog, UserPlus, Calendar,
-  ShieldQuestion, FileBarChart, GitMerge,
+  ShieldQuestion,
 } from "lucide-react";
 
 const TABS = [
@@ -1703,7 +1702,7 @@ function FsmTimeline({ status }: { status: string }) {
       {FSM_STEPS.map((step, i) => {
         const past    = currentIdx > i;
         const active  = currentIdx === i;
-        const future  = currentIdx < i;
+
         const color   = active ? STATUS_COLOR[step] ?? "#fff" : past ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.12)";
         return (
           <div key={step} style={{ display: "flex", alignItems: "center" }}>
@@ -3831,7 +3830,7 @@ function OperationsTab() {
   const [events,     setEvents]       = React.useState<Array<{type:string;data:string;ts:number}>>([]);
   const [sseStatus,  setSseStatus]    = React.useState<"connecting"|"connected"|"disconnected">("connecting");
   const [loading,    setLoading]      = React.useState(true);
-  const [error,      setError]        = React.useState<string | null>(null);
+  const [_error,     setError]        = React.useState<string | null>(null);
   const [lastRefresh,setLastRefresh]  = React.useState<Date | null>(null);
   const [eslRecon,   setEslRecon]     = React.useState<"idle"|"busy"|"done"|"err">("idle");
   const eventLogRef = React.useRef<HTMLDivElement>(null);

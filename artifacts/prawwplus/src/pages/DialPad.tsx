@@ -52,7 +52,7 @@ export default function DialPad() {
   const {
     startOutgoing, updateCallId, updateCallType, connectCall, endCall,
     isVertoConnected, vertoConfig, vertoError,
-    makeVertoCall, callInfo: activeCallInfo,
+    makeVertoCall,
   } = useCall();
   const [number, setNumber] = useState("");
 

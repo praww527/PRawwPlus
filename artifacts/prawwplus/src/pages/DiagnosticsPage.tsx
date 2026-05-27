@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  ChevronLeft, Wifi, WifiOff, Radio, Server, Globe,
+  ChevronLeft, Wifi, Server, Globe,
   ClipboardCopy, RotateCcw, CheckCircle2, XCircle,
-  AlertCircle, Loader2, ShieldCheck, ShieldOff, Mic, MicOff,
-  Zap, ZapOff, AlertTriangle, Info,
+  AlertCircle, Loader2, Mic,
+  Zap, AlertTriangle, Info,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useCall } from "@/context/CallContext";
