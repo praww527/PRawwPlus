@@ -50,6 +50,46 @@ import {
 // Close codes that are "receive-only" — cannot be sent per RFC 6455 §7.4.2
 const RECEIVE_ONLY_CODES = new Set([1005, 1006, 1015]);
 
+// Maximum WebSocket frame payload in bytes (64 KiB).
+// Oversized SDP blobs are a sign of abuse or a misconfigured encoder; rejecting
+// them at the WS layer keeps FreeSWITCH safe from oversized frames.
+const MAX_FRAME_BYTES = parseInt(
+  process.env.VERTO_WS_MAX_PAYLOAD_BYTES ?? String(64 * 1024), 10,
+);
+
+// Per-IP WebSocket connection cap.  Prevents a single client from exhausting
+// the upstream reconnect slot pool and consuming excessive proxy memory.
+const WS_MAX_CONNECTIONS_PER_IP = parseInt(
+  process.env.VERTO_WS_MAX_CONNECTIONS_PER_IP ?? "10", 10,
+);
+
+// Tracks active WebSocket connections per remote IP (module-scoped, shared
+// across all calls to createVertoProxy within this process).
+const activeConnectionsByIp = new Map<string, number>();
+
+function incrementIpConnections(ip: string): boolean {
+  const current = activeConnectionsByIp.get(ip) ?? 0;
+  if (current >= WS_MAX_CONNECTIONS_PER_IP) return false;
+  activeConnectionsByIp.set(ip, current + 1);
+  return true;
+}
+
+function decrementIpConnections(ip: string): void {
+  const current = activeConnectionsByIp.get(ip) ?? 1;
+  const next = current - 1;
+  if (next <= 0) activeConnectionsByIp.delete(ip);
+  else activeConnectionsByIp.set(ip, next);
+}
+
+function extractClientIp(req: import("http").IncomingMessage): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) {
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(",")[0];
+    return (first ?? "").trim();
+  }
+  return req.socket?.remoteAddress ?? "unknown";
+}
+
 function safeCloseCode(code: number): number {
   return RECEIVE_ONLY_CODES.has(code) ? 1001 : code;
 }
@@ -177,21 +217,35 @@ function isVertoLoginResponseAny(data: BufferedMessage["data"], isBinary: boolea
 // ── Proxy factory ─────────────────────────────────────────────────────────────
 
 export function createVertoProxy(): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
 
   // eslint-disable-next-line @typescript-eslint/no-misused-promises
   wss.on("connection", async (client: WebSocket, _req: IncomingMessage) => {
+    const clientIp = extractClientIp(_req);
+
+    // Per-IP connection cap — reject before any upstream is opened.
+    if (!incrementIpConnections(clientIp)) {
+      metrics.wsConnectionsRejectedIpLimit++;
+      logger.warn(
+        { clientIp, limit: WS_MAX_CONNECTIONS_PER_IP },
+        "Verto proxy: per-IP connection limit reached — rejecting client",
+      );
+      client.close(1008, Buffer.from("connection limit reached"));
+      return;
+    }
+
     let upstreamUrl: string;
     try {
       upstreamUrl = await getInternalWsUrl();
     } catch (err) {
+      decrementIpConnections(clientIp);
       logger.warn({ err }, "Verto proxy: upstream configuration failed");
       client.close(1011, Buffer.from("upstream configuration failed"));
       return;
     }
     metrics.activeVertoClients++;
     logger.info(
-      { upstreamUrl, activeClients: metrics.activeVertoClients, bufLimit: bufCfg.limit, bufTtlMs: bufCfg.ttlMs },
+      { upstreamUrl, clientIp, activeClients: metrics.activeVertoClients, bufLimit: bufCfg.limit, bufTtlMs: bufCfg.ttlMs },
       "Verto proxy: browser connected, opening upstream",
     );
 
@@ -221,6 +275,7 @@ export function createVertoProxy(): WebSocketServer {
       // attempts to flush the buffer into a closed upstream socket.
       if (authGateTimer) { clearTimeout(authGateTimer); authGateTimer = null; }
       authGateActive = false;
+      decrementIpConnections(clientIp);
     };
 
     // ── Per-connection upstream state ─────────────────────────────────────────
