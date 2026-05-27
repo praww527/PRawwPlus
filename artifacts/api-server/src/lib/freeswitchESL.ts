@@ -81,6 +81,34 @@ let eslEventsThisMinute = 0;
 let eslEventsLastMinute = 0;
 let eslEventMinuteStart = Date.now();
 
+// Stalled-throughput watchdog: counts consecutive heartbeat intervals where the
+// ESL is authenticated but the event rate is suspiciously low.  FreeSWITCH should
+// always emit at least a few events per minute (heartbeat responses, keepalives).
+// Two consecutive stall detections (~60 s) fires a warning and increments the metric.
+let eslStalledConsecutiveBeats = 0;
+const ESL_STALL_MIN_EVENTS_PER_MIN = parseInt(
+  process.env.ESL_STALL_MIN_EVENTS_PER_MIN ?? "2", 10,
+);
+const ESL_STALL_ALERT_BEATS = parseInt(
+  process.env.ESL_STALL_ALERT_BEATS ?? "2", 10,
+);
+
+// SIP registration flood detection: track per-IP registration attempts within
+// a rolling 60-second window and warn when the rate exceeds the threshold.
+const SIP_FLOOD_THRESHOLD = parseInt(
+  process.env.SIP_FLOOD_THRESHOLD_PER_MIN ?? "30", 10,
+);
+const sipRegCountByIp = new Map<string, { count: number; windowStart: number }>();
+
+// Purge stale IP flood records every 10 minutes to prevent unbounded memory growth
+// (a new IP per registration request would otherwise accumulate indefinitely).
+setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [ip, record] of sipRegCountByIp.entries()) {
+    if (record.windowStart < cutoff) sipRegCountByIp.delete(ip);
+  }
+}, 10 * 60_000).unref();
+
 // ── In-memory ESL event trace ─────────────────────────────────────────────────
 // Keyed by FreeSWITCH channel UUID. Entries are capped and purged on CHANNEL_DESTROY.
 const MAX_TRACE_ENTRIES = 30;
@@ -530,6 +558,39 @@ class FreeSwitchESL {
           "[ESL] Heartbeat: no ESL event in >60 s — possible silent TCP death; sending keepalive",
         );
       }
+
+      // ── Stalled-event-throughput watchdog ─────────────────────────────────
+      // Roll over the per-minute counter every ~60 s (2× the 30 s heartbeat).
+      // We track whether we rolled over this beat to use `eslEventsLastMinute`
+      // for the stall check (avoids false positives mid-window).
+      const now = Date.now();
+      if (now - eslEventMinuteStart >= 60_000) {
+        eslEventsLastMinute = eslEventsThisMinute;
+        eslEventsThisMinute = 0;
+        eslEventMinuteStart = now;
+
+        // Only warn when the ESL is authenticated — disconnected state has
+        // naturally zero events and is covered by the zombie watchdog above.
+        if (this.authenticated && eslEventsLastMinute < ESL_STALL_MIN_EVENTS_PER_MIN) {
+          eslStalledConsecutiveBeats++;
+          if (eslStalledConsecutiveBeats >= ESL_STALL_ALERT_BEATS) {
+            metrics.eslStalledThroughputCount++;
+            logger.warn(
+              {
+                eventsLastMinute:      eslEventsLastMinute,
+                stallThreshold:        ESL_STALL_MIN_EVENTS_PER_MIN,
+                consecutiveLowMinutes: eslStalledConsecutiveBeats,
+                host: ESL_HOST,
+              },
+              "[ESL] Stalled event throughput detected — FreeSWITCH may be unresponsive or dialplan is idle. " +
+              "Check: freeswitch-cli> sofia status; show channels; show calls",
+            );
+          }
+        } else {
+          eslStalledConsecutiveBeats = 0;
+        }
+      }
+
       this.sendApiCommand("status");
     }, 30_000);
     this.heartbeatTimer.unref();
@@ -1478,6 +1539,35 @@ class FreeSwitchESL {
     const expiresSec = parseInt(body["expires"] ?? "3600", 10) || 3600;
     const contact    = body["contact"]    ?? body["sip-contact"] ?? undefined;
     const networkIp  = body["network-ip"] ?? body["sip-network-ip"] ?? undefined;
+
+    // ── SIP registration flood detection ────────────────────────────────────
+    // Track per-source-IP registration events within a 60-second rolling window.
+    // A burst > SIP_FLOOD_THRESHOLD per minute from one IP is characteristic of
+    // a registration scanner or misconfigured UA hammering the SIP stack.
+    // We log a warning and bump the metric — actual blocking is enforced by
+    // FreeSWITCH sofia ACL (configure sip-ip-blacklist in sofia.conf.xml).
+    if (networkIp) {
+      const now = Date.now();
+      const record = sipRegCountByIp.get(networkIp);
+      if (!record || now - record.windowStart >= 60_000) {
+        sipRegCountByIp.set(networkIp, { count: 1, windowStart: now });
+      } else {
+        record.count++;
+        if (record.count === SIP_FLOOD_THRESHOLD) {
+          metrics.sipFloodBlocked++;
+          logger.warn(
+            {
+              networkIp,
+              registrationCount: record.count,
+              windowSec: Math.round((now - record.windowStart) / 1000),
+              threshold: SIP_FLOOD_THRESHOLD,
+            },
+            "[ESL] SIP registration flood detected — single IP exceeded threshold. " +
+            "Recommend adding to FreeSWITCH sofia ACL blacklist to reject at protocol level.",
+          );
+        }
+      }
+    }
 
     registerSipSession(buildSipSession(ext, { contact, networkIp, expiresSec }));
     logger.info(
