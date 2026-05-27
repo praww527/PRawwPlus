@@ -227,9 +227,9 @@ jobs:
 
           echo "==> [8/8] Cleanup stale processes"
           pgrep -f "tsx.*index" | grep -v "^\$\$" | xargs kill -SIGTERM 2>/dev/null || true
-          for PPID in \$(ps -eo ppid,stat | awk '\$2~/^Z/{print \$1}' | sort -u); do
-            [ "\$PPID" -le 1 ] && continue
-            kill -SIGCHLD "\$PPID" 2>/dev/null || true
+          for ZOMBIE_PPID in \$(ps -eo ppid,stat | awk '\$2~/^Z/{print \$1}' | sort -u); do
+            [ "\$ZOMBIE_PPID" -le 1 ] && continue
+            kill -SIGCHLD "\$ZOMBIE_PPID" 2>/dev/null || true
           done
 
           echo "==> Deploy complete: \$(date)"
