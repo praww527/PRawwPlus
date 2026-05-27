@@ -6,6 +6,7 @@ import { createVertoProxy, attachVertoProxy } from "./lib/vertoProxy";
 import { createSipProxy, attachSipProxy } from "./lib/sipProxy";
 import { startAlertWorker } from "./lib/alertWorker";
 import { ipReputation } from "./lib/ipReputation";
+import { startProcessMetrics } from "./lib/processMetrics";
 
 process.on("unhandledRejection", (reason, promise) => {
   logger.error(
@@ -81,6 +82,9 @@ server.listen(port, host, async () => {
 
   // Start alert worker (evaluates alert rules every 60 s).
   startAlertWorker();
+
+  // Start process metrics sampler (heap, CPU, event-loop lag — every 10 s).
+  startProcessMetrics();
 
   // Load persisted IP block list from MongoDB into memory.
   ipReputation.loadFromDb().catch(() => {});
