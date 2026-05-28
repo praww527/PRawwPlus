@@ -9,11 +9,18 @@
  */
 
 export interface HealthSample {
-  ts:           number;   // Unix ms
-  eslConnected: boolean;
-  bufferDepth:  number;   // ESL in-flight event count
-  staleTotal:   number;   // sum of stale calls closed in this cycle
-  pendingCount: number;   // pending ESL events before this cycle
+  ts:             number;   // Unix ms
+  eslConnected:   boolean;
+  bufferDepth:    number;   // ESL in-flight event count
+  staleTotal:     number;   // sum of stale calls closed in this cycle
+  pendingCount:   number;   // pending ESL events before this cycle
+  // Process metrics — used by sparklines in Platform Health tab
+  heapUsedMb:     number;
+  rssMb:          number;
+  loopLagMs:      number;
+  // Call / WS metrics — used by sparklines
+  activeCalls:    number;
+  wsVertoClients: number;
 }
 
 const MAX_SAMPLES = 60;
