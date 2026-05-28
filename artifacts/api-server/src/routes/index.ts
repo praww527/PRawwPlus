@@ -35,6 +35,7 @@ import securityRouter from "./security";
 import analyticsRouter from "./analytics";
 import portRequestsRouter from "./portRequests";
 import resellerCommissionsRouter from "./resellerCommissions";
+import callerIdProfilesRouter from "./callerIdProfiles";
 
 const router: IRouter = Router();
 
@@ -74,5 +75,6 @@ router.use(securityRouter);
 router.use(analyticsRouter);
 router.use(portRequestsRouter);
 router.use(resellerCommissionsRouter);
+router.use(callerIdProfilesRouter);
 
 export default router;

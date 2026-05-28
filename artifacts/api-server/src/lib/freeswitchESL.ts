@@ -392,6 +392,35 @@ class FreeSwitchESL {
    */
   private retryAttempts = new Map<string, number>();
 
+  /**
+   * Pending caller ID injections — populated by registerCallerIdInjection()
+   * when POST /calls resolves the correct outbound caller ID.
+   * Key: FreeSWITCH channel UUID (= fsCallId / Verto session UUID).
+   * Value: the caller ID variables to set via uuid_setvar_multi on CHANNEL_CREATE.
+   *
+   * Entries are consumed in the CHANNEL_CREATE handler and auto-evicted after
+   * 30 s if CHANNEL_CREATE never fires (call rejected before FS creates channel).
+   */
+  pendingCallerIdInjections = new Map<string, {
+    callerIdNumber: string;
+    callerIdName:   string;
+    callType:       string;
+  }>();
+
+  /**
+   * Register caller ID variables to be injected when CHANNEL_CREATE fires
+   * for the given FreeSWITCH channel UUID.
+   */
+  registerCallerIdInjection(
+    fsCallId:       string,
+    callerIdNumber: string,
+    callerIdName:   string,
+    callType:       string,
+  ): void {
+    this.pendingCallerIdInjections.set(fsCallId, { callerIdNumber, callerIdName, callType });
+    setTimeout(() => this.pendingCallerIdInjections.delete(fsCallId), 30_000);
+  }
+
   /** Periodic heartbeat — sends bgapi status every 30 s when authenticated
    *  to detect silently-dead TCP/SSH connections faster than OS keepalive alone. */
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -988,6 +1017,40 @@ class FreeSwitchESL {
           callerNetAddr:  body["Caller-Network-Addr"]       ?? "",
         }, "[ESL] CHANNEL_CREATE — channel created; ESL subscription confirmed working");
 
+        // ── Caller ID injection ───────────────────────────────────────────────
+        // If POST /calls pre-selected a caller ID for this channel UUID,
+        // inject it now via uuid_setvar_multi so the dialplan and PSTN gateway
+        // receive the server-validated number — not whatever the UA sent.
+        if (uuid) {
+          const pendingInj = this.pendingCallerIdInjections.get(uuid);
+          if (pendingInj) {
+            this.pendingCallerIdInjections.delete(uuid);
+            const { callerIdNumber, callerIdName, callType } = pendingInj;
+            const vars: string[] = [
+              `effective_caller_id_number=${callerIdNumber}`,
+              `effective_caller_id_name=${callerIdName}`,
+            ];
+            if (callType === "external-pstn") {
+              vars.push(`outbound_caller_id_number=${callerIdNumber}`);
+              vars.push(`outbound_caller_id_name=${callerIdName}`);
+            }
+            const setVarCmd = `uuid_setvar_multi ${uuid} ${vars.join(";")}`;
+            this.sendApiCommand(setVarCmd, (result) => {
+              if (result.startsWith("-ERR")) {
+                logger.warn(
+                  { uuid, callerIdNumber, callerIdName, callType, result },
+                  "[ESL] CHANNEL_CREATE: uuid_setvar_multi caller ID injection failed",
+                );
+              } else {
+                logger.info(
+                  { uuid, callerIdNumber, callerIdName, callType },
+                  "[ESL] CHANNEL_CREATE: caller ID injected via uuid_setvar_multi",
+                );
+              }
+            });
+          }
+        }
+
       } else if (evtName === "CHANNEL_PROGRESS" || evtName === "CHANNEL_PROGRESS_MEDIA") {
         // FreeSWITCH fires CHANNEL_PROGRESS (SIP 180) or CHANNEL_PROGRESS_MEDIA
         // (SIP 183) when the B-leg receives an early media response from the SIP UA.
@@ -1465,9 +1528,15 @@ class FreeSwitchESL {
               // Originate a new B-leg and bridge it to the still-alive A-leg.
               // originate_timeout=25 gives the callee a reasonable ring window
               // without blocking the A-leg indefinitely.
+              const retryInj     = this.pendingCallerIdInjections.get(aLegUuid);
+              const retryCidNum  = retryInj?.callerIdNumber ?? callerExt;
+              const retryCidName = retryInj?.callerIdName   ?? "";
+              const retryCidVars = retryCidName
+                ? `origination_caller_id_number=${retryCidNum},origination_caller_id_name=${retryCidName},originate_timeout=25`
+                : `origination_caller_id_number=${retryCidNum},originate_timeout=25`;
               const retryCmd = [
                 `originate`,
-                `{origination_caller_id_number=${callerExt},originate_timeout=25}`,
+                `{${retryCidVars}}`,
                 `user/${destExt}@${domain}`,
                 `&bridge(${aLegUuid})`,
               ].join(" ");
@@ -2118,4 +2187,23 @@ export function sendEslApiCommand(cmd: string): boolean {
 export function sendEslBgapiAwait(cmd: string, timeoutMs = 10_000): Promise<string> {
   if (!eslClient?.isConnected()) return Promise.resolve("-ERR ESL not connected");
   return eslClient.sendApiCommandAwait(cmd, timeoutMs);
+}
+
+/**
+ * Register a server-selected caller ID to be injected into a FreeSWITCH
+ * channel via uuid_setvar_multi when CHANNEL_CREATE fires.
+ *
+ * Must be called after POST /calls computes the caller ID and before the
+ * Verto/SIP client sends invite (i.e. before CHANNEL_CREATE fires).
+ *
+ * Safe to call when ESL is not connected — the injection is simply skipped.
+ */
+export function registerCallerIdInjection(
+  fsCallId:       string,
+  callerIdNumber: string,
+  callerIdName:   string,
+  callType:       string,
+): void {
+  if (!eslClient) return;
+  eslClient.registerCallerIdInjection(fsCallId, callerIdNumber, callerIdName, callType);
 }

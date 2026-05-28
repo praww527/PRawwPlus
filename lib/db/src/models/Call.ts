@@ -16,6 +16,9 @@ export interface ICall extends Document<string> {
   hangupCause?: string;
   startedAt?: Date;
   endedAt?: Date;
+  selectedCallerId?: string;
+  callerIdName?: string;
+  callerIdSource?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,6 +40,9 @@ const CallSchema = new Schema<ICall>(
     hangupCause: { type: String },
     startedAt: { type: Date },
     endedAt: { type: Date },
+    selectedCallerId: { type: String },
+    callerIdName:     { type: String },
+    callerIdSource:   { type: String },
   },
   { timestamps: true, _id: false }
 );

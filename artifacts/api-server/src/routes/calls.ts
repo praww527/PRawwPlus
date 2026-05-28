@@ -29,7 +29,8 @@ import {
   validateALegSource,
   getALegDiagnostics,
 } from "../lib/aLegManager";
-import { eslStatus, sendEslBgapiAwait } from "../lib/freeswitchESL";
+import { eslStatus, sendEslBgapiAwait, registerCallerIdInjection } from "../lib/freeswitchESL";
+import { selectCallerId } from "../lib/callerIdSelector";
 
 const router: IRouter = Router();
 
@@ -63,7 +64,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   }
   await connectDB();
   const userId = (req as any).user.id;
-  const { recipientNumber: rawRecipient, notes, fsCallId, direction, callerNumber: bodyCallerNumber } = req.body;
+  const { recipientNumber: rawRecipient, notes, fsCallId, direction, callerNumber: bodyCallerNumber, callerIdProfileId } = req.body;
 
   if (!rawRecipient) {
     res.status(400).json({ error: "recipientNumber is required" });
@@ -252,6 +253,44 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     );
   }
 
+  // ── Automatic caller ID selection ────────────────────────────────────────
+  // Resolve the correct outbound caller ID server-side (anti-spoofing).
+  // This is non-blocking: if selection fails the call proceeds with the
+  // legacy behaviour (callerNumber from user.phone) so existing integrations
+  // are not broken.  The selected values are stored on the call record and
+  // injected into FreeSWITCH via uuid_setvar_multi on CHANNEL_CREATE.
+  let selectedCallerId: string | undefined;
+  let callerIdName:     string | undefined;
+  let callerIdSource:   string | undefined;
+
+  try {
+    const cidSel = await selectCallerId({
+      userId,
+      destination:       recipientNumber,
+      resolvedExtension: resolvedExtension ?? null,
+      profileId:         callerIdProfileId ?? null,
+      direction:         direction === "inbound" ? "inbound" : "outbound",
+    });
+    selectedCallerId = cidSel.callerIdNumber || undefined;
+    callerIdName     = cidSel.callerIdName   || undefined;
+    callerIdSource   = cidSel.callerIdSource;
+
+    // Register the injection so CHANNEL_CREATE fires uuid_setvar_multi
+    if (fsCallId && typeof fsCallId === "string" && fsCallId.trim() && selectedCallerId) {
+      registerCallerIdInjection(
+        fsCallId.trim(),
+        selectedCallerId,
+        callerIdName ?? "",
+        cidSel.callType,
+      );
+    }
+  } catch (cidErr) {
+    logger.warn(
+      { userId, callId, recipientNumber, err: String(cidErr) },
+      "[calls] Caller ID selection failed — proceeding without injection",
+    );
+  }
+
   const callRecord = await CallModel.create({
     _id:             callId,
     userId,
@@ -265,6 +304,9 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
     fsCallId:        fsCallId ?? undefined,
     notes:           notes ?? undefined,
     startedAt:       new Date(),
+    selectedCallerId,
+    callerIdName,
+    callerIdSource,
   });
 
   // Start the INITIATED-state watchdog so calls that never receive a
