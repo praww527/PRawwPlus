@@ -8,6 +8,8 @@ import { finalizeCall, answerCall, ringingCall } from "./callOrchestrator";
 import { EventResult, eslBufferDepth } from "./eslEventBuffer";
 import { eslStatus } from "./freeswitchESL";
 import { pushHealthSample } from "./healthRingBuffer";
+import { getProcessMetrics } from "./processMetrics";
+import { metrics } from "./metrics";
 
 const STALE_INITIATED_MS    = 30_000;            // 30 s — watchdog is 20 s; give a 10 s buffer
 const STALE_NON_TERMINAL_MS = 15 * 60 * 1000;   // 15 min for ringing/early_media
@@ -265,12 +267,19 @@ export async function runReconciliationCycle(): Promise<void> {
     reconciliationStats.lastStale.answered +
     reconciliationStats.lastStale.bridged;
 
+  const proc = getProcessMetrics();
+  const snap = metrics.snapshot();
   pushHealthSample({
-    ts:           Date.now(),
-    eslConnected: esl.connected,
-    bufferDepth:  eslBufferDepth(),
+    ts:             Date.now(),
+    eslConnected:   esl.connected,
+    bufferDepth:    eslBufferDepth(),
     staleTotal,
-    pendingCount: pendingBefore,
+    pendingCount:   pendingBefore,
+    heapUsedMb:     proc.heapUsedMb,
+    rssMb:          proc.rssMb,
+    loopLagMs:      proc.loopLagMs,
+    activeCalls:    snap.activeCalls,
+    wsVertoClients: snap.activeVertoClients,
   });
 }
 
