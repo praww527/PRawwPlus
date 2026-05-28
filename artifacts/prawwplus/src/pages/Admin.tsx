@@ -5274,7 +5274,7 @@ function TenantsTab() {
     setLoading(true);
     setError(null);
     try {
-      const data = await adminFetch("/api/admin/tenants");
+      const data = await adminFetch("/admin/tenants");
       setTenants(data.tenants ?? []);
     } catch (e: any) {
       setError(e.message);
@@ -5450,7 +5450,7 @@ function IvrFlowsPanel() {
   async function load() {
     setLoading(true);
     try {
-      const r = await adminFetch("/api/ivr/flows");
+      const r = await adminFetch("/ivr/flows");
       const d = await r.json();
       setFlows(d.flows ?? []);
     } finally { setLoading(false); }
@@ -5461,7 +5461,7 @@ function IvrFlowsPanel() {
   async function save() {
     setSaving(true); setErr("");
     try {
-      const r = await adminFetch("/api/ivr/flows", {
+      const r = await adminFetch("/ivr/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, extension: Number(form.extension) }),
@@ -5475,12 +5475,12 @@ function IvrFlowsPanel() {
 
   async function del(id: string) {
     if (!confirm("Delete this IVR flow?")) return;
-    await adminFetch(`/api/ivr/flows/${id}`, { method: "DELETE" });
+    await adminFetch(`/ivr/flows/${id}`, { method: "DELETE" });
     await load();
   }
 
   async function push(id: string) {
-    const r = await adminFetch(`/api/ivr/flows/${id}/push`, { method: "POST" });
+    const r = await adminFetch(`/ivr/flows/${id}/push`, { method: "POST" });
     const d: { message?: string; error?: string } = await r.json();
     alert(d.message ?? d.error ?? "Done");
   }
@@ -5572,7 +5572,7 @@ function CallQueuesPanel() {
   async function load() {
     setLoading(true);
     try {
-      const r = await adminFetch("/api/queues");
+      const r = await adminFetch("/queues");
       const d = await r.json();
       setQueues(d.queues ?? []);
     } finally { setLoading(false); }
@@ -5583,7 +5583,7 @@ function CallQueuesPanel() {
   async function save() {
     setSaving(true); setErr("");
     try {
-      const r = await adminFetch("/api/queues", {
+      const r = await adminFetch("/queues", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, extension: Number(form.extension), maxWaitSec: Number(form.maxWaitSec), maxQueueDepth: Number(form.maxQueueDepth) }),
@@ -5597,7 +5597,7 @@ function CallQueuesPanel() {
 
   async function del(id: string) {
     if (!confirm("Delete this queue?")) return;
-    await adminFetch(`/api/queues/${id}`, { method: "DELETE" });
+    await adminFetch(`/queues/${id}`, { method: "DELETE" });
     await load();
   }
 
@@ -5704,7 +5704,7 @@ function SecurityTab() {
 
   useEffect(() => {
     setLoading(true);
-    adminFetch("/api/security/overview")
+    adminFetch("/security/overview")
       .then((r: Response) => r.json())
       .then((d: SecurityOverview) => setOverview(d))
       .finally(() => setLoading(false));
@@ -5715,7 +5715,7 @@ function SecurityTab() {
     if (!confirm(`Force-disable 2FA for user ${resetUserId}?`)) return;
     setResetting(true); setMsg("");
     try {
-      const r = await adminFetch(`/api/security/2fa/admin-reset/${resetUserId.trim()}`, { method: "DELETE" });
+      const r = await adminFetch(`/security/2fa/admin-reset/${resetUserId.trim()}`, { method: "DELETE" });
       const d: { error?: string } = await r.json();
       setMsg(r.ok ? "2FA reset successfully." : d.error ?? "Failed");
       if (r.ok) setResetUserId("");
@@ -5885,7 +5885,7 @@ function AnalyticsTab() {
   async function load(d: number) {
     setLoading(true);
     try {
-      const r = await adminFetch(`/api/analytics/all?days=${d}`);
+      const r = await adminFetch(`/analytics/all?days=${d}`);
       const res: AnalyticsAll = await r.json();
       setData(res);
     } finally { setLoading(false); }
@@ -6113,7 +6113,7 @@ function CommissionsTab() {
     setLoading(true);
     try {
       const qs = rid ? `?resellerId=${rid}` : "";
-      const r = await adminFetch(`/api/reseller/commissions${qs}`);
+      const r = await adminFetch(`/reseller/commissions${qs}`);
       const d: { commissions?: Commission[]; summary?: CommissionSummary } = await r.json();
       setCommissions(d.commissions ?? []);
       setSummary(d.summary ?? null);
@@ -6126,7 +6126,7 @@ function CommissionsTab() {
     if (!approveId.trim()) { setMsg("Enter a reseller ID"); return; }
     setApproving(true); setMsg("");
     try {
-      const r = await adminFetch("/api/reseller/commissions/approve", {
+      const r = await adminFetch("/reseller/commissions/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resellerId: approveId.trim() }),
