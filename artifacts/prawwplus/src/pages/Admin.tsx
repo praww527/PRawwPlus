@@ -4473,14 +4473,14 @@ interface PlatformHealthData {
   ts:            string;
   uptimeSeconds: number;
   db:            { ok: boolean; latencyMs: number; state: number };
-  esl:           { connected: boolean; lastEventStaleSec: number | null; eventsThisMin: number; eventsLastMin: number; bgapiQueueDepth: number; reconnects: number; stalledCount: number };
-  websocket:     { vertoClients: number; sipClients: number; sipSessions: number; wsRejectedIpLimit: number; vertoReconnects: number };
-  calls:         { active: number; initiated: number; answered: number; failed: number; answerRatePct: number };
+  esl:           { connected: boolean; lastEventStaleSec: number | null; eventsThisMinute: number; bgapiQueueDepth: number; reconnectAttempt: number; stalledThroughputEvents: number };
+  websocket:     { activeVertoClients: number; activeSipClients: number; sipRegistrationsInMemory: number; wsConnectionsRejectedIpLimit: number };
+  calls:         { activeCalls: number; callsInitiated: number; callsAnswered: number; callsFailed: number; answerRatePct: number | null };
   security:      { sipFloodBlocked: number; callThrottleRejections: number; registrationFailures: number; bgapiQueueDropped: number };
-  sweeper:       { runs: number; staleCleaned: number; zombiesKilled: number; sipExpiredCleaned: number };
-  push:          { fcmSent: number; fcmFailed: number; webSent: number; expoSent: number; wakeupCount: number };
-  process:       { heapUsedMiB: number; heapTotalMiB: number; rssMiB: number; cpuUserMs: number; cpuSysMs: number; eventLoopLagMs: number; sampledAt: string };
-  history:       Array<{ ts: number; heapUsedMiB: number; rssMiB: number; eventLoopLagMs: number; activeCalls: number; wsVertoClients: number }>;
+  sweeper:       { staleSweepRuns: number; staleSessionCleanups: number; zombieCallsKilled: number };
+  push:          { fcm: { sent: number; failed: number }; web: { sent: number; failed: number }; expo: { sent: number; failed: number }; wakeups: number };
+  process:       { heapUsedMb: number; heapTotalMb: number; rssMb: number; cpuUserMs: number; cpuSysMs: number; loopLagMs: number; sampledAt: string | null };
+  history:       Array<{ ts: number; heapUsedMb: number; rssMb: number; loopLagMs: number; activeCalls: number; wsVertoClients: number }>;
 }
 
 function PhStatusDot({ ok }: { ok: boolean }) {
@@ -4581,8 +4581,8 @@ function PlatformHealthTab() {
 
   const healthy     = data.status === "ok";
   const hist        = data.history ?? [];
-  const loopLagWarn = data.process?.eventLoopLagMs > 100;
-  const heapWarn    = data.process?.heapUsedMiB > 400;
+  const loopLagWarn = (data.process?.loopLagMs ?? 0) > 100;
+  const heapWarn    = (data.process?.heapUsedMb ?? 0) > 400;
 
   return (
     <div style={{ padding: "20px 0", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -4636,26 +4636,26 @@ function PlatformHealthTab() {
             <span style={{ fontSize: 13, fontWeight: 600, color: data.esl.connected ? "#f8fafc" : "#f87171" }}>
               {data.esl.connected ? "Connected" : "Disconnected"}
             </span>
-            {data.esl.stalledCount > 0 && (
+            {data.esl.stalledThroughputEvents > 0 && (
               <span style={{ fontSize: 10, color: "#fbbf24", marginLeft: 4 }}>
-                ⚠ {data.esl.stalledCount} stall{data.esl.stalledCount !== 1 ? "s" : ""}
+                ⚠ {data.esl.stalledThroughputEvents} stall{data.esl.stalledThroughputEvents !== 1 ? "s" : ""}
               </span>
             )}
           </div>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <PhMetric label="Events/min" value={data.esl.eventsThisMin} />
+            <PhMetric label="Events/min" value={data.esl.eventsThisMinute} />
             <PhMetric label="Stale" value={data.esl.lastEventStaleSec === null ? "—" : `${data.esl.lastEventStaleSec}s`} warn={(data.esl.lastEventStaleSec ?? 0) > 60} />
-            <PhMetric label="Reconnects" value={data.esl.reconnects} />
+            <PhMetric label="Reconnects" value={data.esl.reconnectAttempt} />
             <PhMetric label="BgAPI Q" value={data.esl.bgapiQueueDepth} warn={data.esl.bgapiQueueDepth > 50} />
           </div>
         </PhCard>
 
         <PhCard title="WebSocket" icon={Wifi}>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <PhMetric label="Verto" value={data.websocket.vertoClients} />
-            <PhMetric label="SIP WS" value={data.websocket.sipClients} />
-            <PhMetric label="SIP Reg" value={data.websocket.sipSessions} />
-            <PhMetric label="Rejected" value={data.websocket.wsRejectedIpLimit} warn={data.websocket.wsRejectedIpLimit > 0} />
+            <PhMetric label="Verto" value={data.websocket.activeVertoClients} />
+            <PhMetric label="SIP WS" value={data.websocket.activeSipClients} />
+            <PhMetric label="SIP Reg" value={data.websocket.sipRegistrationsInMemory} />
+            <PhMetric label="Rejected" value={data.websocket.wsConnectionsRejectedIpLimit} warn={data.websocket.wsConnectionsRejectedIpLimit > 0} />
           </div>
         </PhCard>
 
@@ -4666,9 +4666,9 @@ function PlatformHealthTab() {
 
         <PhCard title="Calls" icon={PhoneCall}>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <PhMetric label="Active"    value={data.calls.active} />
-            <PhMetric label="Initiated" value={data.calls.initiated} />
-            <PhMetric label="Answered"  value={data.calls.answered} />
+            <PhMetric label="Active"    value={data.calls.activeCalls} />
+            <PhMetric label="Initiated" value={data.calls.callsInitiated} />
+            <PhMetric label="Answered"  value={data.calls.callsAnswered} />
             <PhMetric label="Answer %" value={`${(data.calls.answerRatePct ?? 0).toFixed(1)}%`} warn={(data.calls.answerRatePct ?? 100) < 80} />
           </div>
         </PhCard>
@@ -4687,10 +4687,9 @@ function PlatformHealthTab() {
 
         <PhCard title="Session Sweeper" icon={Zap}>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <PhMetric label="Runs"    value={data.sweeper.runs} />
-            <PhMetric label="Stale"   value={data.sweeper.staleCleaned} />
-            <PhMetric label="Zombies" value={data.sweeper.zombiesKilled} warn={data.sweeper.zombiesKilled > 0} />
-            <PhMetric label="SIP Exp" value={data.sweeper.sipExpiredCleaned} />
+            <PhMetric label="Runs"    value={data.sweeper.staleSweepRuns} />
+            <PhMetric label="Stale"   value={data.sweeper.staleSessionCleanups} />
+            <PhMetric label="Zombies" value={data.sweeper.zombieCallsKilled} warn={data.sweeper.zombieCallsKilled > 0} />
           </div>
         </PhCard>
 
@@ -4699,10 +4698,10 @@ function PlatformHealthTab() {
       {/* Row 3: Process */}
       <PhCard title="Process" icon={Cpu} borderColor={loopLagWarn || heapWarn ? "rgba(251,191,36,0.3)" : undefined}>
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          <PhMetric label="Heap Used"  value={data.process.heapUsedMiB.toFixed(1)} unit="MiB" warn={heapWarn} />
-          <PhMetric label="Heap Total" value={data.process.heapTotalMiB.toFixed(1)} unit="MiB" />
-          <PhMetric label="RSS"        value={data.process.rssMiB.toFixed(1)}        unit="MiB" />
-          <PhMetric label="Loop Lag"   value={data.process.eventLoopLagMs.toFixed(1)} unit="ms" warn={loopLagWarn} />
+          <PhMetric label="Heap Used"  value={(data.process.heapUsedMb ?? 0).toFixed(1)} unit="MiB" warn={heapWarn} />
+          <PhMetric label="Heap Total" value={(data.process.heapTotalMb ?? 0).toFixed(1)} unit="MiB" />
+          <PhMetric label="RSS"        value={(data.process.rssMb ?? 0).toFixed(1)}        unit="MiB" />
+          <PhMetric label="Loop Lag"   value={(data.process.loopLagMs ?? 0).toFixed(1)} unit="ms" warn={loopLagWarn} />
         </div>
       </PhCard>
 
@@ -4711,11 +4710,11 @@ function PlatformHealthTab() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
 
           <PhCard title="Heap (MiB) — 15 min" icon={MemoryStick}>
-            <SparkLine data={hist} dataKey="heapUsedMiB" color="#60a5fa" />
+            <SparkLine data={hist} dataKey="heapUsedMb" color="#60a5fa" />
           </PhCard>
 
           <PhCard title="Event-Loop Lag (ms) — 15 min" icon={Activity}>
-            <SparkLine data={hist} dataKey="eventLoopLagMs" color={loopLagWarn ? "#fbbf24" : "#4ade80"} />
+            <SparkLine data={hist} dataKey="loopLagMs" color={loopLagWarn ? "#fbbf24" : "#4ade80"} />
           </PhCard>
 
           <PhCard title="Active Calls — 15 min" icon={PhoneCall}>
@@ -4732,11 +4731,11 @@ function PlatformHealthTab() {
       {/* Row 5: Push */}
       <PhCard title="Push Notifications" icon={Bell}>
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          <PhMetric label="FCM Sent"   value={data.push.fcmSent} />
-          <PhMetric label="FCM Failed" value={data.push.fcmFailed} warn={data.push.fcmFailed > 0} />
-          <PhMetric label="Web Sent"   value={data.push.webSent} />
-          <PhMetric label="Expo Sent"  value={data.push.expoSent} />
-          <PhMetric label="Wakeups"    value={data.push.wakeupCount} />
+          <PhMetric label="FCM Sent"   value={data.push.fcm.sent} />
+          <PhMetric label="FCM Failed" value={data.push.fcm.failed} warn={data.push.fcm.failed > 0} />
+          <PhMetric label="Web Sent"   value={data.push.web.sent} />
+          <PhMetric label="Expo Sent"  value={data.push.expo.sent} />
+          <PhMetric label="Wakeups"    value={data.push.wakeups} />
         </div>
       </PhCard>
 
