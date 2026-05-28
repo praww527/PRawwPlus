@@ -300,7 +300,7 @@ export function dialplanXml(fsDomain: string): string {
       transfers participants via ESL; this extension just admits them.
     -->
     <extension name="conference_rooms" continue="false">
-      <condition field="destination_number" expression="^(conf\d{4})$">
+      <condition field="destination_number" expression="^(conf\\d{4})$">
         <action application="answer"/>
         <action application="conference" data="$1@default+flags{mute}"/>
       </condition>
@@ -393,7 +393,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="execute_forward=${FS_VAR}expr(${FS_VAR}should_forward})"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
-        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
+        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\\+?[1-9][0-9]{6,14}$)}"/>
 
         <!--
           ALWAYS-FORWARD SUCCESS GUARD — set hangup_after_bridge=true for the
@@ -456,7 +456,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
-        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
+        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\\+?[1-9][0-9]{6,14}$)}"/>
         <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}fwd_verto_ep}?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>
@@ -485,7 +485,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
-        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
+        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\\+?[1-9][0-9]{6,14}$)}"/>
         <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}fwd_verto_ep}?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>
@@ -516,7 +516,7 @@ export function dialplanXml(fsDomain: string): string {
         <action application="set" data="forward_depth=${FS_VAR}expr(${FS_VAR}forward_depth}+1)}"/>
         <action application="set" data="forward_is_ext=${FS_VAR}regex(${FS_VAR}forward_target}|^([1-9][0-9]{3})$)}"/>
         <action application="set" data="forward_is_sip=${FS_VAR}regex(${FS_VAR}forward_target}|^sip:)}"/>
-        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\+?[1-9][0-9]{6,14}$)}"/>
+        <action application="set" data="forward_is_num=${FS_VAR}regex(${FS_VAR}forward_target}|^\\+?[1-9][0-9]{6,14}$)}"/>
         <action application="set" data="fwd_verto_ep=${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}verto_contact(${FS_VAR}forward_target}@${fsDomain})}:)}"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_ext} == 1?${FS_VAR}if(${FS_VAR}fwd_verto_ep}?${FS_VAR}fwd_verto_ep},user/${FS_VAR}forward_target}@${fsDomain}:user/${FS_VAR}forward_target}@${fsDomain})}:)}"/>
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_sip} == 1?${FS_VAR}forward_target}:)}"/>

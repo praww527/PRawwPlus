@@ -432,6 +432,24 @@ class VoipEngine {
       },
     };
 
+    // Guard: catch invalid destinations before they reach JsSIP and produce a
+    // confusing SIP error.  An empty string or a non-numeric/non-extension
+    // value (e.g. the string "service") would build a broken SIP URI and reach
+    // FreeSWITCH as an unroutable call, causing a hard-to-diagnose 109 error.
+    if (!destination || destination.trim() === "" || destination === "service") {
+      toneService.stopRingback();
+      this.setState("idle");
+      throw new Error(
+        `Invalid SIP destination "${destination}" — the call record may be missing a valid number or extension.`,
+      );
+    }
+
+    console.log(
+      "[VoIP] makeCall →",
+      destination,
+      "| URI sip:XXXXX@" + (this.credentials?.domain ?? "?"),
+    );
+
     const session = this.ua.call(
       `sip:${destination}@${this.credentials?.domain}`,
       callOptions as any,
