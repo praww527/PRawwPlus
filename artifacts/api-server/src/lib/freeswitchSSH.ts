@@ -340,40 +340,49 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
       }
 
       // 2. Reload mod_xml_curl so it picks up the new gateway URL.
-      //    `reload mod_xml_curl` is unreliable — it can leave the module in a
-      //    broken state where it is "loaded" but has no gateway URL configured.
-      //    We use an explicit unload + load cycle for a guaranteed clean state.
+      //    IMPORTANT: we use `reload` (not unload+load) here because unloading
+      //    mod_xml_curl causes FreeSWITCH to lose its XML provider momentarily,
+      //    which triggers an internal configuration refresh that stops
+      //    mod_event_socket as a side effect — and FreeSWITCH does NOT
+      //    automatically reload it. `reload mod_xml_curl` avoids this by
+      //    hot-swapping the module without dropping the XML provider registration.
       try {
-        await execCommand(conn, `${cli} -x 'unload mod_xml_curl'`);
-        await new Promise((r) => setTimeout(r, 500));
-        await execCommand(conn, `${cli} -x 'load mod_xml_curl'`);
-        steps.push("mod_xml_curl unload+load OK");
+        await execCommand(conn, `${cli} -x 'reload mod_xml_curl'`);
+        steps.push("mod_xml_curl reload OK");
       } catch (e) {
-        steps.push(`mod_xml_curl unload+load failed: ${(e as Error).message}`);
+        steps.push(`mod_xml_curl reload failed: ${(e as Error).message}`);
       }
 
-      // Reload mod_event_socket so the new ACL config (apply-inbound-acl=loopback)
-      // and password take effect immediately WITHOUT a full FS restart.
-      // We do this with unload+load rather than 'reload' because reload can leave
-      // the module in a state where it stops accepting connections.
-      // Guard: only reload if the password/ACL actually changed (idempotent is fine
-      // — unload+load on a live system drops and re-opens the ESL listen socket,
-      // which causes a ~500 ms gap in ESL availability but is safe).
+      // 2b. Safety net: if mod_event_socket went down (port 8021 not listening)
+      //     due to any FreeSWITCH internal reload, restore it.  We use netcat
+      //     here instead of fs_cli because fs_cli itself needs ESL (8021) to
+      //     connect — if the port is down, fs_cli can't help.  The freeswitch
+      //     binary -x flag is equivalent and does NOT require 8021 to be up.
       try {
-        await execCommand(conn, `${cli} -x 'unload mod_event_socket'`);
-        await new Promise((r) => setTimeout(r, 800));
-        await execCommand(conn, `${cli} -x 'load mod_event_socket'`);
-        steps.push("mod_event_socket unload+load OK — ESL config (ACL/password) reloaded");
-      } catch (e) {
-        // mod_event_socket reload via its own socket is inherently self-defeating
-        // once the unload succeeds (the socket closes). A timeout/ECONNRESET here
-        // is expected and means the reload succeeded — fs_cli lost its connection.
-        const msg = (e as Error).message ?? "";
-        if (/timeout|ECONNRESET|ENOTCONN|closed|reset/i.test(msg)) {
-          steps.push("mod_event_socket reload complete (connection closed as expected after unload)");
+        const is8021Up = await execCommand(conn, "ss -tlnp | grep ':8021 ' | grep -q LISTEN && echo yes || echo no")
+          .then((o) => o.trim() === "yes").catch(() => false);
+        if (!is8021Up) {
+          // Try freeswitch binary -x first, fall back to netcat ESL
+          const fsBin = await execCommand(
+            conn,
+            "command -v freeswitch 2>/dev/null || ls /usr/local/freeswitch/bin/freeswitch 2>/dev/null | head -1 || echo ''",
+          ).then((p) => p.trim()).catch(() => "");
+          const eslPw = FS_ESL_PASS.replace(/'/g, "'\\''");
+          if (fsBin) {
+            await execCommand(conn, `${fsBin} -p '${eslPw}' -x 'load mod_event_socket'`).catch(() => null);
+          }
+          // Verify it came back up
+          await new Promise((r) => setTimeout(r, 1000));
+          const nowUp = await execCommand(conn, "ss -tlnp | grep ':8021 ' | grep -q LISTEN && echo yes || echo no")
+            .then((o) => o.trim() === "yes").catch(() => false);
+          steps.push(nowUp
+            ? "mod_event_socket restored (was down after xml_curl reload)"
+            : "mod_event_socket still down after restore attempt — FS restart may be needed");
         } else {
-          steps.push(`mod_event_socket reload: ${msg} — may need manual FS restart`);
+          steps.push("mod_event_socket still listening on 8021 after xml_curl reload ✓");
         }
+      } catch (e) {
+        steps.push(`mod_event_socket safety check failed: ${(e as Error).message}`);
       }
 
       if (lightReload) {
@@ -401,7 +410,28 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
         }
         steps.push("Light reload: skipping mod_verto reload (connections preserved)");
       } else {
-        // 3. Full reload: unload + load mod_verto so it picks up the new verto.conf.
+        // 3. Reload mod_event_socket so the new ACL/password takes effect immediately.
+        //    Only runs on a full admin-triggered push, NOT on startup (lightReload),
+        //    to avoid disrupting the ESL listener on every API restart.
+        //    unload+load rather than `reload` because reload can leave the module in
+        //    a broken state where it stops accepting connections.
+        //    ECONNRESET/timeout on the `load` step is expected — fs_cli loses its
+        //    connection when the socket closes after unload; the module reloads fine.
+        try {
+          await execCommand(conn, `${cli} -x 'unload mod_event_socket'`);
+          await new Promise((r) => setTimeout(r, 800));
+          await execCommand(conn, `${cli} -x 'load mod_event_socket'`);
+          steps.push("mod_event_socket unload+load OK — ESL config (ACL/password) reloaded");
+        } catch (e) {
+          const msg = (e as Error).message ?? "";
+          if (/timeout|ECONNRESET|ENOTCONN|closed|reset/i.test(msg)) {
+            steps.push("mod_event_socket reload complete (connection closed as expected after unload)");
+          } else {
+            steps.push(`mod_event_socket reload: ${msg} — may need manual FS restart`);
+          }
+        }
+
+        // 4. Full reload: unload + load mod_verto so it picks up the new verto.conf.
         //    `reload mod_verto` does NOT reliably reload profile bindings — only a
         //    full cycle does.  reloadxml already ran above so the cache is fresh.
         try {
