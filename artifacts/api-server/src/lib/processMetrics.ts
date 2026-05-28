@@ -23,7 +23,7 @@ export interface ProcessMetricsSnapshot {
   sampledAt:   number;  // Unix ms of last sample
 }
 
-let _snapshot: ProcessMetricsSnapshot = {
+const _snapshot: ProcessMetricsSnapshot = {
   heapUsedMb:  0,
   heapTotalMb: 0,
   rssMb:       0,
