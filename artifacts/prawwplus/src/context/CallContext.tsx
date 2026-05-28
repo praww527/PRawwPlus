@@ -441,6 +441,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const makeVertoCall = useCallback(async (to: string, callId?: string): Promise<string | null> => {
     if (!clientRef.current) return null;
+
+    // Guard: validate sipDestination before handing it to FreeSWITCH.
+    // Mirrors the mobile VoIP engine guard so bad destinations are caught
+    // at the call-context boundary rather than deep inside the WebRTC stack.
+    //
+    //   Internal extension  — exactly 4 digits, first digit 1-9 (1000–9999)
+    //   External phone      — 7–15 digits, optional leading "+"
+    //
+    // Anything else (empty string, raw extension prefix, URI fragment, …)
+    // is rejected with a user-visible error before a SIP INVITE is sent.
+    const isInternalExt = /^[1-9]\d{3}$/.test(to);
+    const isPhoneNumber  = /^\+?\d{7,15}$/.test(to);
+    if (!isInternalExt && !isPhoneNumber) {
+      const msg = `Invalid destination "${to}" — must be a 4-digit extension or a phone number`;
+      console.warn("[Verto] makeVertoCall blocked:", msg);
+      setVertoError(msg);
+      return null;
+    }
+
     try {
       return await clientRef.current.makeCall(to, callId);
     } catch (e: unknown) {
