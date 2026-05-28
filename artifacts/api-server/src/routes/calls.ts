@@ -395,7 +395,9 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
         }
 
         if (tasks.length > 0) {
-          Promise.all(tasks).catch(() => {});
+          Promise.all(tasks).catch((err) => {
+            logger.warn({ err, resolvedExtension }, "[calls] One or more callee push notifications failed");
+          });
           calleeNotified = true;
           recordWakeupSent(callId);
           logger.info(

@@ -22,6 +22,7 @@ import mongoose from "mongoose";
 import { connectDB, CallModel, UserModel } from "@workspace/db";
 import { sendEslBgapiAwait } from "../lib/freeswitchESL";
 import { logger } from "../lib/logger";
+import { checkBalance } from "../lib/balanceGuard";
 
 const router: IRouter = Router();
 
@@ -294,6 +295,20 @@ router.post("/conference/:roomId/invite", async (req: Request, res: Response) =>
   if (!extension && !phone) {
     res.status(400).json({ error: "extension or phone is required" });
     return;
+  }
+
+  // Guard: PSTN invites consume the room creator's balance — reject early when
+  // they have insufficient funds, exactly as the main call flow does.
+  if (phone) {
+    const balance = await checkBalance(userId, phone);
+    if (!balance.allowed) {
+      res.status(402).json({
+        error: "Insufficient balance to invite PSTN participant",
+        reason: balance.rejectionReason,
+        coins: balance.coins,
+      });
+      return;
+    }
   }
 
   const fsDomain = process.env.FREESWITCH_DOMAIN ?? "localhost";
