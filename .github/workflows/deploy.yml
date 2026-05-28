@@ -53,11 +53,34 @@ jobs:
   # Required GitHub Secrets (Settings → Secrets and variables → Actions):
   #   VPS_HOST       — 158.180.29.84
   #   VPS_USER       — ubuntu
-  #   VPS_SSH_KEY    — OpenSSH private key (full content, NO passphrase)
-  #                    Must start with:  -----BEGIN OPENSSH PRIVATE KEY-----
-  #                    Must end with:    -----END OPENSSH PRIVATE KEY-----
-  #   VPS_PORT       — 22
-  #   VPS_DEPLOY_DIR — /home/ubuntu/PRawwPlus
+  #   VPS_SSH_KEY    — OpenSSH private key for VPS access (NO passphrase)
+  #   VPS_PORT       — 22  (optional, defaults to 22)
+  #   VPS_DEPLOY_DIR — /home/ubuntu/PRawwPlus  (optional)
+  #
+  # Application secrets (written to VPS .env on every deploy):
+  #   MONGODB_URI                — MongoDB connection string
+  #   SESSION_SECRET             — cookie signing secret (≥32 chars)
+  #   ADMIN_API_KEY              — admin dashboard API key
+  #   APP_URL                    — canonical URL e.g. https://rtc.praww.co.za
+  #   FREESWITCH_DOMAIN          — FreeSWITCH host / WSS domain
+  #   FREESWITCH_ESL_PASSWORD    — FreeSWITCH event socket password
+  #   FREESWITCH_SSH_KEY         — SSH private key to push FS config
+  #   FREESWITCH_SSH_USER        — SSH user on FS host  (optional, default ubuntu)
+  #   FREESWITCH_SSH_PORT        — SSH port on FS host  (optional, default 22)
+  #   FREESWITCH_EXT_IP          — public IPv4 for RTP ext-ip  (optional)
+  #   FREESWITCH_CONF_DIR        — FS config dir  (optional)
+  #   VAPID_PUBLIC_KEY           — web push VAPID public key
+  #   VAPID_PRIVATE_KEY          — web push VAPID private key
+  #   VAPID_SUBJECT              — mailto: or URL for VAPID subject  (optional)
+  #   SENDGRID_API_KEY           — transactional email
+  #   PAYFAST_MERCHANT_ID        — PayFast merchant ID
+  #   PAYFAST_MERCHANT_KEY       — PayFast merchant key
+  #   PAYFAST_PASSPHRASE         — PayFast passphrase  (optional)
+  #   FIREBASE_SERVICE_ACCOUNT   — Firebase Admin SDK JSON (for FCM)
+  #   TURN_HOST                  — TURN/STUN server host  (optional)
+  #   TURN_SECRET                — TURN shared secret  (optional)
+  #   TRUST_PROXY                — set to "1" if behind nginx  (optional)
+  #   ALLOWED_ORIGINS            — comma-separated CORS origins  (optional)
   #
   # Optional:
   #   VPS_HEALTH_URL — https://rtc.praww.co.za/api/healthz
@@ -87,12 +110,36 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
+          # ── Application secrets — written to VPS .env on every deploy ──────
+          SECRET_MONGODB_URI:             ${{ secrets.MONGODB_URI }}
+          SECRET_SESSION_SECRET:          ${{ secrets.SESSION_SECRET }}
+          SECRET_ADMIN_API_KEY:           ${{ secrets.ADMIN_API_KEY }}
+          SECRET_APP_URL:                 ${{ secrets.APP_URL }}
+          SECRET_FREESWITCH_DOMAIN:       ${{ secrets.FREESWITCH_DOMAIN }}
+          SECRET_FREESWITCH_ESL_PASSWORD: ${{ secrets.FREESWITCH_ESL_PASSWORD }}
+          SECRET_FREESWITCH_SSH_KEY:      ${{ secrets.FREESWITCH_SSH_KEY }}
+          SECRET_FREESWITCH_SSH_USER:     ${{ secrets.FREESWITCH_SSH_USER }}
+          SECRET_FREESWITCH_SSH_PORT:     ${{ secrets.FREESWITCH_SSH_PORT }}
+          SECRET_FREESWITCH_EXT_IP:       ${{ secrets.FREESWITCH_EXT_IP }}
+          SECRET_FREESWITCH_CONF_DIR:     ${{ secrets.FREESWITCH_CONF_DIR }}
+          SECRET_VAPID_PUBLIC_KEY:        ${{ secrets.VAPID_PUBLIC_KEY }}
+          SECRET_VAPID_PRIVATE_KEY:       ${{ secrets.VAPID_PRIVATE_KEY }}
+          SECRET_VAPID_SUBJECT:           ${{ secrets.VAPID_SUBJECT }}
+          SECRET_SENDGRID_API_KEY:        ${{ secrets.SENDGRID_API_KEY }}
+          SECRET_PAYFAST_MERCHANT_ID:     ${{ secrets.PAYFAST_MERCHANT_ID }}
+          SECRET_PAYFAST_MERCHANT_KEY:    ${{ secrets.PAYFAST_MERCHANT_KEY }}
+          SECRET_PAYFAST_PASSPHRASE:      ${{ secrets.PAYFAST_PASSPHRASE }}
+          SECRET_FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SECRET_TURN_HOST:               ${{ secrets.TURN_HOST }}
+          SECRET_TURN_SECRET:             ${{ secrets.TURN_SECRET }}
+          SECRET_TRUST_PROXY:             ${{ secrets.TRUST_PROXY }}
+          SECRET_ALLOWED_ORIGINS:         ${{ secrets.ALLOWED_ORIGINS }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # ── Write SSH private key robustly ───────────────────────────────
+          # ── Write VPS SSH private key robustly ───────────────────────────────
           # Python handles: literal \n escapes, CRLF, missing trailing newline,
           # extra blank lines, BOM, and other encoding artifacts.
           python3 - <<'PYEOF'
@@ -169,71 +216,209 @@ jobs:
               exit 1
             }
 
-          # ── Remote deployment script ──────────────────────────────────────
+          # ── Build env payload for VPS ─────────────────────────────────────
+          # Collect every SECRET_* env var into a single string that the remote
+          # Python script will use to update /home/ubuntu/PRawwPlus/.env.
+          # Only keys with non-empty values are included.
+          python3 - <<'ENVPYEOF'
+          import os, json
+
+          mapping = {
+              'MONGODB_URI':             'SECRET_MONGODB_URI',
+              'SESSION_SECRET':          'SECRET_SESSION_SECRET',
+              'ADMIN_API_KEY':           'SECRET_ADMIN_API_KEY',
+              'APP_URL':                 'SECRET_APP_URL',
+              'FREESWITCH_DOMAIN':       'SECRET_FREESWITCH_DOMAIN',
+              'FREESWITCH_ESL_PASSWORD': 'SECRET_FREESWITCH_ESL_PASSWORD',
+              'FREESWITCH_SSH_KEY':      'SECRET_FREESWITCH_SSH_KEY',
+              'FREESWITCH_SSH_USER':     'SECRET_FREESWITCH_SSH_USER',
+              'FREESWITCH_SSH_PORT':     'SECRET_FREESWITCH_SSH_PORT',
+              'FREESWITCH_EXT_IP':       'SECRET_FREESWITCH_EXT_IP',
+              'FREESWITCH_CONF_DIR':     'SECRET_FREESWITCH_CONF_DIR',
+              'VAPID_PUBLIC_KEY':        'SECRET_VAPID_PUBLIC_KEY',
+              'VAPID_PRIVATE_KEY':       'SECRET_VAPID_PRIVATE_KEY',
+              'VAPID_SUBJECT':           'SECRET_VAPID_SUBJECT',
+              'SENDGRID_API_KEY':        'SECRET_SENDGRID_API_KEY',
+              'PAYFAST_MERCHANT_ID':     'SECRET_PAYFAST_MERCHANT_ID',
+              'PAYFAST_MERCHANT_KEY':    'SECRET_PAYFAST_MERCHANT_KEY',
+              'PAYFAST_PASSPHRASE':      'SECRET_PAYFAST_PASSPHRASE',
+              'FIREBASE_SERVICE_ACCOUNT':'SECRET_FIREBASE_SERVICE_ACCOUNT',
+              'TURN_HOST':               'SECRET_TURN_HOST',
+              'TURN_SECRET':             'SECRET_TURN_SECRET',
+              'TRUST_PROXY':             'SECRET_TRUST_PROXY',
+              'ALLOWED_ORIGINS':         'SECRET_ALLOWED_ORIGINS',
+          }
+
+          updates = {}
+          for env_key, secret_env in mapping.items():
+              val = os.environ.get(secret_env, '')
+              if val:
+                  updates[env_key] = val
+
+          # Always ensure NODE_ENV=production is set
+          updates['NODE_ENV'] = 'production'
+
+          print(json.dumps(updates))
+          ENVPYEOF
+
+          ENV_JSON=$(python3 - <<'ENVPYEOF'
+          import os, json
+
+          mapping = {
+              'MONGODB_URI':             'SECRET_MONGODB_URI',
+              'SESSION_SECRET':          'SECRET_SESSION_SECRET',
+              'ADMIN_API_KEY':           'SECRET_ADMIN_API_KEY',
+              'APP_URL':                 'SECRET_APP_URL',
+              'FREESWITCH_DOMAIN':       'SECRET_FREESWITCH_DOMAIN',
+              'FREESWITCH_ESL_PASSWORD': 'SECRET_FREESWITCH_ESL_PASSWORD',
+              'FREESWITCH_SSH_KEY':      'SECRET_FREESWITCH_SSH_KEY',
+              'FREESWITCH_SSH_USER':     'SECRET_FREESWITCH_SSH_USER',
+              'FREESWITCH_SSH_PORT':     'SECRET_FREESWITCH_SSH_PORT',
+              'FREESWITCH_EXT_IP':       'SECRET_FREESWITCH_EXT_IP',
+              'FREESWITCH_CONF_DIR':     'SECRET_FREESWITCH_CONF_DIR',
+              'VAPID_PUBLIC_KEY':        'SECRET_VAPID_PUBLIC_KEY',
+              'VAPID_PRIVATE_KEY':       'SECRET_VAPID_PRIVATE_KEY',
+              'VAPID_SUBJECT':           'SECRET_VAPID_SUBJECT',
+              'SENDGRID_API_KEY':        'SECRET_SENDGRID_API_KEY',
+              'PAYFAST_MERCHANT_ID':     'SECRET_PAYFAST_MERCHANT_ID',
+              'PAYFAST_MERCHANT_KEY':    'SECRET_PAYFAST_MERCHANT_KEY',
+              'PAYFAST_PASSPHRASE':      'SECRET_PAYFAST_PASSPHRASE',
+              'FIREBASE_SERVICE_ACCOUNT':'SECRET_FIREBASE_SERVICE_ACCOUNT',
+              'TURN_HOST':               'SECRET_TURN_HOST',
+              'TURN_SECRET':             'SECRET_TURN_SECRET',
+              'TRUST_PROXY':             'SECRET_TRUST_PROXY',
+              'ALLOWED_ORIGINS':         'SECRET_ALLOWED_ORIGINS',
+          }
+
+          updates = {}
+          for env_key, secret_env in mapping.items():
+              val = os.environ.get(secret_env, '')
+              if val:
+                  updates[env_key] = val
+
+          updates['NODE_ENV'] = 'production'
+          print(json.dumps(updates))
+          ENVPYEOF
+          )
+
+          # ── Remote deployment script ──────────────────────────────────────────
           DEPLOY_DIR="${VPS_DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
           DEPLOY_DIR="${DEPLOY_DIR%/}"
           echo "── Deploying to $HOST:$DEPLOY_DIR ──────────────────────────"
 
-          ssh deploy_target bash -s <<REMOTE
+          ssh deploy_target bash -s -- "$ENV_JSON" <<'REMOTE'
           set -euo pipefail
-          DEPLOY_DIR="${DEPLOY_DIR}"
-          echo "==> [1/8] Pull latest code"
-          git -C "\$DEPLOY_DIR" fetch origin
-          git -C "\$DEPLOY_DIR" reset --hard "origin/\$(git -C "\$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
-          echo "  HEAD: \$(git -C "\$DEPLOY_DIR" log --oneline -1)"
+          ENV_JSON="$1"
+          DEPLOY_DIR="/home/ubuntu/PRawwPlus"
 
-          echo "==> [2/8] Fix file ownership"
-          sudo chown -R ubuntu:ubuntu "\$DEPLOY_DIR" 2>/dev/null || true
+          echo "==> [1/9] Pull latest code"
+          git -C "$DEPLOY_DIR" fetch origin
+          git -C "$DEPLOY_DIR" reset --hard "origin/$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD)"
+          echo "  HEAD: $(git -C "$DEPLOY_DIR" log --oneline -1)"
 
-          echo "==> [3/8] Enable pnpm"
+          echo "==> [2/9] Fix file ownership"
+          sudo chown -R ubuntu:ubuntu "$DEPLOY_DIR" 2>/dev/null || true
+
+          echo "==> [3/9] Update .env from GitHub secrets"
+          ENV_FILE="$DEPLOY_DIR/.env"
+          # Create .env if it doesn't exist
+          touch "$ENV_FILE"
+          chmod 600 "$ENV_FILE"
+          # Use Python to safely merge secrets into the existing .env
+          python3 - "$ENV_FILE" "$ENV_JSON" <<'PYEOF'
+          import sys, json, re, os
+
+          env_path = sys.argv[1]
+          updates  = json.loads(sys.argv[2])
+
+          # Read existing .env
+          try:
+              with open(env_path, 'r') as f:
+                  lines = f.readlines()
+          except FileNotFoundError:
+              lines = []
+
+          # Build ordered list, preserving existing lines, updating matching keys
+          updated_keys = set()
+          new_lines = []
+          for line in lines:
+              stripped = line.rstrip('\n')
+              # Match KEY=VALUE or KEY="VALUE" lines (skip comments / blanks)
+              m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=', stripped)
+              if m:
+                  key = m.group(1)
+                  if key in updates:
+                      val = updates[key]
+                      # Quote values that contain spaces, newlines, or special chars
+                      # Use single-quote wrapping; escape embedded single quotes
+                      safe = val.replace("'", "'\"'\"'")
+                      new_lines.append(f"{key}='{safe}'\n")
+                      updated_keys.add(key)
+                      continue
+              new_lines.append(line if line.endswith('\n') else line + '\n')
+
+          # Append any keys not already present
+          for key, val in updates.items():
+              if key not in updated_keys:
+                  safe = val.replace("'", "'\"'\"'")
+                  new_lines.append(f"{key}='{safe}'\n")
+
+          with open(env_path, 'w') as f:
+              f.writelines(new_lines)
+
+          added   = [k for k in updates if k not in {re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=', l.rstrip()).group(1) for l in lines if re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=', l.rstrip())}]
+          print(f"  .env updated: {len(updates)} key(s) from GitHub secrets")
+          PYEOF
+
+          echo "==> [4/9] Enable pnpm"
           corepack enable 2>/dev/null || sudo npm install -g pnpm@10.26.1 --loglevel=error
           corepack prepare pnpm@10.26.1 --activate 2>/dev/null || true
-          echo "  pnpm: \$(pnpm --version)"
+          echo "  pnpm: $(pnpm --version)"
 
-          echo "==> [4/8] Install dependencies"
-          cd "\$DEPLOY_DIR"
+          echo "==> [5/9] Install dependencies"
+          cd "$DEPLOY_DIR"
           pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
 
-          echo "==> [5/8] Build shared libraries"
+          echo "==> [6/9] Build shared libraries"
           pnpm --filter @workspace/db \
                --filter @workspace/api-zod \
                --filter @workspace/auth-web \
                --filter @workspace/api-client-react \
                run build
 
-          echo "==> [6/8] Build web + API"
+          echo "==> [7/9] Build web + API"
           pnpm --filter @workspace/prawwplus run build
           pnpm --filter @workspace/api-server run build
 
-          echo "==> [7/8] Restart systemd service"
-          sudo cp "\$DEPLOY_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
+          echo "==> [8/9] Restart systemd service"
+          sudo cp "$DEPLOY_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
           sudo systemctl daemon-reload
           sudo systemctl enable prawwplus-api
           sudo systemctl restart prawwplus-api
           echo "  Waiting for service to become active..."
-          for i in \$(seq 1 24); do
+          for i in $(seq 1 24); do
             sleep 5
             if systemctl is-active --quiet prawwplus-api; then
-              echo "  ✓ Service active after \$((i*5))s"
+              echo "  ✓ Service active after $((i*5))s"
               break
             fi
-            if [ "\$i" -eq 24 ]; then
+            if [ "$i" -eq 24 ]; then
               echo "  ✗ Service failed after 120s"
               journalctl -u prawwplus-api -n 80 --no-pager
               exit 1
             fi
-            echo "  ... \$((i*5))s"
+            echo "  ... $((i*5))s"
           done
 
-          echo "==> [8/8] Cleanup stale processes"
-          pgrep -f "tsx.*index" | grep -v "^\$\$" | xargs kill -SIGTERM 2>/dev/null || true
-          for ZOMBIE_PPID in \$(ps -eo ppid,stat | awk '\$2~/^Z/{print \$1}' | sort -u); do
-            [ "\$ZOMBIE_PPID" -le 1 ] && continue
-            kill -SIGCHLD "\$ZOMBIE_PPID" 2>/dev/null || true
+          echo "==> [9/9] Cleanup stale processes"
+          pgrep -f "tsx.*index" | grep -v "^$$" | xargs kill -SIGTERM 2>/dev/null || true
+          for ZOMBIE_PPID in $(ps -eo ppid,stat | awk '$2~/^Z/{print $1}' | sort -u); do
+            [ "$ZOMBIE_PPID" -le 1 ] && continue
+            kill -SIGCHLD "$ZOMBIE_PPID" 2>/dev/null || true
           done
 
-          echo "==> Deploy complete: \$(date)"
-          echo "    \$(git -C "\$DEPLOY_DIR" log --oneline -1)"
+          echo "==> Deploy complete: $(date)"
+          echo "    $(git -C "$DEPLOY_DIR" log --oneline -1)"
           systemctl status prawwplus-api --no-pager --lines=5
           REMOTE
 
@@ -261,11 +446,6 @@ jobs:
           exit 1
 
       # ── Automatic rollback on health check failure ────────────────────────
-      # When the health check fails, SSH to the VPS, revert to the previous
-      # git HEAD, rebuild, and restart the service. The prior commit is
-      # recorded with `git rev-parse HEAD~1` before the new code is deployed.
-      # This step runs ONLY when health_check failed — it does not run when
-      # the deploy script itself fails (the service would still be up then).
       - name: Rollback on health check failure
         if: failure() && steps.health_check.conclusion == 'failure' && steps.secrets_check.outputs.configured == 'true'
         env:
@@ -279,7 +459,6 @@ jobs:
           echo "⚠️  Health check failed — initiating automatic rollback"
 
           # Reuse the key written in the deploy step (still present in $HOME/.ssh)
-          # In case the runner is fresh, re-write it.
           if [ ! -f ~/.ssh/deploy_key ]; then
             mkdir -p ~/.ssh && chmod 700 ~/.ssh
             python3 - <<'PYEOF'
@@ -314,43 +493,43 @@ jobs:
           DEPLOY_DIR="${VPS_DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
           DEPLOY_DIR="${DEPLOY_DIR%/}"
 
-          ssh deploy_target bash -s <<ROLLBACK
+          ssh deploy_target bash -s <<'ROLLBACK'
           set -euo pipefail
-          DEPLOY_DIR="${DEPLOY_DIR}"
+          DEPLOY_DIR="/home/ubuntu/PRawwPlus"
           echo "==> [Rollback 1/4] Identify previous commit"
-          PREV=\$(git -C "\$DEPLOY_DIR" rev-parse HEAD~1 2>/dev/null || echo "")
-          if [ -z "\$PREV" ]; then
+          PREV=$(git -C "$DEPLOY_DIR" rev-parse HEAD~1 2>/dev/null || echo "")
+          if [ -z "$PREV" ]; then
             echo "  ✗ Cannot determine previous commit — rollback aborted"
             exit 1
           fi
-          echo "  Previous HEAD: \$PREV"
-          echo "  Current HEAD:  \$(git -C "\$DEPLOY_DIR" rev-parse HEAD)"
+          echo "  Previous HEAD: $PREV"
+          echo "  Current HEAD:  $(git -C "$DEPLOY_DIR" rev-parse HEAD)"
 
           echo "==> [Rollback 2/4] Reset to previous commit"
-          git -C "\$DEPLOY_DIR" reset --hard "\$PREV"
-          echo "  Now at: \$(git -C "\$DEPLOY_DIR" log --oneline -1)"
+          git -C "$DEPLOY_DIR" reset --hard "$PREV"
+          echo "  Now at: $(git -C "$DEPLOY_DIR" log --oneline -1)"
 
           echo "==> [Rollback 3/4] Rebuild API server from previous code"
-          cd "\$DEPLOY_DIR"
+          cd "$DEPLOY_DIR"
           pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
           pnpm --filter @workspace/db --filter @workspace/api-zod --filter @workspace/auth-web --filter @workspace/api-client-react run build
           pnpm --filter @workspace/api-server run build
 
           echo "==> [Rollback 4/4] Restart service with previous build"
           sudo systemctl restart prawwplus-api
-          for i in \$(seq 1 12); do
+          for i in $(seq 1 12); do
             sleep 5
             if systemctl is-active --quiet prawwplus-api; then
-              echo "  ✓ Rollback complete — service active after \$((i*5))s"
+              echo "  ✓ Rollback complete — service active after $((i*5))s"
               break
             fi
-            if [ "\$i" -eq 12 ]; then
+            if [ "$i" -eq 12 ]; then
               echo "  ✗ Service failed to start even after rollback — MANUAL INTERVENTION REQUIRED"
               journalctl -u prawwplus-api -n 60 --no-pager
               exit 1
             fi
           done
-          echo "  Rollback to \$PREV completed at \$(date)"
+          echo "  Rollback to $PREV completed at $(date)"
           systemctl status prawwplus-api --no-pager --lines=5
           ROLLBACK
           echo "✓ Rollback SSH completed — check VPS logs for final status"
