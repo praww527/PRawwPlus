@@ -423,7 +423,8 @@ function UsersTab() {
       {loading ? <Skel /> : (
         <div className="space-y-2">
           {filtered.length === 0 && (
-            <div className="rounded-2xl bg-white/[0.04] p-8 text-center">
+            <div className="rounded-2xl bg-white/[0.04] p-10 text-center">
+              <Users2 className="w-6 h-6 text-white/15 mx-auto mb-2" />
               <p className="text-white/25 text-sm">No users found</p>
             </div>
           )}

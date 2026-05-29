@@ -150,9 +150,12 @@ export default function ContactsScreen() {
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.center}>
-          <Feather name="users" size={40} color="#333" />
+          <Feather name="users" size={48} color="#3A3A3C" />
+          <Text style={styles.emptyTitle}>
+            {search ? "No matches" : "No contacts yet"}
+          </Text>
           <Text style={styles.emptyText}>
-            {search ? "No contacts match your search" : "No contacts yet"}
+            {search ? "Try a different name or number" : "Your contacts will appear here"}
           </Text>
         </View>
       ) : (
@@ -176,10 +179,11 @@ const styles = StyleSheet.create({
   searchWrap:  { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 8, backgroundColor: "#1C1C1E", borderRadius: 12, paddingHorizontal: 12, height: 40 },
   searchIcon:  { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, color: "#fff", height: "100%" },
-  errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 8, backgroundColor: "#2A0000", padding: 10, borderRadius: 10 },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 8, backgroundColor: "#2A0000", padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "#FF3B3033" },
   errorText:   { flex: 1, fontSize: 13, color: "#FF3B30" },
-  center:      { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  emptyText:   { fontSize: 15, color: "#555", textAlign: "center" },
+  center:      { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingBottom: 60 },
+  emptyTitle:  { fontSize: 18, fontWeight: "600", color: "#8E8E93" },
+  emptyText:   { fontSize: 14, color: "#636366", textAlign: "center", paddingHorizontal: 40 },
   list:        { paddingBottom: 100 },
   row:         { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
   sep:         { height: 1, backgroundColor: "#1C1C1E", marginLeft: 72 },

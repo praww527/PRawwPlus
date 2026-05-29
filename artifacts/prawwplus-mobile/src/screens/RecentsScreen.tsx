@@ -153,7 +153,7 @@ function CallRow({
 function EmptyState() {
   return (
     <View style={styles.empty}>
-      <Feather name="phone-missed" size={48} color="#444" />
+      <Feather name="phone-missed" size={48} color="#3A3A3C" />
       <Text style={styles.emptyTitle}>No recent calls</Text>
       <Text style={styles.emptyText}>Your call history will appear here</Text>
     </View>
@@ -443,8 +443,8 @@ const styles = StyleSheet.create({
   list:        { flexGrow: 1 },
   loaderWrap:  { flex: 1, alignItems: "center", justifyContent: "center" },
   empty:       { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 80, gap: 12 },
-  emptyTitle:  { fontSize: 18, fontWeight: "600", color: "#888" },
-  emptyText:   { fontSize: 14, color: "#555", textAlign: "center", paddingHorizontal: 40 },
+  emptyTitle:  { fontSize: 18, fontWeight: "600", color: "#8E8E93" },
+  emptyText:   { fontSize: 14, color: "#636366", textAlign: "center", paddingHorizontal: 40 },
   retryBtn:    { marginTop: 8, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: "#1C1C1E", borderRadius: 10 },
   retryText:   { fontSize: 14, color: "#0A84FF", fontWeight: "600" },
   row:         { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#141414" },

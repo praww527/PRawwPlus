@@ -65,9 +65,9 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
   if (!user?.isAdmin) {
     return (
       <Layout>
-        <div className="p-12 text-center text-red-400 glass rounded-2xl">
-          <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
-          <p>You do not have administrative privileges.</p>
+        <div className="glass rounded-2xl border border-white/10 p-12 text-center max-w-md mx-auto mt-12">
+          <h2 className="text-2xl font-bold mb-2 text-red-400">Access Denied</h2>
+          <p className="text-white/50">You do not have administrative privileges.</p>
         </div>
       </Layout>
     );
@@ -87,7 +87,7 @@ function ResellerRoute({ component: Component }: { component: React.ComponentTyp
   if (user?.role !== "reseller") {
     return (
       <Layout>
-        <div className="p-12 text-center glass rounded-2xl border border-white/10">
+        <div className="glass rounded-2xl border border-white/10 p-12 text-center max-w-md mx-auto mt-12">
           <h2 className="text-2xl font-bold mb-2 text-red-400">Access Denied</h2>
           <p className="text-white/50">Reseller access is required to view this page.</p>
         </div>
@@ -98,7 +98,7 @@ function ResellerRoute({ component: Component }: { component: React.ComponentTyp
   if (!user?.approved) {
     return (
       <Layout>
-        <div className="p-12 text-center glass rounded-2xl border border-white/10">
+        <div className="glass rounded-2xl border border-white/10 p-12 text-center max-w-md mx-auto mt-12">
           <h2 className="text-2xl font-bold mb-2 text-amber-400">Pending Approval</h2>
           <p className="text-white/50">Your reseller account is awaiting admin approval. You will be notified once approved.</p>
         </div>

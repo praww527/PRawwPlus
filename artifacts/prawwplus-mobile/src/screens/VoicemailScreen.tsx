@@ -213,8 +213,9 @@ export default function VoicemailScreen() {
         </View>
       ) : messages.length === 0 ? (
         <View style={styles.center}>
-          <Feather name="voicemail" size={44} color="#333" />
-          <Text style={styles.emptyText}>No voicemail messages</Text>
+          <Feather name="voicemail" size={48} color="#3A3A3C" />
+          <Text style={styles.emptyTitle}>No voicemail</Text>
+          <Text style={styles.emptyText}>New messages will appear here</Text>
         </View>
       ) : (
         <FlatList
@@ -231,15 +232,16 @@ export default function VoicemailScreen() {
 
 const styles = StyleSheet.create({
   safe:          { flex: 1, backgroundColor: "#0A0A0A" },
-  header:        { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 12, paddingBottom: 12 },
+  header:        { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 12, paddingBottom: 8 },
   headerLeft:    { flexDirection: "row", alignItems: "center", gap: 10 },
   title:         { fontSize: 28, fontWeight: "700", color: "#fff" },
   badge:         { backgroundColor: "#FF3B30", borderRadius: 12, minWidth: 24, height: 24, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
   badgeText:     { fontSize: 13, fontWeight: "700", color: "#fff" },
-  errorBanner:   { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 8, backgroundColor: "#2A0000", padding: 10, borderRadius: 10 },
+  errorBanner:   { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 8, backgroundColor: "#2A0000", padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "#FF3B3033" },
   errorText:     { flex: 1, fontSize: 13, color: "#FF3B30" },
-  center:        { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  emptyText:     { fontSize: 15, color: "#555" },
+  center:        { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingBottom: 60 },
+  emptyTitle:    { fontSize: 18, fontWeight: "600", color: "#8E8E93" },
+  emptyText:     { fontSize: 14, color: "#636366", textAlign: "center", paddingHorizontal: 40 },
   list:          { paddingBottom: 100 },
   row:           { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
   rowUnread:     { backgroundColor: "rgba(10,132,255,0.05)" },
