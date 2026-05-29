@@ -26,6 +26,16 @@ if [[ "$LOCAL_ONLY" == false ]]; then
   log "Resetting to origin/$BRANCH ..."
   git -C "$APP_DIR" reset --hard "origin/$BRANCH"
   log "Code is now at: $(git -C "$APP_DIR" log --oneline -1)"
+
+  # ── Environment guard — refuse to deploy with a broken .env ─────────────────
+  ENV_FILE="${ENV_FILE:-/home/ubuntu/PRawwPlus/.env}"
+  if ! grep -q "SESSION_SECRET" "$ENV_FILE" 2>/dev/null; then
+    err ".env missing SESSION_SECRET — aborting ($ENV_FILE)"
+  fi
+  if ! grep -q "FREESWITCH_ESL_PASSWORD" "$ENV_FILE" 2>/dev/null; then
+    err ".env missing FREESWITCH_ESL_PASSWORD — aborting ($ENV_FILE)"
+  fi
+  log "Environment guard passed (.env has SESSION_SECRET and FREESWITCH_ESL_PASSWORD)"
 fi
 
 # ── 2. Install / update dependencies ─────────────────────────────────────────
