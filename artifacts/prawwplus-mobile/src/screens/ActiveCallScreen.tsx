@@ -7,6 +7,7 @@ import {
   Vibration,
   Modal,
   Alert,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -160,6 +161,68 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
+// ─── Transfer modal ───────────────────────────────────────────────────────────
+
+function TransferModal({
+  visible,
+  onClose,
+  onTransfer,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onTransfer: (dest: string) => void;
+}) {
+  const [dest, setDest] = useState("");
+  function submit() {
+    if (!dest.trim()) return;
+    onTransfer(dest.trim());
+    setDest("");
+    onClose();
+  }
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={xfrStyles.safe}>
+        <View style={xfrStyles.header}>
+          <Text style={xfrStyles.title}>Blind Transfer</Text>
+          <TouchableOpacity onPress={onClose} style={xfrStyles.closeBtn}>
+            <Feather name="x" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        <View style={xfrStyles.body}>
+          <Text style={xfrStyles.label}>Transfer to extension or number</Text>
+          <TextInput
+            style={xfrStyles.input}
+            value={dest}
+            onChangeText={setDest}
+            placeholder="e.g. 1001 or 0821234567"
+            placeholderTextColor="#555"
+            keyboardType="phone-pad"
+            autoFocus
+            returnKeyType="send"
+            onSubmitEditing={submit}
+          />
+          <TouchableOpacity style={xfrStyles.btn} onPress={submit} activeOpacity={0.8}>
+            <Feather name="phone-forwarded" size={18} color="#fff" />
+            <Text style={xfrStyles.btnText}>Transfer Now</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+const xfrStyles = StyleSheet.create({
+  safe:    { flex: 1, backgroundColor: "#0A0A0A" },
+  header:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 },
+  title:   { fontSize: 20, fontWeight: "700", color: "#fff" },
+  closeBtn:{ padding: 8 },
+  body:    { paddingHorizontal: 24, paddingTop: 24, gap: 16 },
+  label:   { fontSize: 14, color: "#888" },
+  input:   { backgroundColor: "#1C1C1E", color: "#fff", fontSize: 22, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 14, letterSpacing: 2 },
+  btn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "#0A84FF", borderRadius: 14, paddingVertical: 16 },
+  btnText: { fontSize: 16, fontWeight: "700", color: "#fff" },
+});
+
 // ─── Active call screen ───────────────────────────────────────────────────────
 
 export default function ActiveCallScreen() {
@@ -181,6 +244,8 @@ export default function ActiveCallScreen() {
   } = useCall();
 
   const [dtmfVisible, setDtmfVisible] = useState(false);
+  const [transferVisible, setTransferVisible] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
   const { label: duration, elapsedSecs } = useCallTimer(activeCall?.startedAt ?? null);
   const remoteLabel = activeCall?.remoteNumber ?? "Unknown";
@@ -235,12 +300,29 @@ export default function ActiveCallScreen() {
           ? "Connected"
           : "Incoming";
 
+  async function handleTransfer(dest: string) {
+    try {
+      await apiRequest("/calls/active/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination: dest }),
+      });
+    } catch {
+      Alert.alert("Transfer failed", "Could not transfer the call. Check the destination and try again.");
+    }
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <DtmfKeypad
         visible={dtmfVisible}
         onKey={sendDTMF}
         onClose={() => setDtmfVisible(false)}
+      />
+      <TransferModal
+        visible={transferVisible}
+        onClose={() => setTransferVisible(false)}
+        onTransfer={handleTransfer}
       />
 
       <View style={styles.container}>
@@ -311,6 +393,27 @@ export default function ActiveCallScreen() {
               icon="grid"
               label="Keypad"
               onPress={() => setDtmfVisible(true)}
+            />
+          </View>
+          <View style={styles.controlRow}>
+            <ControlBtn
+              icon="phone-forwarded"
+              label="Transfer"
+              onPress={() => setTransferVisible(true)}
+            />
+            <ControlBtn
+              icon="disc"
+              label={isRecording ? "Stop Rec" : "Record"}
+              active={isRecording}
+              onPress={async () => {
+                try {
+                  const method = isRecording ? "DELETE" : "POST";
+                  await apiRequest(`/calls/active/record`, { method });
+                  setIsRecording((r) => !r);
+                } catch {
+                  Alert.alert("Recording", isRecording ? "Could not stop recording." : "Could not start recording.");
+                }
+              }}
             />
           </View>
         </View>
