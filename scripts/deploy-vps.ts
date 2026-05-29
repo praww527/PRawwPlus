@@ -187,6 +187,7 @@ async function createSourceTarball(): Promise<string> {
     `package.json`,
     `pnpm-workspace.yaml`,
     `tsconfig.json`,
+    `tsconfig.base.json`,
     `deploy/prawwplus-api.service`,
     // Include scripts source (not the whole scripts workspace — just key files)
     `scripts/package.json`,

@@ -26,7 +26,7 @@ on:
 
   # Also run lightweight validation automatically after every successful deploy
   workflow_run:
-    workflows: ["Deploy"]
+    workflows: ["CI / Deploy"]
     types: [completed]
 
 env:
