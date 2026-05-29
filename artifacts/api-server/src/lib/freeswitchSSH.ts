@@ -113,8 +113,24 @@ function execCommand(conn: SSHClient, cmd: string): Promise<string> {
 }
 
 function writeRemoteFile(conn: SSHClient, path: string, content: string): Promise<void> {
-  const escaped = content.replace(/'/g, "'\\''");
-  return execCommand(conn, `mkdir -p "$(dirname '${path}')" && printf '%s' '${escaped}' > '${path}'`).then(() => {});
+  // Use stdin (cat > file) instead of a shell argument so large XML files
+  // don't exceed the kernel ARG_MAX / MAX_ARG_STRLEN limit (~128 KB on Linux).
+  const safeDir  = path.replace(/'/g, "'\\''");
+  const safePath = path.replace(/'/g, "'\\''");
+  return new Promise((resolve, reject) => {
+    const cmd = `mkdir -p "$(dirname '${safeDir}')" && cat > '${safePath}'`;
+    conn.exec(cmd, (err, stream) => {
+      if (err) { reject(err); return; }
+      let errOut = "";
+      stream.stderr.on("data", (d: Buffer) => { errOut += d.toString(); });
+      stream.on("close", (code: number) => {
+        if (code === 0) resolve();
+        else reject(new Error(errOut.trim() || `Write remote file exited with code ${code}`));
+      });
+      stream.write(content);
+      stream.end();
+    });
+  });
 }
 
 export interface PushResult {

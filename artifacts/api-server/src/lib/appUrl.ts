@@ -8,8 +8,8 @@
  * Set APP_URL in your environment to the public-facing domain of the application.
  */
 export function getAppUrl(): string {
-  if (process.env.APP_URL) return process.env.APP_URL.trim().replace(/\/$/, "");
-  return "";
+  const url = process.env.APP_URL ?? process.env.API_HOST ?? "";
+  return url.trim().replace(/\/$/, "");
 }
 
 /**

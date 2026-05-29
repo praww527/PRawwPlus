@@ -1398,8 +1398,15 @@ router.get("/admin/system-health", requireAdmin, async (req, res) => {
 });
 
 router.post("/admin/freeswitch/push-config", requireAdmin, async (_req, res) => {
-  const result = await pushFreeSwitchConfig({ lightReload: false });
-  res.status(result.success ? 200 : 500).json(result);
+  try {
+    const result = await pushFreeSwitchConfig({ lightReload: false });
+    // Always return 200 so the frontend receives the steps log even on failure.
+    // The `success` flag in the body tells the UI whether the push succeeded.
+    res.status(200).json(result);
+  } catch (err: unknown) {
+    const message = (err as Error)?.message ?? String(err);
+    res.status(200).json({ success: false, steps: [], error: message });
+  }
 });
 
 router.post("/admin/esl/reconnect", requireAdmin, async (req, res) => {
@@ -1475,8 +1482,12 @@ router.put("/admin/ice-servers", requireAdmin, async (req: any, res) => {
 });
 
 router.post("/admin/freeswitch/test-ssh", requireAdmin, async (_req, res) => {
-  const result = await testSSHConnection();
-  res.status(result.ok ? 200 : 500).json(result);
+  try {
+    const result = await testSSHConnection();
+    res.status(200).json(result);
+  } catch (err: unknown) {
+    res.status(200).json({ ok: false, error: (err as Error)?.message ?? String(err) });
+  }
 });
 
 // ── TURN / ICE diagnostics ─────────────────────────────────────────────────────

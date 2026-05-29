@@ -2355,7 +2355,7 @@ function SystemTab() {
     setDirTesting(true);
     setDirResult(null);
     try {
-      const data = await adminFetch("/freeswitch/status");
+      const data = await adminFetch("/admin/freeswitch/status");
       setDirResult(data);
     } catch (e: any) {
       setDirResult({ ok: false, reason: e.message });

@@ -37,6 +37,22 @@ const server = http.createServer(app);
 // Always bind to 0.0.0.0 so the server is reachable behind nginx/proxies.
 const host = "0.0.0.0";
 
+// Handle port-already-in-use gracefully before it becomes an uncaughtException.
+// This happens during rapid workflow restarts when the old process hasn't fully
+// released the port yet.  Retry once after a short pause instead of crashing.
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    logger.warn({ port }, `Port ${port} already in use — retrying in 2 s…`);
+    setTimeout(() => {
+      server.close();
+      server.listen(port, host);
+    }, 2_000);
+  } else {
+    // Any other server-level error is fatal — re-throw so uncaughtException handles it.
+    throw err;
+  }
+});
+
 let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
