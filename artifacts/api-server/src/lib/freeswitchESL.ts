@@ -39,7 +39,16 @@ import { notifyALegSessionReconnected } from "./aLegManager";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
-const ESL_PASSWORD = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
+// ESL password MUST come from the environment — never fall back to the
+// FreeSWITCH default ("ClueCon"). A silent default masks a misconfigured
+// .env and lets the listener attempt auth with an insecure password.
+const ESL_PASSWORD = process.env.FREESWITCH_ESL_PASSWORD ?? "";
+if (!ESL_PASSWORD) {
+  logger.error(
+    "[ESL] FREESWITCH_ESL_PASSWORD is not set — the ESL listener cannot authenticate. " +
+    "Set it in /home/ubuntu/PRawwPlus/.env to match event_socket.conf.xml.",
+  );
+}
 const isProduction = process.env.NODE_ENV === "production";
 const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
 const SSH_PORT     = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");

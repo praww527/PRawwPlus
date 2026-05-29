@@ -348,11 +348,22 @@ export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<Push
 
       // 1. Reload FreeSWITCH XML config — must happen FIRST so subsequent module
       //    reloads read the new files from the XML cache, not the stale in-memory copy.
+      //    fs_cli returns "+OK" on success and "-ERR ..." on failure WITHOUT a
+      //    non-zero exit code, so we must inspect the response text — never
+      //    silently continue on a failed reload.
       try {
-        await execCommand(conn, `${cli} -x 'reloadxml'`);
-        steps.push("reloadxml OK");
+        const reloadOut = (await execCommand(conn, `${cli} -x 'reloadxml'`)) ?? "";
+        if (/\+OK/i.test(reloadOut)) {
+          steps.push("reloadxml OK");
+        } else {
+          const msg = `reloadxml did NOT return +OK — response: ${reloadOut.trim().slice(0, 200) || "(empty)"}`;
+          steps.push(msg);
+          logger.error(`[FS] ${msg}`);
+        }
       } catch (e) {
-        steps.push(`reloadxml failed: ${(e as Error).message}`);
+        const msg = `reloadxml failed: ${(e as Error).message}`;
+        steps.push(msg);
+        logger.error(`[FS] ${msg}`);
       }
 
       // 2. Reload mod_xml_curl so it picks up the new gateway URL.

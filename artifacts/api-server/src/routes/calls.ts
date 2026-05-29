@@ -660,6 +660,14 @@ router.post("/calls/:callId/end", async (req, res) => {
 
   const durationSecs = typeof duration === "number" ? Math.max(0, Math.floor(duration)) : 0;
 
+  // Validate status against the allowed set so a malformed client payload
+  // can't write an arbitrary string into the call record.
+  const ALLOWED_END_STATUSES = ["completed", "missed", "failed", "rejected", "canceled", "cancelled"];
+  if (status !== undefined && (typeof status !== "string" || !ALLOWED_END_STATUSES.includes(status))) {
+    res.status(400).json({ error: `Invalid status — must be one of: ${ALLOWED_END_STATUSES.join(", ")}` });
+    return;
+  }
+
   try {
     const result = await endCallById(callId, userId, durationSecs, status);
     res.json(result);
