@@ -218,10 +218,19 @@ router.post("/numbers/buy", async (req, res) => {
       }
       if (!existing.userId) {
         // Became free between checks — claim it atomically.
-        await PhoneNumberModel.updateOne(
+        const reclaim = await PhoneNumberModel.updateOne(
           { _id: existing._id, $or: [{ userId: null }, { userId: { $exists: false } }] },
           { userId, assignedAt: now },
         );
+        // If the conditional claim matched nothing, another request grabbed it
+        // in the race window — confirm who owns it before reporting success.
+        if (reclaim.matchedCount === 0) {
+          const owner = await PhoneNumberModel.findOne({ number: phone_number });
+          if (owner?.userId && owner.userId !== userId) {
+            res.status(409).json({ error: "Number already owned by another user" });
+            return;
+          }
+        }
       }
     }
   }
