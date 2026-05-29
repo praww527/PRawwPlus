@@ -231,10 +231,11 @@ class VoipEngine {
     const socket = new WebSocketInterface(wsUrl);
 
     const config: UAConfiguration & { pcConfig?: { iceServers: any[] } } = {
-      sockets:          [socket],
-      uri:              `sip:${creds.extension}@${creds.domain}`,
-      password:         creds.password,
-      display_name:     creds.extension,
+      sockets:              [socket],
+      uri:                  `sip:${creds.extension}@${creds.domain}`,
+      authorization_user:   String(creds.extension),
+      password:             creds.password,
+      display_name:         String(creds.extension),
       register:         true,
       register_expires: 300,
       session_timers:   false,

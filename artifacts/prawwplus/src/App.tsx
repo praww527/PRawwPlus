@@ -32,6 +32,13 @@ import VoicemailPage      from "@/pages/Voicemail";
 import Favorites          from "@/pages/Favorites";
 import CompliancePage     from "@/pages/CompliancePage";
 import DiagnosticsPage   from "@/pages/DiagnosticsPage";
+import RecordingsPage    from "@/pages/RecordingsPage";
+import IvrPage           from "@/pages/IvrPage";
+import QueuesPage        from "@/pages/QueuesPage";
+import ConferencesPage   from "@/pages/ConferencesPage";
+import NumbersPage       from "@/pages/NumbersPage";
+import CdrPage           from "@/pages/CdrPage";
+import BillingPage       from "@/pages/BillingPage";
 
 initTheme();
 
@@ -149,7 +156,13 @@ function Router() {
       <Route path="/buy-number"      component={BuyNumberRoute} />
       <Route path="/notifications"   component={() => <ProtectedRoute component={NotificationsPage} />} />
       <Route path="/call-settings"   component={() => <ProtectedRoute component={CallSettingsPage} />} />
-      <Route path="/numbers"         component={() => <Redirect to="/profile" />} />
+      <Route path="/numbers"         component={() => <ProtectedRoute component={NumbersPage} />} />
+      <Route path="/recordings"      component={() => <ProtectedRoute component={RecordingsPage} />} />
+      <Route path="/ivr"             component={() => <ProtectedRoute component={IvrPage} />} />
+      <Route path="/queues"          component={() => <ProtectedRoute component={QueuesPage} />} />
+      <Route path="/conferences"     component={() => <ProtectedRoute component={ConferencesPage} />} />
+      <Route path="/cdr"             component={() => <ProtectedRoute component={CdrPage} />} />
+      <Route path="/billing"         component={() => <ProtectedRoute component={BillingPage} />} />
       <Route path="/compliance"      component={() => <ProtectedRoute component={CompliancePage} />} />
       <Route path="/diagnostics"     component={() => <ProtectedRoute component={DiagnosticsPage} />} />
       <Route path="/admin/dashboard"  component={() => <AdminRoute     component={AdminDashboard} />} />
