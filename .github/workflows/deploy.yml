@@ -83,7 +83,7 @@ jobs:
   #   ALLOWED_ORIGINS            — comma-separated CORS origins  (optional)
   #
   # Optional:
-  #   VPS_HEALTH_URL — https://rtc.praww.co.za/api/healthz
+  #   VPS_HEALTH_URL — https://rtc.praww.co.za/api/health  (optional; derived from APP_URL if absent)
   deploy:
     needs: verify
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -190,6 +190,9 @@ jobs:
           HOST="$VPS_HOST"
           USER="${VPS_USER:-ubuntu}"
 
+          # Scan the host key so we can verify it rather than skipping checks.
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
           cat > ~/.ssh/config <<EOF
           Host deploy_target
             HostName $HOST
@@ -197,8 +200,8 @@ jobs:
             Port $PORT
             IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
             ServerAliveInterval 30
             ServerAliveCountMax 6
             ConnectTimeout 15
@@ -306,10 +309,10 @@ jobs:
           DEPLOY_DIR="${DEPLOY_DIR%/}"
           echo "── Deploying to $HOST:$DEPLOY_DIR ──────────────────────────"
 
-          ssh deploy_target bash -s -- "$ENV_JSON" <<'REMOTE'
+          ssh deploy_target bash -s -- "$ENV_JSON" "$DEPLOY_DIR" <<'REMOTE'
           set -euo pipefail
           ENV_JSON="$1"
-          DEPLOY_DIR="/home/ubuntu/PRawwPlus"
+          DEPLOY_DIR="${2:-/home/ubuntu/PRawwPlus}"
 
           echo "==> [1/9] Pull latest code"
           git -C "$DEPLOY_DIR" fetch origin
@@ -427,22 +430,29 @@ jobs:
         if: steps.secrets_check.outputs.configured == 'true'
         env:
           HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
+          APP_URL: ${{ secrets.APP_URL }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          if [ -z "$HEALTH_URL" ]; then
-            echo "VPS_HEALTH_URL not set — skipping HTTP health check"
-            exit 0
+          # Derive the health endpoint — prefer explicit secret, then APP_URL, then VPS_HOST
+          if [ -n "$HEALTH_URL" ]; then
+            BASE_HEALTH="$HEALTH_URL"
+          elif [ -n "$APP_URL" ]; then
+            BASE_HEALTH="${APP_URL%/}/api/health"
+          else
+            BASE_HEALTH="http://${VPS_HOST}/api/health"
           fi
-          echo "Checking $HEALTH_URL"
+          echo "Checking $BASE_HEALTH"
           for i in 1 2 3 4 5 6; do
-            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 15 "$HEALTH_URL" || echo "000")
-            echo "  Attempt $i: HTTP $STATUS"
-            if [ "$STATUS" = "200" ]; then
-              echo "✓ Health check passed"
+            BODY=$(curl -fsS --max-time 15 "$BASE_HEALTH" 2>/dev/null || echo "")
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 15 "$BASE_HEALTH" 2>/dev/null || echo "000")
+            echo "  Attempt $i: HTTP $STATUS — body: ${BODY:0:120}"
+            if [ "$STATUS" = "200" ] && echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('healthy') is True else 1)" 2>/dev/null; then
+              echo "✓ Health check passed — healthy:true confirmed"
               exit 0
             fi
             [ "$i" -lt 6 ] && sleep 15
           done
-          echo "✗ Health check failed after 6 attempts"
+          echo "✗ Health check failed after 6 attempts (expected HTTP 200 with {\"healthy\":true})"
           exit 1
 
       # ── Automatic rollback on health check failure ────────────────────────
@@ -474,6 +484,7 @@ jobs:
           PYEOF
             chmod 600 ~/.ssh/deploy_key
             PORT="${VPS_PORT:-22}"
+            ssh-keyscan -p "$PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
             cat > ~/.ssh/config <<EOF
           Host deploy_target
             HostName $VPS_HOST
@@ -481,8 +492,8 @@ jobs:
             Port $PORT
             IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
             ServerAliveInterval 30
             ServerAliveCountMax 6
             ConnectTimeout 15
@@ -493,9 +504,9 @@ jobs:
           DEPLOY_DIR="${VPS_DEPLOY_DIR:-/home/ubuntu/PRawwPlus}"
           DEPLOY_DIR="${DEPLOY_DIR%/}"
 
-          ssh deploy_target bash -s <<'ROLLBACK'
+          ssh deploy_target bash -s -- "$DEPLOY_DIR" <<'ROLLBACK'
           set -euo pipefail
-          DEPLOY_DIR="/home/ubuntu/PRawwPlus"
+          DEPLOY_DIR="${1:-/home/ubuntu/PRawwPlus}"
           echo "==> [Rollback 1/4] Identify previous commit"
           PREV=$(git -C "$DEPLOY_DIR" rev-parse HEAD~1 2>/dev/null || echo "")
           if [ -z "$PREV" ]; then
