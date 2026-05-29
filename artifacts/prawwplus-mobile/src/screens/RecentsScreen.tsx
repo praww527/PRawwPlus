@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,11 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { Audio } from "expo-av";
 import { useCall } from "@/context/CallContext";
-import { apiRequest } from "@/services/api";
+import { apiRequest, getBaseUrl, getToken } from "@/services/api";
 import { useFocusEffect } from "@react-navigation/native";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,7 +28,19 @@ interface CallRecord {
   duration:        number;
   cost?:           number;
   direction?:      "inbound" | "outbound";
+  fsCallId?:       string;
+  hangupCause?:    string;
+  failReason?:     string;
+  startedAt?:      string;
+  endedAt?:        string;
   createdAt:       string;
+}
+
+interface RecordingEntry {
+  id:        string;
+  path:      string;
+  uuid:      string;
+  createdAt: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -52,6 +66,17 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function formatFullTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function isMissedOrFailedStatus(status: string): boolean {
   return (
     status === "missed" ||
@@ -69,22 +94,34 @@ function callIcon(call: CallRecord): { name: string; color: string } {
   return { name: "phone-outgoing", color: "#0A84FF" };
 }
 
+function remoteNumber(call: CallRecord): string {
+  return call.direction === "inbound"
+    ? (call.callerNumber ?? "Unknown")
+    : call.recipientNumber;
+}
+
+function directionLabel(call: CallRecord): string {
+  if (isMissedOrFailedStatus(call.status)) return "Missed";
+  if (call.direction === "inbound") return "Incoming";
+  return "Outgoing";
+}
+
 // ─── Call row ─────────────────────────────────────────────────────────────────
 
 function CallRow({
   call,
   onCallBack,
+  onOpen,
 }: {
   call: CallRecord;
   onCallBack: (number: string) => void;
+  onOpen: (call: CallRecord) => void;
 }) {
   const { name, color } = callIcon(call);
-  const number = call.direction === "inbound"
-    ? (call.callerNumber ?? "Unknown")
-    : call.recipientNumber;
+  const number = remoteNumber(call);
 
   return (
-    <View style={styles.row}>
+    <TouchableOpacity style={styles.row} onPress={() => onOpen(call)} activeOpacity={0.6}>
       <View style={styles.rowIcon}>
         <Feather name={name as any} size={18} color={color} />
       </View>
@@ -107,7 +144,7 @@ function CallRow({
       >
         <Feather name="phone" size={18} color="#0A84FF" />
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -123,6 +160,183 @@ function EmptyState() {
   );
 }
 
+// ─── Detail modal ─────────────────────────────────────────────────────────────
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
+function CallDetailModal({
+  call,
+  onClose,
+  onCallBack,
+}: {
+  call: CallRecord | null;
+  onClose: () => void;
+  onCallBack: (number: string) => void;
+}) {
+  const [recording,  setRecording]  = useState<RecordingEntry | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+  const [playing,    setPlaying]    = useState(false);
+  const [progress,   setProgress]   = useState(0);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  const stopPlayback = useCallback(async () => {
+    if (soundRef.current) {
+      await soundRef.current.stopAsync().catch(() => {});
+      await soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+    setPlaying(false);
+    setProgress(0);
+  }, []);
+
+  // Look up a matching recording for this call (by FreeSWITCH leg uuid).
+  useEffect(() => {
+    let cancelled = false;
+    setRecording(null);
+    setProgress(0);
+    if (!call) return;
+
+    (async () => {
+      setRecLoading(true);
+      try {
+        const res = await apiRequest("/recordings");
+        if (!res.ok) return;
+        const data = await res.json();
+        const list: RecordingEntry[] = data.recordings ?? [];
+        const norm = (s: string) => s.trim().toLowerCase();
+        const wanted = call.fsCallId ? norm(call.fsCallId) : "";
+        const match = wanted
+          ? list.find((r) => r.uuid && norm(r.uuid) === wanted)
+          : undefined;
+        if (!cancelled) setRecording(match ?? null);
+      } catch {
+        /* no recording available */
+      } finally {
+        if (!cancelled) setRecLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      stopPlayback();
+    };
+  }, [call, stopPlayback]);
+
+  async function togglePlay() {
+    if (!recording) return;
+    if (playing) { await stopPlayback(); return; }
+    await stopPlayback();
+    try {
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const token = await getToken();
+      const uri = `${getBaseUrl()}/api/recordings/file?path=${encodeURIComponent(recording.path)}`;
+      const { sound } = await Audio.Sound.createAsync(
+        { uri, headers: token ? { Authorization: `Bearer ${token}` } : undefined },
+        { shouldPlay: true },
+        (status) => {
+          if (!status.isLoaded) return;
+          if (status.didJustFinish) { setPlaying(false); setProgress(0); }
+          else if (status.durationMillis) {
+            setProgress(status.positionMillis / status.durationMillis);
+          }
+        },
+      );
+      soundRef.current = sound;
+      setPlaying(true);
+    } catch {
+      /* swallow — playback errors surface via the button state */
+    }
+  }
+
+  const number = call ? remoteNumber(call) : "";
+
+  return (
+    <Modal
+      visible={!!call}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHandle} />
+
+          {call && (
+            <>
+              <View style={styles.modalHeader}>
+                <View style={[styles.rowIcon, styles.modalIcon]}>
+                  <Feather name={callIcon(call).name as any} size={22} color={callIcon(call).color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalNumber} numberOfLines={1}>{number}</Text>
+                  <Text style={styles.modalSub}>{directionLabel(call)} call</Text>
+                </View>
+                <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Feather name="x" size={22} color="#888" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.detailBox}>
+                <DetailRow label="Type"     value={call.callType === "external" ? "External" : "Internal"} />
+                <DetailRow label="Status"   value={call.status} />
+                <DetailRow label="Duration" value={formatDuration(call.duration)} />
+                {call.callType === "external" && typeof call.cost === "number" && (
+                  <DetailRow label="Cost" value={`${call.cost} coins`} />
+                )}
+                <DetailRow label="When" value={formatFullTime(call.startedAt ?? call.createdAt)} />
+                {call.hangupCause ? <DetailRow label="Hangup" value={call.hangupCause} /> : null}
+                {call.failReason ? <DetailRow label="Reason" value={call.failReason} /> : null}
+              </View>
+
+              {/* Recording playback */}
+              {recLoading ? (
+                <View style={styles.recRow}>
+                  <ActivityIndicator size="small" color="#0A84FF" />
+                  <Text style={styles.recText}>Checking for recording…</Text>
+                </View>
+              ) : recording ? (
+                <TouchableOpacity style={styles.recRow} onPress={togglePlay} activeOpacity={0.7}>
+                  <Feather name={playing ? "pause-circle" : "play-circle"} size={26} color="#0A84FF" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.recText}>{playing ? "Playing recording…" : "Play recording"}</Text>
+                    {playing && (
+                      <View style={styles.progressTrack}>
+                        <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.recRow}>
+                  <Feather name="mic-off" size={20} color="#555" />
+                  <Text style={[styles.recText, { color: "#555" }]}>No recording available</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.callBackBtn, number === "Unknown" && styles.callBackBtnDisabled]}
+                disabled={number === "Unknown"}
+                onPress={() => { onClose(); onCallBack(number); }}
+                activeOpacity={0.8}
+              >
+                <Feather name="phone" size={18} color="#fff" />
+                <Text style={styles.callBackText}>Call back</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Recents screen ───────────────────────────────────────────────────────────
 
 export default function RecentsScreen() {
@@ -131,6 +345,7 @@ export default function RecentsScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
+  const [selected,   setSelected]   = useState<CallRecord | null>(null);
 
   const fetchCalls = useCallback(async () => {
     try {
@@ -207,10 +422,16 @@ export default function RecentsScreen() {
             />
           }
           renderItem={({ item }) => (
-            <CallRow call={item} onCallBack={handleCallBack} />
+            <CallRow call={item} onCallBack={handleCallBack} onOpen={setSelected} />
           )}
         />
       )}
+
+      <CallDetailModal
+        call={selected}
+        onClose={() => setSelected(null)}
+        onCallBack={handleCallBack}
+      />
     </SafeAreaView>
   );
 }
@@ -232,4 +453,25 @@ const styles = StyleSheet.create({
   rowNumber:   { fontSize: 16, color: "#fff", fontWeight: "500" },
   rowMeta:     { fontSize: 12, color: "#555" },
   rowCallBtn:  { padding: 10 },
+
+  // Detail modal
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  modalCard:     { backgroundColor: "#161618", borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 24, paddingTop: 10, paddingBottom: 36 },
+  modalHandle:   { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "#3A3A3C", marginBottom: 16 },
+  modalHeader:   { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  modalIcon:     { width: 44, height: 44, borderRadius: 22 },
+  modalNumber:   { fontSize: 20, fontWeight: "700", color: "#fff" },
+  modalSub:      { fontSize: 13, color: "#888", marginTop: 2 },
+  closeBtn:      { padding: 4 },
+  detailBox:     { backgroundColor: "#0A0A0A", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 6, marginBottom: 14 },
+  detailRow:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#1F1F1F" },
+  detailLabel:   { fontSize: 14, color: "#888" },
+  detailValue:   { fontSize: 14, color: "#fff", fontWeight: "500", maxWidth: "60%", textAlign: "right" },
+  recRow:        { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#0A0A0A", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 14 },
+  recText:       { fontSize: 14, color: "#ddd", fontWeight: "500" },
+  progressTrack: { height: 3, borderRadius: 2, backgroundColor: "#2A2A2C", marginTop: 8, overflow: "hidden" },
+  progressFill:  { height: 3, borderRadius: 2, backgroundColor: "#0A84FF" },
+  callBackBtn:   { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#0A84FF", borderRadius: 14, paddingVertical: 15 },
+  callBackBtnDisabled: { backgroundColor: "#1C1C1E" },
+  callBackText:  { fontSize: 16, color: "#fff", fontWeight: "600" },
 });

@@ -28,7 +28,8 @@ const FS_DOMAIN    = process.env.FREESWITCH_DOMAIN ?? "";
 const FS_SSH_PORT  = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
 const FS_SSH_USER  = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
 const FS_CONF_DIR  = process.env.FREESWITCH_CONF_DIR ?? "/usr/local/freeswitch/conf";
-const FS_ESL_PASS  = process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
+// Read from env only — never fall back to the insecure FreeSWITCH default.
+const FS_ESL_PASS  = process.env.FREESWITCH_ESL_PASSWORD ?? "";
 
 /** Strip protocol (wss://, ws://, https://, http://) and path/port for SSH/TCP use. */
 function bareHost(raw: string): string {

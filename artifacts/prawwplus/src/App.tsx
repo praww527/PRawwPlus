@@ -39,6 +39,7 @@ import ConferencesPage   from "@/pages/ConferencesPage";
 import NumbersPage       from "@/pages/NumbersPage";
 import CdrPage           from "@/pages/CdrPage";
 import BillingPage       from "@/pages/BillingPage";
+import NotFound          from "@/pages/not-found";
 
 initTheme();
 
@@ -168,6 +169,7 @@ function Router() {
       <Route path="/admin/dashboard"  component={() => <AdminRoute     component={AdminDashboard} />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
       <Route path="/reseller"        component={() => <ResellerRoute  component={ResellerDashboard} />} />
+      <Route component={NotFound} />
     </Switch>
   );
 }

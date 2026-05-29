@@ -41,7 +41,7 @@ function AvatarCircle({ name }: { name: string }) {
 }
 
 export default function ContactsScreen() {
-  const { startCall } = useCall();
+  const { makeCall } = useCall();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filtered, setFiltered] = useState<Contact[]>([]);
   const [search, setSearch] = useState("");
@@ -91,7 +91,7 @@ export default function ContactsScreen() {
       dest,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Call", onPress: () => startCall(dest) },
+        { text: "Call", onPress: () => makeCall(dest) },
       ],
     );
   }

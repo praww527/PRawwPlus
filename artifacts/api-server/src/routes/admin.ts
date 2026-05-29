@@ -1355,7 +1355,7 @@ router.get("/admin/system-health", requireAdmin, async (req, res) => {
     { key: "MONGODB_URI",              label: "MongoDB URI",             required: true,  hint: "Primary database connection string" },
     { key: "FREESWITCH_DOMAIN",        label: "FreeSWITCH Domain / IP",  required: true,  hint: "Hostname or IP of the FreeSWITCH server" },
     { key: "FREESWITCH_SSH_KEY",       label: "SSH Private Key",         required: true,  hint: "Used to push config files and reload modules via SSH" },
-    { key: "FREESWITCH_ESL_PASSWORD",  label: "ESL Password",            required: true,  hint: "mod_event_socket auth password (default: ClueCon)" },
+    { key: "FREESWITCH_ESL_PASSWORD",  label: "ESL Password",            required: true,  hint: "mod_event_socket auth password (must match event_socket.conf.xml)" },
     { key: "APP_URL",                  label: "App Public URL",          required: true,  hint: "Public HTTPS URL of this server (e.g. https://rtc.praww.co.za)" },
     { key: "SESSION_SECRET",           label: "Session Secret",          required: true,  hint: "Random string for signing session cookies" },
     { key: "FREESWITCH_WEBHOOK_SECRET",label: "Webhook Secret",          required: false, hint: "Shared secret between FreeSWITCH and this API (recommended)" },

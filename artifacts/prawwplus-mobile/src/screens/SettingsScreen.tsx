@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,19 +8,39 @@ import {
   ScrollView,
   TextInput,
   Switch,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/context/AuthContext";
 import { useCall } from "@/context/CallContext";
+import { apiRequest } from "@/services/api";
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
+// DND and Call Waiting are device-local preferences. Call forwarding is the
+// source-of-truth on the server (GET/PATCH /api/users/call-forwarding).
 
-const FWD_ENABLED_KEY  = "call_forward_enabled";
-const FWD_NUMBER_KEY   = "call_forward_number";
-const DND_KEY          = "do_not_disturb";
-const CW_KEY           = "call_waiting_enabled";
+const DND_KEY = "do_not_disturb";
+const CW_KEY  = "call_waiting_enabled";
+
+// ─── Call-forwarding model ────────────────────────────────────────────────────
+
+type FwdMode = "always" | "busy" | "noAnswer";
+
+interface FwdState { enabled: boolean; to: string }
+
+const FWD_MODES: { key: FwdMode; icon: string; label: string }[] = [
+  { key: "always",   icon: "phone-forwarded",  label: "Always Forward" },
+  { key: "busy",     icon: "phone-off",         label: "Forward When Busy" },
+  { key: "noAnswer", icon: "phone-missed",      label: "Forward On No Answer" },
+];
+
+const FWD_FIELDS: Record<FwdMode, { enabled: string; to: string }> = {
+  always:   { enabled: "callForwardAlwaysEnabled",   to: "callForwardAlwaysTo" },
+  busy:     { enabled: "callForwardBusyEnabled",     to: "callForwardBusyTo" },
+  noAnswer: { enabled: "callForwardNoAnswerEnabled", to: "callForwardNoAnswerTo" },
+};
 
 // ─── Setting row component ────────────────────────────────────────────────────
 
@@ -78,64 +98,109 @@ export default function SettingsScreen() {
   const { user, logout, pushEnabled, enablePush, disablePush } = useAuth();
   const { callState, unregister, networkState, lastFailureReason } = useCall();
 
-  const [forwardEnabled,  setForwardEnabled]  = useState(false);
-  const [forwardNumber,   setForwardNumber]   = useState("");
-  const [dndEnabled,      setDndEnabled]      = useState(false);
-  const [cwEnabled,       setCwEnabled]       = useState(true);
-  const [editingFwd,      setEditingFwd]      = useState(false);
-  const [fwdInput,        setFwdInput]        = useState("");
+  const [fwd, setFwd] = useState<Record<FwdMode, FwdState>>({
+    always:   { enabled: false, to: "" },
+    busy:     { enabled: false, to: "" },
+    noAnswer: { enabled: false, to: "" },
+  });
+  const [fwdLoading, setFwdLoading] = useState(true);
+  const [fwdError,   setFwdError]   = useState<string | null>(null);
+  const [editing,    setEditing]    = useState<FwdMode | null>(null);
+  const [editInput,  setEditInput]  = useState("");
+  const [saving,     setSaving]     = useState(false);
 
-  // Load persisted settings on mount
+  const [dndEnabled, setDndEnabled] = useState(false);
+  const [cwEnabled,  setCwEnabled]  = useState(true);
+
+  // ── Load forwarding state from the server + device-local prefs ──
+  const loadForwarding = useCallback(async () => {
+    setFwdLoading(true);
+    setFwdError(null);
+    try {
+      const res = await apiRequest("/users/call-forwarding");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      setFwd({
+        always:   { enabled: !!d.callForwardAlwaysEnabled,   to: d.callForwardAlwaysTo ?? "" },
+        busy:     { enabled: !!d.callForwardBusyEnabled,     to: d.callForwardBusyTo ?? "" },
+        noAnswer: { enabled: !!d.callForwardNoAnswerEnabled, to: d.callForwardNoAnswerTo ?? "" },
+      });
+    } catch (e: any) {
+      setFwdError(e?.message ?? "Failed to load call forwarding");
+    } finally {
+      setFwdLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
+    loadForwarding();
     (async () => {
-      const [fwdE, fwdN, dnd, cw] = await Promise.all([
-        AsyncStorage.getItem(FWD_ENABLED_KEY),
-        AsyncStorage.getItem(FWD_NUMBER_KEY),
+      const [dnd, cw] = await Promise.all([
         AsyncStorage.getItem(DND_KEY),
         AsyncStorage.getItem(CW_KEY),
       ]);
-      setForwardEnabled(fwdE === "true");
-      setForwardNumber(fwdN ?? "");
-      setFwdInput(fwdN ?? "");
       setDndEnabled(dnd === "true");
       setCwEnabled(cw !== "false"); // default on
     })();
-  }, []);
+  }, [loadForwarding]);
 
-  // ── Forwarding ──
-
-  async function toggleForward(val: boolean) {
-    if (val && !forwardNumber) {
-      setEditingFwd(true);
-      return;
+  // ── Persist a forwarding change to the server ──
+  async function patchForwarding(mode: FwdMode, next: FwdState) {
+    const fields = FWD_FIELDS[mode];
+    const body: Record<string, unknown> = {
+      [fields.enabled]: next.enabled,
+      [fields.to]: next.to || null,
+    };
+    setSaving(true);
+    const prev = fwd[mode];
+    setFwd((s) => ({ ...s, [mode]: next })); // optimistic
+    try {
+      const res = await apiRequest("/users/call-forwarding", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { msg = (await res.json()).error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+    } catch (e: any) {
+      setFwd((s) => ({ ...s, [mode]: prev })); // rollback
+      Alert.alert("Could not save", e?.message ?? "Please try again.");
+    } finally {
+      setSaving(false);
     }
-    setForwardEnabled(val);
-    await AsyncStorage.setItem(FWD_ENABLED_KEY, String(val));
   }
 
-  async function saveFwdNumber() {
-    if (!fwdInput.trim()) {
-      Alert.alert("Invalid Number", "Please enter a valid mobile number.");
+  function toggleFwd(mode: FwdMode, val: boolean) {
+    const current = fwd[mode];
+    // Enabling a mode with no destination yet → open the number editor first.
+    if (val && !current.to) {
+      setEditing(mode);
+      setEditInput("");
       return;
     }
-    const num = fwdInput.trim();
-    setForwardNumber(num);
-    setForwardEnabled(true);
-    setEditingFwd(false);
-    await Promise.all([
-      AsyncStorage.setItem(FWD_NUMBER_KEY, num),
-      AsyncStorage.setItem(FWD_ENABLED_KEY, "true"),
-    ]);
+    patchForwarding(mode, { ...current, enabled: val });
   }
 
-  // ── DND ──
+  function saveFwdNumber() {
+    if (!editing) return;
+    const num = editInput.trim();
+    if (!num) {
+      Alert.alert("Invalid Number", "Please enter a valid destination number.");
+      return;
+    }
+    const mode = editing;
+    setEditing(null);
+    patchForwarding(mode, { enabled: true, to: num });
+  }
+
+  // ── DND / Call waiting (device-local) ──
 
   async function toggleDnd(val: boolean) {
     setDndEnabled(val);
     await AsyncStorage.setItem(DND_KEY, String(val));
   }
-
-  // ── Call waiting ──
 
   async function toggleCw(val: boolean) {
     setCwEnabled(val);
@@ -230,49 +295,77 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Call features */}
+        {/* Call forwarding */}
+        <View style={styles.section}>
+          <SectionHeader title="Call Forwarding" />
+
+          {fwdLoading ? (
+            <View style={styles.fwdLoading}>
+              <ActivityIndicator size="small" color="#0A84FF" />
+              <Text style={styles.fwdLoadingText}>Loading…</Text>
+            </View>
+          ) : fwdError ? (
+            <SettingRow
+              icon="alert-circle"
+              label={fwdError}
+              value="Retry"
+              onPress={loadForwarding}
+              destructive
+            />
+          ) : (
+            FWD_MODES.map(({ key, icon, label }) => {
+              const state = fwd[key];
+              return (
+                <View key={key}>
+                  <SettingRow
+                    icon={icon}
+                    label={label}
+                    disabled={saving}
+                    rightElement={
+                      <Switch
+                        value={state.enabled}
+                        onValueChange={(v) => toggleFwd(key, v)}
+                        disabled={saving}
+                        trackColor={{ false: "#333", true: "#0A84FF" }}
+                        thumbColor="#fff"
+                      />
+                    }
+                  />
+                  {state.enabled && editing !== key && state.to ? (
+                    <SettingRow
+                      icon="corner-right-down"
+                      label="Forward to"
+                      value={state.to}
+                      onPress={() => { setEditing(key); setEditInput(state.to); }}
+                    />
+                  ) : null}
+                  {editing === key && (
+                    <View style={styles.fwdInputWrap}>
+                      <TextInput
+                        style={styles.fwdInput}
+                        value={editInput}
+                        onChangeText={setEditInput}
+                        placeholder="Enter destination number"
+                        placeholderTextColor="#555"
+                        keyboardType="phone-pad"
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={saveFwdNumber}
+                      />
+                      <TouchableOpacity style={styles.fwdSaveBtn} onPress={saveFwdNumber}>
+                        <Text style={styles.fwdSaveText}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        {/* Other call features */}
         <View style={styles.section}>
           <SectionHeader title="Call Features" />
-
-          {/* Call Forwarding */}
-          <SettingRow
-            icon="phone-forwarded"
-            label="Call Forwarding"
-            rightElement={
-              <Switch
-                value={forwardEnabled}
-                onValueChange={toggleForward}
-                trackColor={{ false: "#333", true: "#0A84FF" }}
-                thumbColor="#fff"
-              />
-            }
-          />
-          {forwardEnabled && !editingFwd && forwardNumber ? (
-            <SettingRow
-              icon="corner-right-down"
-              label="Forward to"
-              value={forwardNumber}
-              onPress={() => { setFwdInput(forwardNumber); setEditingFwd(true); }}
-            />
-          ) : null}
-          {editingFwd && (
-            <View style={styles.fwdInputWrap}>
-              <TextInput
-                style={styles.fwdInput}
-                value={fwdInput}
-                onChangeText={setFwdInput}
-                placeholder="Enter mobile number"
-                placeholderTextColor="#555"
-                keyboardType="phone-pad"
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={saveFwdNumber}
-              />
-              <TouchableOpacity style={styles.fwdSaveBtn} onPress={saveFwdNumber}>
-                <Text style={styles.fwdSaveText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
           {/* Call Waiting */}
           <SettingRow
@@ -350,6 +443,8 @@ const styles = StyleSheet.create({
   rowLabel:     { fontSize: 16, color: "#fff" },
   rowValue:     { fontSize: 14, color: "#888" },
   dot:          { width: 10, height: 10, borderRadius: 5 },
+  fwdLoading:   { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 14 },
+  fwdLoadingText: { fontSize: 14, color: "#888" },
   fwdInputWrap: { flexDirection: "row", alignItems: "center", paddingVertical: 10, gap: 10, borderBottomWidth: 1, borderBottomColor: "#1C1C1E" },
   fwdInput:     { flex: 1, backgroundColor: "#1C1C1E", color: "#fff", fontSize: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   fwdSaveBtn:   { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: "#0A84FF", borderRadius: 10 },

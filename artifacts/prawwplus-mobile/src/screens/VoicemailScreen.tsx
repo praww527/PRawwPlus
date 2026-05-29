@@ -44,7 +44,7 @@ function formatDuration(secs?: number): string {
 }
 
 export default function VoicemailScreen() {
-  const { startCall } = useCall();
+  const { makeCall } = useCall();
   const [messages, setMessages] = useState<Voicemail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +135,7 @@ export default function VoicemailScreen() {
     if (!num) { Alert.alert("No number", "Caller number not available."); return; }
     Alert.alert(`Call back ${vm.callerName ?? num}?`, num, [
       { text: "Cancel", style: "cancel" },
-      { text: "Call", onPress: () => startCall(num) },
+      { text: "Call", onPress: () => makeCall(num) },
     ]);
   }
 

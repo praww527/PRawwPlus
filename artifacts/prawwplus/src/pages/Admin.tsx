@@ -19,7 +19,7 @@ import {
   Wifi, WifiOff, Terminal, KeyRound, Globe2, ShieldCheck, ShieldOff, Building2,
   Cpu, HardDrive, MemoryStick, Radio, GitBranch, Zap, TrendingUp,
   LineChart, BarChart2, ShieldCheckIcon, PhoneForwarded, List, Network,
-  ShieldQuestion,
+  ShieldQuestion, Tag,
 } from "lucide-react";
 
 const TABS = [
@@ -46,6 +46,7 @@ const TABS = [
   { id: "security",     label: "Security",      icon: ShieldCheck  },
   { id: "analytics",    label: "Analytics",     icon: LineChart    },
   { id: "commissions",  label: "Commissions",   icon: TrendingUp   },
+  { id: "rate-plans",   label: "Rate Plans",    icon: Tag          },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -1072,6 +1073,193 @@ function CallsAbuseTab() {
                 <button onClick={() => deleteFlag(f.id)} style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(248,113,113,0.1)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#f87171" }}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Rate Plans Tab ────────────────────────────────────────────────────────────
+interface RateRow { prefix: string; coinsPerMinute: number; description?: string }
+interface RatePlanForm {
+  name: string;
+  currency: string;
+  defaultCoinsPerMinute: number;
+  isActive: boolean;
+  rates: RateRow[];
+}
+
+const EMPTY_RATE_PLAN: RatePlanForm = {
+  name: "",
+  currency: "ZAR",
+  defaultCoinsPerMinute: 1,
+  isActive: true,
+  rates: [],
+};
+
+function RatePlansTab() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const [form, setForm] = useState<RatePlanForm>(EMPTY_RATE_PLAN);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await adminFetch("/admin/rate-plans?limit=100")); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const openNew = () => { setEditing(null); setForm(EMPTY_RATE_PLAN); setShowForm(true); };
+  const openEdit = (p: any) => {
+    setEditing(p);
+    setForm({
+      name: p.name ?? "",
+      currency: p.currency ?? "ZAR",
+      defaultCoinsPerMinute: Number(p.defaultCoinsPerMinute ?? 1),
+      isActive: p.isActive !== false,
+      rates: Array.isArray(p.rates)
+        ? p.rates.map((r: any) => ({ prefix: String(r.prefix ?? ""), coinsPerMinute: Number(r.coinsPerMinute ?? 1), description: r.description ?? "" }))
+        : [],
+    });
+    setShowForm(true);
+  };
+
+  const addRate = () => setForm((f) => ({ ...f, rates: [...f.rates, { prefix: "", coinsPerMinute: f.defaultCoinsPerMinute, description: "" }] }));
+  const updateRate = (i: number, patch: Partial<RateRow>) =>
+    setForm((f) => ({ ...f, rates: f.rates.map((r, idx) => idx === i ? { ...r, ...patch } : r) }));
+  const removeRate = (i: number) => setForm((f) => ({ ...f, rates: f.rates.filter((_, idx) => idx !== i) }));
+
+  const save = async () => {
+    if (!form.name.trim()) { toast({ title: "Plan name is required", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      const body = {
+        name: form.name.trim(),
+        currency: form.currency.trim() || "ZAR",
+        defaultCoinsPerMinute: Number(form.defaultCoinsPerMinute) || 0,
+        isActive: form.isActive,
+        rates: form.rates
+          .filter((r) => r.prefix.trim())
+          .map((r) => ({ prefix: r.prefix.trim(), coinsPerMinute: Number(r.coinsPerMinute) || 0, description: r.description?.trim() || undefined })),
+      };
+      if (editing) {
+        await adminFetch(`/admin/rate-plans/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        toast({ title: "Rate plan updated" });
+      } else {
+        await adminFetch("/admin/rate-plans", { method: "POST", body: JSON.stringify(body) });
+        toast({ title: "Rate plan created" });
+      }
+      setShowForm(false);
+      load();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const toggle = async (p: any) => {
+    try {
+      await adminFetch(`/admin/rate-plans/${p.id}`, { method: "PATCH", body: JSON.stringify({ isActive: !p.isActive }) });
+      toast({ title: p.isActive ? "Deactivated" : "Activated" });
+      load();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  if (loading) return <Skel rows={3} h={80} />;
+  const plans: any[] = data?.ratePlans ?? [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-1">
+        <p className="text-xs text-white/35">{plans.length} rate plan{plans.length !== 1 ? "s" : ""}</p>
+        <button
+          onClick={openNew}
+          style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: "rgba(129,140,248,0.15)", color: "#818cf8" }}
+        >
+          + New
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="rounded-2xl bg-white/[0.04] p-4 space-y-3">
+          <p className="text-sm font-semibold text-white/70">{editing ? "Edit Rate Plan" : "New Rate Plan"}</p>
+          <Input placeholder="Plan name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="bg-white/[0.06] border-0 text-white rounded-xl" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-white/40">Currency</label>
+              <Input value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))} className="bg-white/[0.06] border-0 text-white rounded-xl" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-white/40">Default coins / min</label>
+              <Input type="number" min={0} step="0.01" value={form.defaultCoinsPerMinute} onChange={(e) => setForm((f) => ({ ...f, defaultCoinsPerMinute: Number(e.target.value) }))} className="bg-white/[0.06] border-0 text-white rounded-xl" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-white/40">Prefix rates</label>
+              <button onClick={addRate} style={{ fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: "transparent", color: "#818cf8" }}>+ Add rate</button>
+            </div>
+            {form.rates.length === 0 ? (
+              <p className="text-[11px] text-white/25">No per-prefix overrides — the default rate applies to all destinations.</p>
+            ) : (
+              form.rates.map((r, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input placeholder="Prefix (e.g. 27)" value={r.prefix} onChange={(e) => updateRate(i, { prefix: e.target.value })} className="bg-white/[0.06] border-0 text-white rounded-xl flex-1" />
+                  <Input type="number" min={0} step="0.01" placeholder="coins/min" value={r.coinsPerMinute} onChange={(e) => updateRate(i, { coinsPerMinute: Number(e.target.value) })} className="bg-white/[0.06] border-0 text-white rounded-xl w-28" />
+                  <Input placeholder="Label" value={r.description ?? ""} onChange={(e) => updateRate(i, { description: e.target.value })} className="bg-white/[0.06] border-0 text-white rounded-xl flex-1" />
+                  <button onClick={() => removeRate(i)} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(248,113,113,0.1)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#f87171", flexShrink: 0 }}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-white/60 cursor-pointer">
+            <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))} />
+            Active
+          </label>
+
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button className="flex-1 rounded-xl" disabled={saving} onClick={save}>{saving ? "Saving…" : editing ? "Update" : "Create"}</Button>
+          </div>
+        </div>
+      )}
+
+      {plans.length === 0 ? (
+        <div className="rounded-2xl bg-white/[0.04] p-10 text-center">
+          <Tag className="w-6 h-6 text-white/15 mx-auto mb-2" />
+          <p className="text-white/25 text-sm">No rate plans</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {plans.map((p) => (
+            <div key={p.id} className="rounded-2xl bg-white/[0.04] p-4">
+              <div className="flex items-start gap-3">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-white">{p.name}</span>
+                    <span style={{ fontSize: 10, color: p.isActive ? "#34d399" : "rgba(255,255,255,0.3)" }}>{p.isActive ? "● active" : "○ inactive"}</span>
+                  </div>
+                  <p className="text-xs text-white/40 mt-1">
+                    {p.currency ?? "ZAR"} · default {p.defaultCoinsPerMinute ?? 1} coins/min · {Array.isArray(p.rates) ? p.rates.length : 0} prefix rate{(Array.isArray(p.rates) ? p.rates.length : 0) !== 1 ? "s" : ""}
+                  </p>
+                  <p className="text-[10px] text-white/20 mt-1">{p.updatedAt ? `Updated ${format(new Date(p.updatedAt), "dd MMM yyyy")}` : "—"}</p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button onClick={() => toggle(p)} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "rgba(255,255,255,0.5)" }}>
+                    {p.isActive ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                  </button>
+                  <button onClick={() => openEdit(p)} style={{ width: 28, height: 28, borderRadius: 7, border: "none", background: "rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "rgba(255,255,255,0.5)" }}>
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -4453,6 +4641,7 @@ export default function Admin() {
         {tab === "payouts"       && <PayoutsTab />}
         {tab === "abuse"         && <CallsAbuseTab />}
         {tab === "announcements" && <AnnouncementsTab />}
+        {tab === "rate-plans"    && <RatePlansTab />}
         {tab === "audit"         && <AuditTab />}
         {tab === "alert-rules"   && <AlertRulesTab />}
         {tab === "ip-blocks"     && <IpBlocksTab />}

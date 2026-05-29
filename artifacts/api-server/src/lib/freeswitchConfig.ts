@@ -679,7 +679,8 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
 }
 
 export function eventSocketConf(password?: string): string {
-  const eslPassword = password ?? process.env.FREESWITCH_ESL_PASSWORD ?? "ClueCon";
+  // Read from env only — never fall back to the insecure FreeSWITCH default.
+  const eslPassword = password ?? process.env.FREESWITCH_ESL_PASSWORD ?? "";
   return `<configuration name="event_socket.conf" description="Socket Client">
   <settings>
     <param name="nat-map" value="false"/>
