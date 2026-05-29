@@ -6113,8 +6113,8 @@ function CommissionsTab() {
     setLoading(true);
     try {
       const qs = rid ? `?resellerId=${rid}` : "";
-      const r = await adminFetch(`/reseller/commissions${qs}`);
-      const d: { commissions?: Commission[]; summary?: CommissionSummary } = await r.json();
+      const d: { commissions?: Commission[]; summary?: CommissionSummary } =
+        await adminFetch(`/reseller/commissions${qs}`);
       setCommissions(d.commissions ?? []);
       setSummary(d.summary ?? null);
     } finally { setLoading(false); }
@@ -6126,14 +6126,15 @@ function CommissionsTab() {
     if (!approveId.trim()) { setMsg("Enter a reseller ID"); return; }
     setApproving(true); setMsg("");
     try {
-      const r = await adminFetch("/reseller/commissions/approve", {
+      const d: { approved?: number } = await adminFetch("/reseller/commissions/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resellerId: approveId.trim() }),
       });
-      const d: { approved?: number; error?: string } = await r.json();
-      setMsg(r.ok ? `Approved ${d.approved} commission(s).` : d.error ?? "Failed");
-      if (r.ok) await load(approveId.trim());
+      setMsg(`Approved ${d.approved ?? 0} commission(s).`);
+      await load(approveId.trim());
+    } catch (e: any) {
+      setMsg(e.message ?? "Failed");
     } finally { setApproving(false); }
   }
 

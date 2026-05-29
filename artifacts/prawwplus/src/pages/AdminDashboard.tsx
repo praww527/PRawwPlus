@@ -156,11 +156,21 @@ export default function AdminDashboard() {
       if (rCdr.status   === "fulfilled") setCdr(rCdr.value);
       if (rDb.status    === "fulfilled") setDb(rDb.value);
 
+      // Dynamic lookup: use the first user's phone number rather than a hardcoded value.
+      // If no users have phone numbers yet, skip the test gracefully.
       try {
-        const r = await fetch("/api/freeswitch/lookup?number=0763155369");
-        const text = await r.text();
-        const val = text.trim();
-        setLookup({ ok: r.ok && val !== "", value: val || null });
+        const phones = (users?.users ?? [])
+          .map((u: any) => u.phone)
+          .filter(Boolean);
+        if (phones.length === 0) {
+          setLookup({ ok: true, value: null });
+        } else {
+          const testPhone = phones[0];
+          const r = await fetch(`/api/freeswitch/lookup?number=${encodeURIComponent(testPhone)}`);
+          const text = await r.text();
+          const val = text.trim();
+          setLookup({ ok: r.ok && val !== "", value: val || null });
+        }
       } catch {
         setLookup({ ok: false, value: null });
       }
@@ -417,15 +427,20 @@ export default function AdminDashboard() {
           {lookup === null && (
             <Alert type="warn">Testing…</Alert>
           )}
-          {lookup !== null && lookup.ok && (
+          {lookup !== null && lookup.ok && lookup.value !== null && (
             <Alert type="ok">
               ✓ Lookup working — returned extension {lookup.value}
+            </Alert>
+          )}
+          {lookup !== null && lookup.ok && lookup.value === null && (
+            <Alert type="warn">
+              No registered phone numbers yet — lookup test skipped.
             </Alert>
           )}
           {lookup !== null && !lookup.ok && (
             <Alert type="error">
               ✗ Lookup failed — returned {lookup.value ?? "not_found"}.
-              Check MongoDB connection and ensure 0763155369 is a registered user.
+              Check MongoDB connection and ensure at least one user has a registered phone number.
             </Alert>
           )}
 
