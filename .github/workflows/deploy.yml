@@ -209,15 +209,21 @@ jobs:
           chmod 600 ~/.ssh/config
 
           # ── Test SSH connectivity ─────────────────────────────────────────
+          # Capture the SSH run first and key the success check off ssh's own
+          # exit code — never off a downstream grep/head, which can exit non-zero
+          # (e.g. SIGPIPE when head truncates) under `set -o pipefail` and turn a
+          # healthy connection into a false deploy failure.
           echo "── Testing SSH to ${HOST}:${PORT} as ${USER} ──────────────"
-          ssh -vvv deploy_target 'echo "✓ SSH OK — $(uname -n) — $(date)"' 2>&1 \
-            | grep -E "^(debug1: |Warning|Authenticated|Permission|Connection|✓)" \
-            | head -40 \
-            || {
-              echo "SSH FAILED — raw verbose output:"
-              ssh -vvv deploy_target 'true' 2>&1 | tail -30
-              exit 1
-            }
+          ssh_log="$(mktemp)"
+          if ssh -vvv deploy_target 'echo "✓ SSH OK — $(uname -n) — $(date)"' >"$ssh_log" 2>&1; then
+            grep -E "^(debug1: |Warning|Authenticated|Permission|Connection|✓)" "$ssh_log" | head -40 || true
+          else
+            echo "SSH FAILED — raw verbose output:"
+            tail -30 "$ssh_log"
+            rm -f "$ssh_log"
+            exit 1
+          fi
+          rm -f "$ssh_log"
 
           # ── Build env payload for VPS ─────────────────────────────────────
           # Collect every SECRET_* env var into a single string that the remote
