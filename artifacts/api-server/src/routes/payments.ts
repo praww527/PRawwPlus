@@ -319,15 +319,33 @@ router.post("/payments/webhook", async (req, res) => {
         await PhoneNumberModel.updateOne({ _id: oldNumberId }, { userId: null, assignedAt: null });
       }
       if (newPhoneNumber) {
-        const existingNew = await PhoneNumberModel.findOne({ number: newPhoneNumber });
-        if (existingNew) {
-          // Only assign if the number is still in the pool (not taken by someone else)
-          if (!existingNew.userId) {
-            await PhoneNumberModel.updateOne({ _id: existingNew._id }, { userId: targetUserId, assignedAt: changeNow });
+        // Atomic claim: only assign if the number is still unassigned. Doing the
+        // check + write in a single updateOne closes the race where two
+        // concurrent requests both read userId:null and both assign the number.
+        const claim = await PhoneNumberModel.updateOne(
+          { number: newPhoneNumber, $or: [{ userId: null }, { userId: { $exists: false } }] },
+          { userId: targetUserId, assignedAt: changeNow },
+        );
+        if (claim.matchedCount === 0) {
+          // No unassigned row matched — either the number doesn't exist in the
+          // pool yet (create it for this user) or it's already taken (leave it).
+          const existingNew = await PhoneNumberModel.findOne({ number: newPhoneNumber });
+          if (!existingNew) {
+            try {
+              await PhoneNumberModel.create({ _id: randomUUID(), number: newPhoneNumber, userId: targetUserId, assignedAt: changeNow });
+            } catch (err: any) {
+              // Lost a create race (unique index on `number`). Re-read and, if it
+              // ended up unassigned, claim it atomically; otherwise treat as taken.
+              if (err?.code !== 11000) throw err;
+              const raced = await PhoneNumberModel.findOne({ number: newPhoneNumber });
+              if (raced && !raced.userId) {
+                await PhoneNumberModel.updateOne(
+                  { _id: raced._id, $or: [{ userId: null }, { userId: { $exists: false } }] },
+                  { userId: targetUserId, assignedAt: changeNow },
+                );
+              }
+            }
           }
-        } else {
-          // Number doesn't exist in pool yet — create it assigned to this user
-          await PhoneNumberModel.create({ _id: randomUUID(), number: newPhoneNumber, userId: targetUserId, assignedAt: changeNow });
         }
       }
     }

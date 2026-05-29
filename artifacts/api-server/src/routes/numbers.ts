@@ -187,19 +187,43 @@ router.post("/numbers/buy", async (req, res) => {
   const { phone_number } = req.body;
   if (!phone_number) { res.status(400).json({ error: "phone_number is required" }); return; }
 
-  const existing = await PhoneNumberModel.findOne({ number: phone_number });
-  if (existing && existing.userId) {
-    res.status(409).json({ error: "Number already owned by another user" });
-    return;
-  }
-
   const now = new Date();
-  if (existing) {
-    existing.userId = userId;
-    existing.assignedAt = now;
-    await existing.save();
-  } else {
-    await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId, assignedAt: now });
+
+  // Atomic claim: assign only if the number is currently unassigned. Performing
+  // the check and the write in one updateOne closes the race where two requests
+  // both read userId:null and both assign the same number.
+  const claim = await PhoneNumberModel.updateOne(
+    { number: phone_number, $or: [{ userId: null }, { userId: { $exists: false } }] },
+    { userId, assignedAt: now },
+  );
+
+  if (claim.matchedCount === 0) {
+    // Nothing unassigned matched — the number either doesn't exist yet or is
+    // already owned. Re-read and resolve deterministically.
+    let existing = await PhoneNumberModel.findOne({ number: phone_number });
+    if (!existing) {
+      try {
+        await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId, assignedAt: now });
+      } catch (err: any) {
+        // Lost a create race against a concurrent request (unique index on
+        // `number`). Re-read and fall through to the ownership resolution below.
+        if (err?.code !== 11000) throw err;
+        existing = await PhoneNumberModel.findOne({ number: phone_number });
+      }
+    }
+    if (existing) {
+      if (existing.userId && existing.userId !== userId) {
+        res.status(409).json({ error: "Number already owned by another user" });
+        return;
+      }
+      if (!existing.userId) {
+        // Became free between checks — claim it atomically.
+        await PhoneNumberModel.updateOne(
+          { _id: existing._id, $or: [{ userId: null }, { userId: { $exists: false } }] },
+          { userId, assignedAt: now },
+        );
+      }
+    }
   }
 
   res.json({ message: "Number assigned successfully", number: { number: phone_number, status: "active" } });
