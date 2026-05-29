@@ -226,11 +226,50 @@ jobs:
           rm -f "$ssh_log"
 
           # ── Build env payload for VPS ─────────────────────────────────────
-          # Collect every SECRET_* env var into a JSON string that the remote
+          # Collect every SECRET_* env var into a single string that the remote
           # Python script will use to update /home/ubuntu/PRawwPlus/.env.
           # Only keys with non-empty values are included.
-          # Base64-encoded so the JSON can be passed safely via SSH args
-          # without word-splitting on spaces, braces, or newlines.
+          python3 - <<'ENVPYEOF'
+          import os, json
+
+          mapping = {
+              'MONGODB_URI':             'SECRET_MONGODB_URI',
+              'SESSION_SECRET':          'SECRET_SESSION_SECRET',
+              'ADMIN_API_KEY':           'SECRET_ADMIN_API_KEY',
+              'APP_URL':                 'SECRET_APP_URL',
+              'FREESWITCH_DOMAIN':       'SECRET_FREESWITCH_DOMAIN',
+              'FREESWITCH_ESL_PASSWORD': 'SECRET_FREESWITCH_ESL_PASSWORD',
+              'FREESWITCH_SSH_KEY':      'SECRET_FREESWITCH_SSH_KEY',
+              'FREESWITCH_SSH_USER':     'SECRET_FREESWITCH_SSH_USER',
+              'FREESWITCH_SSH_PORT':     'SECRET_FREESWITCH_SSH_PORT',
+              'FREESWITCH_EXT_IP':       'SECRET_FREESWITCH_EXT_IP',
+              'FREESWITCH_CONF_DIR':     'SECRET_FREESWITCH_CONF_DIR',
+              'VAPID_PUBLIC_KEY':        'SECRET_VAPID_PUBLIC_KEY',
+              'VAPID_PRIVATE_KEY':       'SECRET_VAPID_PRIVATE_KEY',
+              'VAPID_SUBJECT':           'SECRET_VAPID_SUBJECT',
+              'SENDGRID_API_KEY':        'SECRET_SENDGRID_API_KEY',
+              'PAYFAST_MERCHANT_ID':     'SECRET_PAYFAST_MERCHANT_ID',
+              'PAYFAST_MERCHANT_KEY':    'SECRET_PAYFAST_MERCHANT_KEY',
+              'PAYFAST_PASSPHRASE':      'SECRET_PAYFAST_PASSPHRASE',
+              'FIREBASE_SERVICE_ACCOUNT':'SECRET_FIREBASE_SERVICE_ACCOUNT',
+              'TURN_HOST':               'SECRET_TURN_HOST',
+              'TURN_SECRET':             'SECRET_TURN_SECRET',
+              'TRUST_PROXY':             'SECRET_TRUST_PROXY',
+              'ALLOWED_ORIGINS':         'SECRET_ALLOWED_ORIGINS',
+          }
+
+          updates = {}
+          for env_key, secret_env in mapping.items():
+              val = os.environ.get(secret_env, '')
+              if val:
+                  updates[env_key] = val
+
+          # Always ensure NODE_ENV=production is set
+          updates['NODE_ENV'] = 'production'
+
+          print(json.dumps(updates))
+          ENVPYEOF
+
           ENV_JSON=$(python3 - <<'ENVPYEOF'
           import os, json
 
@@ -276,14 +315,9 @@ jobs:
           DEPLOY_DIR="${DEPLOY_DIR%/}"
           echo "── Deploying to $HOST:$DEPLOY_DIR ──────────────────────────"
 
-          # Base64-encode the JSON so it survives SSH argument word-splitting.
-          # JSON contains spaces, braces, and potentially newlines (SSH key values)
-          # which would corrupt positional args if passed raw.
-          ENV_JSON_B64=$(echo "$ENV_JSON" | base64 -w0)
-
-          ssh deploy_target bash -s -- "$ENV_JSON_B64" "$DEPLOY_DIR" <<'REMOTE'
+          ssh deploy_target bash -s -- "$ENV_JSON" "$DEPLOY_DIR" <<'REMOTE'
           set -euo pipefail
-          ENV_JSON=$(echo "$1" | base64 -d)
+          ENV_JSON="$1"
           DEPLOY_DIR="${2:-/home/ubuntu/PRawwPlus}"
 
           echo "==> [1/9] Pull latest code"
@@ -299,9 +333,7 @@ jobs:
           # Create .env if it doesn't exist
           touch "$ENV_FILE"
           chmod 600 "$ENV_FILE"
-          # Use Python to safely merge secrets into the existing .env.
-          # ENV_JSON is passed as argv[2] (double-quoted, no word-splitting).
-          # Stdin is the Python code from the PYEOF heredoc.
+          # Use Python to safely merge secrets into the existing .env
           python3 - "$ENV_FILE" "$ENV_JSON" <<'PYEOF'
           import sys, json, re, os
 
@@ -407,21 +439,18 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          # Derive the health endpoint — prefer explicit secret, then APP_URL, then
-          # the known production HTTPS domain. Never fall back to bare http:// + IP
-          # because nginx redirects HTTP→HTTPS (301) and the body isn't JSON.
+          # Derive the health endpoint — prefer explicit secret, then APP_URL, then VPS_HOST
           if [ -n "$HEALTH_URL" ]; then
             BASE_HEALTH="$HEALTH_URL"
           elif [ -n "$APP_URL" ]; then
             BASE_HEALTH="${APP_URL%/}/api/health"
           else
-            BASE_HEALTH="https://rtc.praww.co.za/api/health"
+            BASE_HEALTH="http://${VPS_HOST}/api/health"
           fi
           echo "Checking $BASE_HEALTH"
           for i in 1 2 3 4 5 6; do
-            # -L follows redirects; without it a 301 from nginx returns HTML not JSON
-            BODY=$(curl -fsLS --max-time 15 "$BASE_HEALTH" 2>/dev/null || echo "")
-            STATUS=$(curl -fsLS -o /dev/null -w "%{http_code}" --max-time 15 "$BASE_HEALTH" 2>/dev/null || echo "000")
+            BODY=$(curl -fsS --max-time 15 "$BASE_HEALTH" 2>/dev/null || echo "")
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 15 "$BASE_HEALTH" 2>/dev/null || echo "000")
             echo "  Attempt $i: HTTP $STATUS — body: ${BODY:0:120}"
             if [ "$STATUS" = "200" ] && echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('healthy') is True else 1)" 2>/dev/null; then
               echo "✓ Health check passed — healthy:true confirmed"
