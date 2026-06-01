@@ -97,15 +97,31 @@ function sshConnect(privateKey: string): Promise<SSHClient> {
   });
 }
 
-function execCommand(conn: SSHClient, cmd: string): Promise<string> {
+function execCommand(conn: SSHClient, cmd: string, timeoutMs = 15_000): Promise<string> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`SSH command timed out after ${timeoutMs}ms: ${cmd.slice(0, 80)}`));
+      }
+    }, timeoutMs);
+
     conn.exec(cmd, (err, stream) => {
-      if (err) { reject(err); return; }
+      if (err) {
+        clearTimeout(timer);
+        settled = true;
+        reject(err);
+        return;
+      }
       let out = "";
       let errOut = "";
       stream.on("data", (d: Buffer) => { out += d.toString(); });
       stream.stderr.on("data", (d: Buffer) => { errOut += d.toString(); });
       stream.on("close", (code: number) => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
         if (code === 0) resolve(out.trim());
         else reject(new Error(errOut.trim() || `Exit code ${code}`));
       });
@@ -114,24 +130,16 @@ function execCommand(conn: SSHClient, cmd: string): Promise<string> {
 }
 
 function writeRemoteFile(conn: SSHClient, path: string, content: string): Promise<void> {
-  // Use stdin (cat > file) instead of a shell argument so large XML files
-  // don't exceed the kernel ARG_MAX / MAX_ARG_STRLEN limit (~128 KB on Linux).
-  const safeDir  = path.replace(/'/g, "'\\''");
+  // Encode file content as base64 and decode it on the remote side.
+  // This avoids the ssh2 stdin-EOF hang where `cat > file` blocks waiting
+  // for EOF that never arrives when stream.end() isn't handled correctly.
+  const b64 = Buffer.from(content, "utf8").toString("base64");
   const safePath = path.replace(/'/g, "'\\''");
-  return new Promise((resolve, reject) => {
-    const cmd = `mkdir -p "$(dirname '${safeDir}')" && cat > '${safePath}'`;
-    conn.exec(cmd, (err, stream) => {
-      if (err) { reject(err); return; }
-      let errOut = "";
-      stream.stderr.on("data", (d: Buffer) => { errOut += d.toString(); });
-      stream.on("close", (code: number) => {
-        if (code === 0) resolve();
-        else reject(new Error(errOut.trim() || `Write remote file exited with code ${code}`));
-      });
-      stream.write(content);
-      stream.end();
-    });
-  });
+  const safeDir  = path.replace(/'/g, "'\\''");
+  const cmd =
+    `mkdir -p "$(dirname '${safeDir}')" && ` +
+    `echo '${b64}' | base64 -d > '${safePath}'`;
+  return execCommand(conn, cmd, 20_000).then(() => undefined);
 }
 
 export interface PushResult {
@@ -156,7 +164,20 @@ export interface PushOptions {
   lightReload?: boolean;
 }
 
+const PUSH_TOTAL_TIMEOUT_MS = 90_000;
+
 export async function pushFreeSwitchConfig(opts: PushOptions = {}): Promise<PushResult> {
+  const timeoutGuard = new Promise<PushResult>((resolve) =>
+    setTimeout(() => resolve({
+      success: false,
+      steps: [],
+      error: `pushFreeSwitchConfig timed out after ${PUSH_TOTAL_TIMEOUT_MS / 1000}s — check SSH/fs_cli access`,
+    }), PUSH_TOTAL_TIMEOUT_MS),
+  );
+  return Promise.race([_pushFreeSwitchConfigImpl(opts), timeoutGuard]);
+}
+
+async function _pushFreeSwitchConfigImpl(opts: PushOptions = {}): Promise<PushResult> {
   const { lightReload = false } = opts;
   const rawKey = process.env.FREESWITCH_SSH_KEY;
   if (!rawKey) return { success: false, steps: [], error: "FREESWITCH_SSH_KEY not set" };
