@@ -116,9 +116,15 @@ const bufCfg = readProxyBufferConfig("verto");
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
+/** Normalise a potentially protocol-relative URL (//host:port/) to a valid ws:// URL. */
+function normaliseWsUrl(raw: string): string {
+  if (raw.startsWith("//")) return `ws:${raw}`;
+  return raw;
+}
+
 function isLocalWsUrl(raw: string): boolean {
   try {
-    const url = new URL(raw);
+    const url = new URL(normaliseWsUrl(raw));
     return url.hostname === "127.0.0.1" || url.hostname === "localhost";
   } catch {
     return false;
@@ -127,7 +133,7 @@ function isLocalWsUrl(raw: string): boolean {
 
 function wsPort(raw: string, fallback: number): number {
   try {
-    const url = new URL(raw);
+    const url = new URL(normaliseWsUrl(raw));
     return parseInt(url.port || String(fallback), 10);
   } catch {
     return fallback;
@@ -148,7 +154,7 @@ async function getInternalWsUrl(): Promise<string> {
     !localityHost || localityHost === "127.0.0.1" || localityHost === "localhost";
 
   if (process.env.FREESWITCH_WS_URL?.trim()) {
-    const wsUrl = process.env.FREESWITCH_WS_URL.trim();
+    const wsUrl = normaliseWsUrl(process.env.FREESWITCH_WS_URL.trim());
     if (isLocalWsUrl(wsUrl) && !remoteIsLocal) {
       const port = wsPort(wsUrl, 8081);
       logger.info(

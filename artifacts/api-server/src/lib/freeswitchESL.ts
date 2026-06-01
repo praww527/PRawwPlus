@@ -52,6 +52,14 @@ if (!ESL_PASSWORD) {
 const isProduction = process.env.NODE_ENV === "production";
 const SSH_USER     = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
 const SSH_PORT     = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22");
+// SSH must connect to the public VPS IP — FREESWITCH_DOMAIN is the public IP.
+// FREESWITCH_ESL_HOST is often 127.0.0.1 (the ESL bind address on the server),
+// which is correct for the tunnel destination but wrong for the SSH host itself.
+// Always use FREESWITCH_DOMAIN as the SSH target; fall back to ESL_HOST only
+// when FREESWITCH_DOMAIN is not set (e.g. a single-machine dev setup).
+const SSH_HOST = process.env.FREESWITCH_DOMAIN
+  ? bareHost(process.env.FREESWITCH_DOMAIN)
+  : bareHost(ESL_HOST);
 
 /** Strip protocol (wss://, ws://, https://, http://) and path/port from a host string
  *  so it can be used as a bare hostname for SSH/TCP connections. */
@@ -486,7 +494,7 @@ class FreeSwitchESL {
   }
 
   private connectViaSsh(rawKey: string) {
-    logger.info({ host: ESL_HOST, sshPort: SSH_PORT }, "[ESL] SSH tunnel connecting");
+    logger.info({ host: SSH_HOST, sshPort: SSH_PORT }, "[ESL] SSH tunnel connecting");
     const conn = new SSHClient();
     this.sshConn = conn;
 
@@ -520,7 +528,7 @@ class FreeSwitchESL {
 
     try {
       conn.connect({
-        host:         bareHost(ESL_HOST),
+        host:         SSH_HOST,
         port:         SSH_PORT,
         username:     SSH_USER,
         privateKey:   cleaned,

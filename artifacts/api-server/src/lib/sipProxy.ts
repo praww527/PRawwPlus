@@ -75,9 +75,15 @@ const bufCfg = readProxyBufferConfig("sip");
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
+/** Normalise a potentially protocol-relative URL (//host:port/) to a valid ws:// URL. */
+function normaliseWsUrl(raw: string): string {
+  if (raw.startsWith("//")) return `ws:${raw}`;
+  return raw;
+}
+
 function isLocalWsUrl(raw: string): boolean {
   try {
-    const url = new URL(raw);
+    const url = new URL(normaliseWsUrl(raw));
     return url.hostname === "127.0.0.1" || url.hostname === "localhost";
   } catch {
     return false;
@@ -86,7 +92,7 @@ function isLocalWsUrl(raw: string): boolean {
 
 function wsPort(raw: string, fallback: number): number {
   try {
-    const url = new URL(raw);
+    const url = new URL(normaliseWsUrl(raw));
     return parseInt(url.port || String(fallback), 10);
   } catch {
     return fallback;
@@ -96,8 +102,9 @@ function wsPort(raw: string, fallback: number): number {
 async function getSipWsUrl(): Promise<string> {
   const explicit = process.env.FREESWITCH_SIP_WS_URL?.trim();
   if (explicit) {
-    if (isLocalWsUrl(explicit)) return (await getSshForwardUrl(wsPort(explicit, 5066))) ?? explicit;
-    return explicit;
+    const normalised = normaliseWsUrl(explicit);
+    if (isLocalWsUrl(normalised)) return (await getSshForwardUrl(wsPort(normalised, 5066))) ?? normalised;
+    return normalised;
   }
   const host      = process.env.FREESWITCH_ESL_HOST?.trim() || "127.0.0.1";
   const port      = process.env.FREESWITCH_SIP_WS_PORT?.trim() ?? "5066";
