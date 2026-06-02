@@ -300,13 +300,13 @@ jobs:
           touch "$ENV_FILE"
           chmod 600 "$ENV_FILE"
           # Use Python to safely merge secrets into the existing .env.
-          # JSON is passed via stdin (not as a positional arg) to avoid
-          # any shell quoting issues with embedded newlines or special chars.
-          echo "$ENV_JSON" | python3 - "$ENV_FILE" <<'PYEOF'
+          # ENV_JSON is passed as argv[2] (double-quoted, no word-splitting).
+          # Stdin is the Python code from the PYEOF heredoc.
+          python3 - "$ENV_FILE" "$ENV_JSON" <<'PYEOF'
           import sys, json, re, os
 
           env_path = sys.argv[1]
-          updates  = json.loads(sys.stdin.read())
+          updates  = json.loads(sys.argv[2])
 
           # Read existing .env
           try:
