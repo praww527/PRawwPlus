@@ -383,10 +383,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setHangupInfo({ cause: "NO_ANSWER", causeCode: 19, message: "No answer", icon: "no-answer" });
         setCallPhase("ended");
         if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+        // Capture epoch so this timer cannot clobber a new call that starts
+        // within the 3-second window (same guard as onHangup below).
+        const epochAtTimeout = callEpochRef.current;
         hangupTimerRef.current = setTimeout(() => {
           hangupTimerRef.current = null;
-          setCallState("idle");
-          setCallInfo(null);
+          if (callEpochRef.current === epochAtTimeout) {
+            setCallState("idle");
+            setCallInfo(null);
+          }
         }, 3000);
         return;
       }

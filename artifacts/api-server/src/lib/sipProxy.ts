@@ -504,7 +504,16 @@ export function createSipProxy(): WebSocketServer {
       cleanup();
       clearAuthGate();
       logger.warn({ err: err.message }, "SIP proxy: client error");
-      if (upstream.readyState === WebSocket.OPEN) upstream.close(1011, Buffer.from("client error"));
+      // Guard: upstream may be uninitialized (error fired before first
+      // attachUpstream call) or already closed — calling .close() on a
+      // non-OPEN socket throws an unhandled exception that crashes the process.
+      try {
+        if (upstream && upstream.readyState === WebSocket.OPEN) {
+          upstream.close(1011, Buffer.from("client error"));
+        }
+      } catch (closeErr) {
+        logger.warn({ closeErr }, "SIP proxy: upstream.close() failed on client error");
+      }
     });
   });
 

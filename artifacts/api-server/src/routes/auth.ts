@@ -112,7 +112,7 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
     const autoVerify = !smtpReady || !!referredByUserId;
     const verificationToken = !autoVerify ? generateToken() : undefined;
     const verificationTokenExpiry = verificationToken
-      ? new Date(Date.now() + 3 * 60 * 1000)
+      ? new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours — 3 min was too short for email delivery
       : undefined;
 
     const user = await UserModel.create({
@@ -401,8 +401,17 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
     user.resetPasswordTokenExpiry = undefined;
     await user.save();
 
-    // Invalidate all existing sessions so stolen/active sessions cannot be reused
-    await SessionModel.deleteMany({ "sess.user.id": String(user._id) });
+    // Invalidate all existing sessions so stolen/active sessions cannot be reused.
+    // Query both the nested path used by the current session serializer and a
+    // top-level userId field used by some session store variants, so a schema
+    // change to auth.ts doesn't silently leave active sessions alive.
+    await SessionModel.deleteMany({
+      $or: [
+        { "sess.user.id": String(user._id) },
+        { "sess.userId":  String(user._id) },
+        { "sess.passport.user": String(user._id) },
+      ],
+    });
 
     res.json({ message: "Password reset successfully. You can now log in." });
   } catch (err) {

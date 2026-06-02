@@ -429,13 +429,23 @@ export async function ringingCall(
   // FS A-leg UUID seen in CHANNEL_ORIGINATE.  Search for any "initiated" call
   // created within the last 60 s and link it to the FS A-leg UUID so subsequent
   // events (CHANNEL_ANSWER, CHANNEL_HANGUP_COMPLETE) can find it.
+  //
+  // IMPORTANT: filter to records that already have a client-generated fsCallId
+  // (i.e. were submitted via Verto/mobile and stored a UUID) but don't match
+  // any UUID we already tried above.  This prevents the fallback from
+  // accidentally linking a concurrent call from a *different* user whose
+  // normal UUID lookup had also failed, which would corrupt billing records.
   if (!call) {
     const windowStart = new Date(Date.now() - 60_000);
     call = await CallModel.findOne({
       status: "initiated",
       startedAt: { $gte: windowStart },
+      // Must have a stored client UUID (Verto/mobile calls always set this)
+      // and it must not be one of the UUIDs we already looked up above
+      // (those lookups already ruled out exact matches).
+      fsCallId: { $exists: true, $nin: ["", aLegUuid, bLegUuid] },
     })
-      .select("status _id")
+      .select("status _id userId")
       .sort({ startedAt: -1 })
       .lean();
     if (call) {
@@ -844,7 +854,14 @@ export async function finalizeCall(
             endedAt: new Date(),
           }], { session });
         } catch (e: any) {
-          if (e?.code !== 11000) throw e;
+          // CDR failures must NEVER abort the billing transaction.
+          // A duplicate key (11000) is harmless; any other error (schema
+          // validation, etc.) is logged but swallowed so the coin deduction
+          // and call-status update are always committed.
+          if (e?.code !== 11000) {
+            logger.warn({ e, callId: String(resDocTxn._id) },
+              "[Orchestrator] CDR creation failed inside transaction — billing committed, CDR skipped");
+          }
         }
       }
       await session.commitTransaction();

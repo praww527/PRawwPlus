@@ -143,15 +143,20 @@ const eslTraceMap = new Map<string, EslTraceEntry[]>();
 // Safety-net: cap the map to at most 5 000 UUIDs every 10 minutes.
 // Normal cleanup happens per-channel (60 s after CHANNEL_DESTROY), but a
 // crashed channel that never fires CHANNEL_DESTROY would leak an entry.
-// This periodic purge evicts the oldest entries when the map grows too large.
+// This periodic purge evicts entries whose last trace event is oldest,
+// so long-lived "immortal" channels (never hung up) do not crowd out
+// recently-active ones that would otherwise be purged by insertion order.
 const ESL_TRACE_MAP_MAX = 5_000;
 setInterval(() => {
   if (eslTraceMap.size <= ESL_TRACE_MAP_MAX) return;
   const excess = eslTraceMap.size - ESL_TRACE_MAP_MAX;
-  let evicted = 0;
-  for (const key of eslTraceMap.keys()) {
-    eslTraceMap.delete(key);
-    if (++evicted >= excess) break;
+  // Build an array of [key, lastTs] sorted ascending by last-trace timestamp
+  // so we evict the most stale entries first rather than the oldest-inserted.
+  const sorted = Array.from(eslTraceMap.entries())
+    .map(([k, entries]) => ({ k, lastTs: entries.length > 0 ? entries[entries.length - 1].ts : 0 }))
+    .sort((a, b) => a.lastTs - b.lastTs);
+  for (let i = 0; i < excess && i < sorted.length; i++) {
+    eslTraceMap.delete(sorted[i].k);
   }
 }, 10 * 60_000).unref();
 

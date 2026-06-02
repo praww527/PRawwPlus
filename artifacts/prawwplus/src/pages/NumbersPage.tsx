@@ -1,22 +1,10 @@
 import { useState, useEffect } from "react";
 import { Hash, RefreshCw, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import { apiFetch } from "@/lib/apiFetch";
 
-function getCsrf() {
-  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : "";
-}
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const method = (opts?.method ?? "GET").toUpperCase();
-  const res = await fetch(`/api${path}`, {
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(["POST","PUT","PATCH","DELETE"].includes(method) ? { "X-CSRF-Token": getCsrf() } : {}),
-    },
-    ...opts,
-  });
+async function apiFetchJson(path: string, opts?: RequestInit) {
+  const res = await apiFetch(`/api${path}`, { credentials: "include", ...opts });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Request failed");
   return data;
@@ -53,13 +41,22 @@ export default function NumbersPage() {
     setError(null);
     try {
       const [numData, portData] = await Promise.allSettled([
-        apiFetch("/numbers"),
-        apiFetch("/portRequests"),
+        apiFetchJson("/numbers"),
+        apiFetchJson("/portRequests"),
       ]);
-      if (numData.status === "fulfilled") setNumbers(numData.value.data ?? numData.value.numbers ?? numData.value ?? []);
-      if (portData.status === "fulfilled") setPortReqs(portData.value.data ?? portData.value.requests ?? portData.value ?? []);
-      if (numData.status === "rejected" && portData.status === "rejected") {
-        setError((numData.reason as Error).message);
+      if (numData.status === "fulfilled") {
+        setNumbers(numData.value.data ?? numData.value.numbers ?? numData.value ?? []);
+      } else {
+        setNumbers([]);
+        const msg = numData.reason instanceof Error ? numData.reason.message : "Failed to load phone numbers";
+        setError((prev) => prev ? `${prev}; ${msg}` : msg);
+      }
+      if (portData.status === "fulfilled") {
+        setPortReqs(portData.value.data ?? portData.value.requests ?? portData.value ?? []);
+      } else {
+        setPortReqs([]);
+        const msg = portData.reason instanceof Error ? portData.reason.message : "Failed to load port requests";
+        setError((prev) => prev ? `${prev}; ${msg}` : msg);
       }
     } finally {
       setLoading(false);
