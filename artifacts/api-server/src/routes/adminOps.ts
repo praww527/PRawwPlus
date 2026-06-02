@@ -20,8 +20,6 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { metrics } from "../lib/metrics";
 import { getAllSessions, getAllSipSessions } from "../lib/callSession";
 import { eslStatus, getEslTrace } from "../lib/freeswitchESL";
-import { eslBufferDepth } from "../lib/eslEventBuffer";
-import { getAllQueueStats } from "../lib/callQueue";
 import { getReconciliationStats } from "../lib/reconciliationWorker";
 import { getHealthHistory } from "../lib/healthRingBuffer";
 import { connectDB, UserModel } from "@workspace/db";
@@ -376,46 +374,16 @@ router.get("/health", async (_req, res) => {
   });
 });
 
-// ── Platform Health — ESL, ESL event buffer, call queues, reconciliation ───────
-//
-// Single endpoint surfacing the four real-time subsystem indicators the
-// System Health dashboard needs.  All data is in-memory (no DB query) so
-// response time is always sub-millisecond.
 // ── Platform Health History — sparkline data (ring buffer, up to 60 samples) ──
 router.get("/admin/platform-health-history", requireAdmin, (_req, res) => {
   res.json({ samples: getHealthHistory(), asOf: new Date().toISOString() });
 });
 
-router.get("/admin/platform-health", requireAdmin, (_req, res) => {
-  const esl    = eslStatus();
-  const recon  = getReconciliationStats();
-  const queues = getAllQueueStats();
-  const bufferDepth = eslBufferDepth();
-
-  res.json({
-    esl: {
-      enabled:            esl.enabled,
-      connected:          esl.connected,
-      host:               esl.host,
-      port:               esl.port,
-      disconnectedMs:     esl.connected ? 0 : (esl.lastDisconnectedAt ? Date.now() - esl.lastDisconnectedAt : null),
-      lastConnectedAt:    esl.lastConnectedAt,
-      lastDisconnectedAt: esl.lastDisconnectedAt,
-      lastEventAt:        esl.lastEventAt,
-      lastDisconnectReason: esl.lastDisconnectReason,
-      reconnectAttempt:   esl.reconnectAttempt,
-      eventsLastMinute:   esl.eventsLastMinute,
-      eventsThisMinute:   esl.eventsThisMinute,
-      bgapiQueueDepth:    esl.bgapiQueueDepth,
-    },
-    eslBuffer: {
-      depth: bufferDepth,
-    },
-    queues,
-    reconciliation: recon,
-    asOf: new Date().toISOString(),
-  });
-});
+// NOTE: GET /admin/platform-health is served by routes/health.ts, which returns
+// the full shape the admin dashboard expects (db, websocket, calls, process,
+// push, history, …). A stale duplicate handler that lived here returned a
+// divergent shape and was removed to prevent the dashboard from crashing if it
+// ever shadowed the canonical handler.
 
 /**
  * GET /api/admin/db-info

@@ -320,9 +320,14 @@ router.get("/admin/platform-health", async (req, res) => {
     proc.loopLagMs < 500;
 
   const status = healthy ? "ok" : "degraded";
-  const httpCode = healthy ? 200 : 503;
+  // Always respond 200 for the in-app admin dashboard: the `status` field below
+  // (rendered as the HEALTHY/DEGRADED badge) communicates health. Returning 503
+  // here made the client's adminFetch throw on every degraded poll — including
+  // benign idle states (e.g. ESL events stale >120s on a quiet system) — so the
+  // dashboard repeatedly errored/flickered instead of showing the degraded data
+  // it is designed to display. Machine liveness probes use the /healthz routes.
 
-  res.status(httpCode).json({
+  res.status(200).json({
     status,
     ts:          new Date().toISOString(),
     uptimeSeconds: snap.uptimeSeconds,
