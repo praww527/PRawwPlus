@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Client as SSHClient } from "ssh2";
 import { connectDB, UserModel } from "@workspace/db";
+import { cleanPrivateKey } from "../lib/sshKey";
 
 const router: IRouter = Router();
 
@@ -8,37 +9,6 @@ const FS_HOST        = process.env.FREESWITCH_DOMAIN    ?? "";
 const FS_SSH_PORT    = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22", 10);
 const FS_SSH_USER    = process.env.FREESWITCH_SSH_USER  ?? "ubuntu";
 const FS_STORAGE_DIR = process.env.FREESWITCH_STORAGE_DIR ?? "/usr/local/freeswitch/storage";
-
-function cleanKey(raw: string): string {
-  let s = raw.trim();
-
-  // Handle literal \n escape sequences stored in env vars
-  if (s.includes("\\n")) {
-    s = s.replace(/\\n/g, "\n");
-  }
-
-  // Handle keys stored as a single line with spaces replacing newlines.
-  // Extract header/footer so their internal spaces are preserved, then
-  // reformat the base64 body with real newlines.
-  if (!s.includes("\n") && s.includes("-----BEGIN") && s.includes("-----END")) {
-    const headerMatch = s.match(/(-----BEGIN [^-]+-----)/);
-    const footerMatch = s.match(/(-----END [^-]+-----)/);
-    if (headerMatch && footerMatch) {
-      const header = headerMatch[1];
-      const footer = footerMatch[1];
-      const contentStart = s.indexOf(header) + header.length;
-      const contentEnd   = s.indexOf(footer);
-      const body = s.slice(contentStart, contentEnd).trim().replace(/\s+/g, "\n");
-      s = `${header}\n${body}\n${footer}`;
-    }
-  }
-
-  return s
-    .split("\n")
-    .map((l) => l.trimStart())
-    .join("\n")
-    .trim();
-}
 
 function requireAuth(req: Request, res: Response): string | null {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -55,7 +25,7 @@ function sshConnect(): Promise<SSHClient> {
     conn.on("error", reject);
     conn.connect({
       host: FS_HOST, port: FS_SSH_PORT, username: FS_SSH_USER,
-      privateKey: cleanKey(rawKey), readyTimeout: 10_000,
+      privateKey: cleanPrivateKey(rawKey), readyTimeout: 10_000,
     });
   });
 }

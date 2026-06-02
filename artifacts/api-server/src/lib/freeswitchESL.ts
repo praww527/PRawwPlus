@@ -19,6 +19,7 @@ import net from "net";
 import { Client as SSHClient, type ClientChannel } from "ssh2";
 import { logger } from "./logger";
 import { metrics } from "./metrics";
+import { cleanPrivateKey } from "./sshKey";
 import { connectDB, UserModel, CallModel } from "@workspace/db";
 import { randomUUID } from "node:crypto";
 import { enqueueEslEvent } from "./eslEventBuffer";
@@ -182,41 +183,6 @@ export function getLastEslEvent(uuid: string): EslTraceEntry | null {
   const entries = eslTraceMap.get(uuid);
   if (!entries || entries.length === 0) return null;
   return entries[entries.length - 1];
-}
-
-function cleanKey(raw: string): string {
-  let s = raw.trim();
-
-  // Handle literal \n escape sequences (e.g. stored as single-line in some secret panels)
-  if (s.includes("\\n")) {
-    s = s.replace(/\\n/g, "\n");
-  }
-
-  // Handle keys stored as a single line with spaces replacing newlines.
-  // e.g. "-----BEGIN OPENSSH PRIVATE KEY-----   base64...   -----END OPENSSH PRIVATE KEY-----"
-  // We extract header/footer separately so their internal spaces are preserved.
-  if (!s.includes("\n") && s.includes("-----BEGIN") && s.includes("-----END")) {
-    const headerMatch = s.match(/(-----BEGIN [^-]+-----)/);
-    const footerMatch = s.match(/(-----END [^-]+-----)/);
-    if (headerMatch && footerMatch) {
-      const header = headerMatch[1];
-      const footer = footerMatch[1];
-      const contentStart = s.indexOf(header) + header.length;
-      const contentEnd = s.indexOf(footer);
-      // Strip ALL whitespace from the body and re-fold at 64 chars (standard PEM).
-      // Simply replacing spaces with newlines produces ragged line lengths that
-      // the ssh2 parser rejects with "Unsupported key format".
-      const rawBody = s.slice(contentStart, contentEnd).replace(/\s+/g, "");
-      const body    = rawBody.match(/.{1,64}/g)?.join("\n") ?? rawBody;
-      s = `${header}\n${body}\n${footer}`;
-    }
-  }
-
-  return s
-    .split("\n")
-    .map((l) => l.trimStart())
-    .join("\n")
-    .trim();
 }
 
 // ─── Push notification helpers ─────────────────────────────────────────────
@@ -522,7 +488,7 @@ class FreeSwitchESL {
       this.scheduleReconnect("ssh_close");
     });
 
-    const cleaned = cleanKey(rawKey);
+    const cleaned = cleanPrivateKey(rawKey);
     const keyHeader = cleaned.split("\n")[0] ?? "(empty)";
     logger.info({ keyHeader }, "[ESL] Parsed SSH key header");
 

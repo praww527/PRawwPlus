@@ -15,6 +15,7 @@
 import { Client as SSHClient } from "ssh2";
 import { logger } from "./logger";
 import { getAppUrl } from "./appUrl";
+import { cleanPrivateKey } from "./sshKey";
 import {
   xmlCurlConf,
   voicemailConf,
@@ -48,40 +49,6 @@ const FS_HOST = bareHost(FS_DOMAIN);
 // (e.g. "158.180.29.84").  Falls back to FS_HOST for backward compatibility.
 const FS_EXT_IP = process.env.FREESWITCH_EXT_IP ? process.env.FREESWITCH_EXT_IP.trim() : FS_HOST;
 
-function cleanKey(raw: string): string {
-  let s = raw.trim();
-
-  // Handle literal \n escape sequences
-  if (s.includes("\\n")) {
-    s = s.replace(/\\n/g, "\n");
-  }
-
-  // Handle keys stored as a single line with spaces replacing newlines.
-  // We extract header/footer separately so their internal spaces are preserved.
-  if (!s.includes("\n") && s.includes("-----BEGIN") && s.includes("-----END")) {
-    const headerMatch = s.match(/(-----BEGIN [^-]+-----)/);
-    const footerMatch = s.match(/(-----END [^-]+-----)/);
-    if (headerMatch && footerMatch) {
-      const header = headerMatch[1];
-      const footer = footerMatch[1];
-      const contentStart = s.indexOf(header) + header.length;
-      const contentEnd = s.indexOf(footer);
-      // Strip ALL whitespace from the body and re-fold at 64 chars (standard PEM).
-      // Simply replacing spaces with newlines produces ragged line lengths that
-      // the ssh2 parser rejects with "Unsupported key format".
-      const rawBody = s.slice(contentStart, contentEnd).replace(/\s+/g, "");
-      const body    = rawBody.match(/.{1,64}/g)?.join("\n") ?? rawBody;
-      s = `${header}\n${body}\n${footer}`;
-    }
-  }
-
-  return s
-    .split("\n")
-    .map((l) => l.trimStart())
-    .join("\n")
-    .trim();
-}
-
 function sshConnect(privateKey: string): Promise<SSHClient> {
   return new Promise((resolve, reject) => {
     const conn = new SSHClient();
@@ -91,7 +58,7 @@ function sshConnect(privateKey: string): Promise<SSHClient> {
       host:       FS_HOST,
       port:       FS_SSH_PORT,
       username:   FS_SSH_USER,
-      privateKey: cleanKey(privateKey),
+      privateKey: cleanPrivateKey(privateKey),
       readyTimeout: 10_000,
     });
   });

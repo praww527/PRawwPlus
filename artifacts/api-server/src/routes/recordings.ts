@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Client as SSHClient } from "ssh2";
 import { connectDB, UserModel } from "@workspace/db";
+import { cleanPrivateKey } from "../lib/sshKey";
 
 const router: IRouter = Router();
 
@@ -14,11 +15,6 @@ const FS_STORAGE_DIR  = process.env.FREESWITCH_STORAGE_DIR ?? "/usr/local/freesw
 //  $${recordings_dir} = <storage_dir>/recordings by FreeSWITCH convention).
 const RECORDINGS_DIR = process.env.FREESWITCH_RECORDINGS_DIR
   ?? `${FS_STORAGE_DIR}/recordings/calls`;
-
-function cleanKey(raw: string): string {
-  const normalized = raw.replace(/\\n/g, "\n");
-  return normalized.split("\n").map((l) => l.trimStart()).join("\n").trim();
-}
 
 function requireAuth(req: Request, res: Response): string | null {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -35,7 +31,7 @@ function sshConnect(): Promise<SSHClient> {
     conn.on("error", reject);
     conn.connect({
       host: FS_HOST, port: FS_SSH_PORT, username: FS_SSH_USER,
-      privateKey: cleanKey(rawKey), readyTimeout: 10_000,
+      privateKey: cleanPrivateKey(rawKey), readyTimeout: 10_000,
     });
   });
 }

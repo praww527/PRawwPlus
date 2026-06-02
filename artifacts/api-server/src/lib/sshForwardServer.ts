@@ -1,28 +1,9 @@
 import net from "net";
 import { Client as SSHClient } from "ssh2";
 import { logger } from "./logger";
+import { cleanPrivateKey } from "./sshKey";
 
 const tunnels = new Map<number, Promise<string>>();
-
-function cleanKey(raw: string): string {
-  let s = raw.trim();
-  if (s.includes("\\n")) s = s.replace(/\\n/g, "\n");
-  if (!s.includes("\n") && s.includes("-----BEGIN") && s.includes("-----END")) {
-    const headerMatch = s.match(/(-----BEGIN [^-]+-----)/);
-    const footerMatch = s.match(/(-----END [^-]+-----)/);
-    if (headerMatch && footerMatch) {
-      const header = headerMatch[1];
-      const footer = footerMatch[1];
-      const contentStart = s.indexOf(header) + header.length;
-      const contentEnd = s.indexOf(footer);
-      // Strip ALL whitespace from the body and re-fold at 64 chars (standard PEM).
-      const rawBody = s.slice(contentStart, contentEnd).replace(/\s+/g, "");
-      const body    = rawBody.match(/.{1,64}/g)?.join("\n") ?? rawBody;
-      s = `${header}\n${body}\n${footer}`;
-    }
-  }
-  return s.split("\n").map((line) => line.trimStart()).join("\n").trim();
-}
 
 function bareHost(raw: string): string {
   try {
@@ -40,7 +21,7 @@ async function createForwardServer(targetPort: number): Promise<string> {
 
   const sshPort = parseInt(process.env.FREESWITCH_SSH_PORT ?? "22", 10);
   const username = process.env.FREESWITCH_SSH_USER ?? "ubuntu";
-  const privateKey = cleanKey(sshKey);
+  const privateKey = cleanPrivateKey(sshKey);
 
   return new Promise((resolve, reject) => {
     const server = net.createServer((localSocket) => {
