@@ -818,8 +818,16 @@ export class VertoClient {
     // FreeSWITCH will override this too via the directory variable lookup, but it
     // serves as a human-readable hint in SIP traces / CDR.
     const displayName = this.config.phone ?? ext;
+    // destination_number is THE field mod_verto reads to route the call. Without
+    // it, FreeSWITCH falls back to its default destination ("service"), which our
+    // dialplan matches to "invalid_number" (early media → the caller just hears
+    // ringing) and never bridges to the dialed extension. Always send the bare
+    // number/extension (strip any @domain) so internal_extensions can match it.
+    const cleanedTo = to.trim();
+    const destinationNumber = cleanedTo.includes("@") ? cleanedTo.split("@")[0] : cleanedTo;
     return {
-      callID:           callId,
+      callID:             callId,
+      destination_number: destinationNumber,
       to:               to.includes("@") ? to : `${to}@${this.config.domain}`,
       from:             `${ext}@${this.config.domain}`,
       caller_id_name:   displayName,
