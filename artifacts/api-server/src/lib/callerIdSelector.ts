@@ -110,7 +110,7 @@ export async function selectCallerId(
     const name =
       (user as any)?.name ||
       ((user as any)?.email ?? "").split("@")[0] ||
-      `ext-${ext}`;
+      "PRaww+ User";
 
     const sel: CallerIdSelection = {
       callType:              "internal",

@@ -14,6 +14,7 @@ import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCall } from "@/context/CallContext";
 import { apiRequest } from "@/services/api";
+import { displayCaller } from "@/utils/callerIdentity";
 
 interface Contact {
   _id: string;
@@ -88,7 +89,7 @@ export default function ContactsScreen() {
     if (!dest) { Alert.alert("No number", "This contact has no phone or extension."); return; }
     Alert.alert(
       `Call ${c.name}`,
-      dest,
+      displayCaller(dest),
       [
         { text: "Cancel", style: "cancel" },
         { text: "Call", onPress: () => makeCall(dest) },
@@ -97,7 +98,7 @@ export default function ContactsScreen() {
   }
 
   function renderItem({ item }: { item: Contact }) {
-    const sub = [item.extension ? `Ext ${item.extension}` : null, item.phone, item.company]
+    const sub = [item.phone, item.company]
       .filter(Boolean)
       .join(" · ");
     return (

@@ -359,7 +359,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   }
 
   const fsDomain = domain ?? process.env.FREESWITCH_DOMAIN ?? "freeswitch.local";
-  const rawName = dbUser.name ?? dbUser.username ?? dbUser.email ?? String(extensionNum);
+  const rawName = dbUser.name ?? dbUser.username ?? dbUser.email ?? "PRaww+ User";
 
   // Escape XML special characters so names with &, <, >, " or ' cannot break the directory XML.
   const xmlEscape = (s: string) =>

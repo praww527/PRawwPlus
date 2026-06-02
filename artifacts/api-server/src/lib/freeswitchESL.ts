@@ -1795,7 +1795,7 @@ class FreeSwitchESL {
       // Only include phone in push data if verified — unverified numbers are
       // display-only guesses and must not be sent as authoritative caller ID.
       callerPhone   = callerUser?.phoneVerified ? (callerUser.phone ?? undefined) : undefined;
-      callerDisplay = callerUser?.name ?? (callerUser?.phoneVerified ? callerUser.phone : undefined) ?? callerExt;
+      callerDisplay = callerUser?.name ?? (callerUser?.phoneVerified ? callerUser.phone : undefined) ?? "Unknown caller";
     }
 
     const pushData: Record<string, string> = {
@@ -1911,7 +1911,7 @@ class FreeSwitchESL {
       const destUser = await UserModel.findOne({ extension: destExtNum })
         .select("name phone phoneVerified")
         .lean();
-      destDisplay = destUser?.name ?? (destUser?.phoneVerified ? (destUser?.phone ?? destExt) : destExt);
+      destDisplay = destUser?.name ?? (destUser?.phoneVerified ? (destUser?.phone ?? "Unknown caller") : "Unknown caller");
     }
 
     let title: string;
@@ -2057,7 +2057,7 @@ class FreeSwitchESL {
         .lean();
       // Only include phone in push data if verified — same rule as extension-lookup.
       callerPhone   = callerUser?.phoneVerified ? (callerUser.phone ?? undefined) : undefined;
-      callerDisplay = callerUser?.name ?? (callerUser?.phoneVerified ? callerUser.phone : undefined) ?? callerExt;
+      callerDisplay = callerUser?.name ?? (callerUser?.phoneVerified ? callerUser.phone : undefined) ?? "Unknown caller";
     }
 
     logger.info({ fsCallId, destExt, callerExt }, "[Push] Sending missed call notification");

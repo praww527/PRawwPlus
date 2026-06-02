@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useCall } from "@/context/CallContext";
 import { apiRequest } from "@/services/api";
+import { displayCaller } from "@/utils/callerIdentity";
 
 // ─── Call timer ───────────────────────────────────────────────────────────────
 
@@ -248,7 +249,7 @@ export default function ActiveCallScreen() {
   const [isRecording, setIsRecording] = useState(false);
 
   const { label: duration, elapsedSecs } = useCallTimer(activeCall?.startedAt ?? null);
-  const remoteLabel = activeCall?.remoteNumber ?? "Unknown";
+  const remoteLabel = displayCaller(activeCall?.remoteNumber);
   const isOutbound  = activeCall?.direction === "outbound";
 
   const [coinsPerMinute, setCoinsPerMinute] = useState<number | null>(null);
@@ -347,7 +348,7 @@ export default function ActiveCallScreen() {
         {waitingCall && (
           <View style={styles.waitingBanner}>
             <Text style={styles.waitingText}>
-              Incoming call from {waitingCall.fromNumber}
+              Incoming call from {displayCaller(waitingCall.fromNumber)}
             </Text>
             <View style={styles.waitingBtns}>
               <TouchableOpacity

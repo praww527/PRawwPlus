@@ -49,18 +49,13 @@ try {
       });
 
       const uuid        = data.callUuid ?? `call-${Date.now()}`;
-      // Server sends fromExtension for internal callers and fromPhone for
-      // external/verified-phone callers.  Use extension for the CallKeep
-      // handle (used for SIP from-matching later) and prefer fromPhone for
-      // the human-readable display name shown on the lock screen.
-      const fromExt     = data.fromExtension ?? "";
-      const fromPhone   = data.fromPhone ?? "";
-      const handle      = fromExt || fromPhone || "Unknown";
-      const displayName = fromExt
-        ? `Extension ${fromExt}`
-        : (fromPhone || "Incoming Call");
+      // Both the CallKeep handle and display name are user-visible on the lock
+      // screen, so neither may carry a raw internal extension.  Show the phone
+      // number when known, otherwise a generic label.  SIP matching keys off
+      // the call UUID (above), not this handle.
+      const display     = data.fromPhone || "Unknown caller";
 
-      RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+      RNCallKeep.displayIncomingCall(uuid, display, display, "number", false);
     } catch (ckErr) {
       console.warn(
         "[index.js] CallKeep background handler error:",

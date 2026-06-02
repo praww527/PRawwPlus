@@ -239,7 +239,8 @@ export default function CallHistory() {
             const isExpanded = expandedId === c.id;
             const { color, bg, label, Icon } = resolveCallDisplay(c);
             const dateStr = c.startedAt ?? c.createdAt ?? c.date;
-            const displayNum = c.recipientNumber ?? c.callerNumber ?? c.number ?? "Unknown";
+            const rawNum = c.recipientNumber ?? c.callerNumber ?? c.number;
+            const displayNum = rawNum && !/^[1-9]\d{3}$/.test(String(rawNum).trim()) ? rawNum : "Unknown";
 
             return (
               <div key={c.id} className="stagger-item">
@@ -311,7 +312,7 @@ export default function CallHistory() {
                         </button>
                         <button
                           className="btn-press"
-                          onClick={(e) => { e.stopPropagation(); handleCallBack(displayNum); }}
+                          onClick={(e) => { e.stopPropagation(); handleCallBack(rawNum ?? ""); }}
                           style={{
                             flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                             padding: "10px 0", borderRadius: 12,

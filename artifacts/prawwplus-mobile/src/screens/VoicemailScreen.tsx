@@ -14,6 +14,7 @@ import { Audio } from "expo-av";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCall } from "@/context/CallContext";
 import { apiRequest } from "@/services/api";
+import { displayCaller } from "@/utils/callerIdentity";
 
 interface Voicemail {
   _id: string;
@@ -133,7 +134,7 @@ export default function VoicemailScreen() {
   function callBack(vm: Voicemail) {
     const num = vm.fromNumber;
     if (!num) { Alert.alert("No number", "Caller number not available."); return; }
-    Alert.alert(`Call back ${vm.callerName ?? num}?`, num, [
+    Alert.alert(`Call back ${vm.callerName ?? displayCaller(num)}?`, displayCaller(num), [
       { text: "Cancel", style: "cancel" },
       { text: "Call", onPress: () => makeCall(num) },
     ]);
@@ -143,7 +144,7 @@ export default function VoicemailScreen() {
 
   function renderItem({ item }: { item: Voicemail }) {
     const isPlaying = playingId === item._id;
-    const label = item.callerName ?? item.fromNumber ?? "Unknown";
+    const label = item.callerName ?? displayCaller(item.fromNumber);
 
     return (
       <View style={[styles.row, !item.read && styles.rowUnread]}>

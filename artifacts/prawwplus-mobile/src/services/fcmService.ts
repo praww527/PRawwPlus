@@ -110,10 +110,11 @@ export function handleForegroundMessage(message: any): void {
     const uuid = data.callUuid ?? `call-${Date.now()}`;
     // Server sends either fromExtension (internal) or fromPhone (verified external caller).
     // The extension is needed for SIP INVITE matching; the phone/name is for display.
-    const fromExt = data.fromExtension ?? "";
-    const displayFrom = data.fromPhone ?? data.fromExtension ?? "Unknown";
-    const displayName = fromExt ? `Extension ${fromExt}` : displayFrom;
-    callKeepService.displayIncomingCall(uuid, fromExt || displayFrom, displayName);
+    // Neither the displayName nor the handle (the OS "number" field) may show a
+    // raw extension — both are user-visible. Show the phone if known, else a
+    // generic label. SIP routing keys off the UUID, not this handle.
+    const display = data.fromPhone ?? "Unknown caller";
+    callKeepService.displayIncomingCall(uuid, display, display);
     return;
   }
 
@@ -140,10 +141,11 @@ export function handleBackgroundMessage(message: any): Promise<void> {
 
   if (data.type === "incoming_call") {
     const uuid = data.callUuid ?? `call-${Date.now()}`;
-    const fromExt = data.fromExtension ?? "";
-    const displayFrom = data.fromPhone ?? data.fromExtension ?? "Unknown";
-    const displayName = fromExt ? `Extension ${fromExt}` : displayFrom;
-    callKeepService.displayIncomingCall(uuid, fromExt || displayFrom, displayName);
+    // Neither the displayName nor the handle (the OS "number" field) may show a
+    // raw extension — both are user-visible. Show the phone if known, else a
+    // generic label. SIP routing keys off the UUID, not this handle.
+    const display = data.fromPhone ?? "Unknown caller";
+    callKeepService.displayIncomingCall(uuid, display, display);
   }
 
   if (data.type === "call_terminated") {

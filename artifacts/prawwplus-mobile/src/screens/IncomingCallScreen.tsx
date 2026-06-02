@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useCall } from "@/context/CallContext";
+import { displayCaller } from "@/utils/callerIdentity";
 
 // ─── Pulsing avatar animation ─────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ function PulsingAvatar({ name }: { name: string }) {
 export default function IncomingCallScreen() {
   const { incomingFrom, answerCall, declineCall, networkState } = useCall();
 
-  const callerLabel = incomingFrom ?? "Unknown";
+  const callerLabel = displayCaller(incomingFrom);
 
   useEffect(() => {
     // Vibrate: 500ms on, 300ms off, repeat

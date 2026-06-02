@@ -67,14 +67,14 @@ export function formatNotificationPayload(
   data: Record<string, string>,
 ): { title: string; body: string } | null {
   if (data.type === "incoming_call") {
-    const caller = data.fromPhone ?? (data.fromExtension ? `Extension ${data.fromExtension}` : "Unknown");
+    const caller = data.fromPhone ?? "Unknown caller";
     return {
       title: "Incoming Call",
       body: `${caller} is calling`,
     };
   }
   if (data.type === "missed_call") {
-    const caller = data.fromPhone ?? (data.fromExtension ? `Extension ${data.fromExtension}` : "Unknown");
+    const caller = data.fromPhone ?? "Unknown caller";
     return {
       title: "Missed Call",
       body: `You missed a call from ${caller}`,

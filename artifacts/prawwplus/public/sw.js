@@ -31,7 +31,7 @@ self.addEventListener("push", (event) => {
   let vibrate = [150];
 
   if (data.type === "incoming_call") {
-    const caller = data.fromPhone || data.fromExtension || "Unknown";
+    const caller = data.fromPhone || "Unknown caller";
     title  = data.title  || "📞 Incoming Call";
     body   = data.body   || `${caller} is calling you`;
     tag    = "incoming-call";
@@ -42,7 +42,7 @@ self.addEventListener("push", (event) => {
       { action: "decline", title: "❌ Decline" },
     ];
   } else if (data.type === "missed_call") {
-    const caller = data.fromPhone || data.fromExtension || "Unknown";
+    const caller = data.fromPhone || "Unknown caller";
     title = data.title || "📵 Missed Call";
     body  = data.body  || `You missed a call from ${caller}`;
     tag   = "missed-call";

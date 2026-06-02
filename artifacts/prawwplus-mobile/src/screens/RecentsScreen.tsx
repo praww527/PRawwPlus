@@ -14,6 +14,7 @@ import { Feather } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { useCall } from "@/context/CallContext";
 import { apiRequest, getBaseUrl, getToken } from "@/services/api";
+import { displayCaller } from "@/utils/callerIdentity";
 import { useFocusEffect } from "@react-navigation/native";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -126,7 +127,7 @@ function CallRow({
         <Feather name={name as any} size={18} color={color} />
       </View>
       <View style={styles.rowMiddle}>
-        <Text style={styles.rowNumber} numberOfLines={1}>{number}</Text>
+        <Text style={styles.rowNumber} numberOfLines={1}>{displayCaller(number)}</Text>
         <Text style={styles.rowMeta}>
           {call.callType === "external" ? "External" : "Internal"} ·{" "}
           {formatDuration(call.duration)}
@@ -275,7 +276,7 @@ function CallDetailModal({
                   <Feather name={callIcon(call).name as any} size={22} color={callIcon(call).color} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalNumber} numberOfLines={1}>{number}</Text>
+                  <Text style={styles.modalNumber} numberOfLines={1}>{displayCaller(number)}</Text>
                   <Text style={styles.modalSub}>{directionLabel(call)} call</Text>
                 </View>
                 <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>

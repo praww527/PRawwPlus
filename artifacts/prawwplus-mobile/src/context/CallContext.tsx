@@ -35,6 +35,7 @@ import {
   type WaitingCall,
 } from "@/services/voip/voipEngine";
 import { callKeepService } from "@/services/voip/callKeepService";
+import { displayCaller } from "@/utils/callerIdentity";
 import { toneService } from "@/services/voip/toneService";
 import { networkMonitor } from "@/services/networkMonitor";
 import { apiRequest } from "@/services/api";
@@ -281,7 +282,7 @@ export function CallProvider({ children }: PropsWithChildren) {
       incomingFromRef.current = from;
       pendingDirectionRef.current = "inbound";
       setLastFailureReason(null);
-      callKeepService.displayIncomingCall(uuid, from, from);
+      callKeepService.displayIncomingCall(uuid, displayCaller(from), displayCaller(from));
       navigate("IncomingCall");
     };
 
