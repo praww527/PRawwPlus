@@ -226,50 +226,11 @@ jobs:
           rm -f "$ssh_log"
 
           # ── Build env payload for VPS ─────────────────────────────────────
-          # Collect every SECRET_* env var into a single string that the remote
+          # Collect every SECRET_* env var into a JSON string that the remote
           # Python script will use to update /home/ubuntu/PRawwPlus/.env.
           # Only keys with non-empty values are included.
-          python3 - <<'ENVPYEOF'
-          import os, json
-
-          mapping = {
-              'MONGODB_URI':             'SECRET_MONGODB_URI',
-              'SESSION_SECRET':          'SECRET_SESSION_SECRET',
-              'ADMIN_API_KEY':           'SECRET_ADMIN_API_KEY',
-              'APP_URL':                 'SECRET_APP_URL',
-              'FREESWITCH_DOMAIN':       'SECRET_FREESWITCH_DOMAIN',
-              'FREESWITCH_ESL_PASSWORD': 'SECRET_FREESWITCH_ESL_PASSWORD',
-              'FREESWITCH_SSH_KEY':      'SECRET_FREESWITCH_SSH_KEY',
-              'FREESWITCH_SSH_USER':     'SECRET_FREESWITCH_SSH_USER',
-              'FREESWITCH_SSH_PORT':     'SECRET_FREESWITCH_SSH_PORT',
-              'FREESWITCH_EXT_IP':       'SECRET_FREESWITCH_EXT_IP',
-              'FREESWITCH_CONF_DIR':     'SECRET_FREESWITCH_CONF_DIR',
-              'VAPID_PUBLIC_KEY':        'SECRET_VAPID_PUBLIC_KEY',
-              'VAPID_PRIVATE_KEY':       'SECRET_VAPID_PRIVATE_KEY',
-              'VAPID_SUBJECT':           'SECRET_VAPID_SUBJECT',
-              'SENDGRID_API_KEY':        'SECRET_SENDGRID_API_KEY',
-              'PAYFAST_MERCHANT_ID':     'SECRET_PAYFAST_MERCHANT_ID',
-              'PAYFAST_MERCHANT_KEY':    'SECRET_PAYFAST_MERCHANT_KEY',
-              'PAYFAST_PASSPHRASE':      'SECRET_PAYFAST_PASSPHRASE',
-              'FIREBASE_SERVICE_ACCOUNT':'SECRET_FIREBASE_SERVICE_ACCOUNT',
-              'TURN_HOST':               'SECRET_TURN_HOST',
-              'TURN_SECRET':             'SECRET_TURN_SECRET',
-              'TRUST_PROXY':             'SECRET_TRUST_PROXY',
-              'ALLOWED_ORIGINS':         'SECRET_ALLOWED_ORIGINS',
-          }
-
-          updates = {}
-          for env_key, secret_env in mapping.items():
-              val = os.environ.get(secret_env, '')
-              if val:
-                  updates[env_key] = val
-
-          # Always ensure NODE_ENV=production is set
-          updates['NODE_ENV'] = 'production'
-
-          print(json.dumps(updates))
-          ENVPYEOF
-
+          # Base64-encoded so the JSON can be passed safely via SSH args
+          # without word-splitting on spaces, braces, or newlines.
           ENV_JSON=$(python3 - <<'ENVPYEOF'
           import os, json
 
@@ -315,9 +276,14 @@ jobs:
           DEPLOY_DIR="${DEPLOY_DIR%/}"
           echo "── Deploying to $HOST:$DEPLOY_DIR ──────────────────────────"
 
-          ssh deploy_target bash -s -- "$ENV_JSON" "$DEPLOY_DIR" <<'REMOTE'
+          # Base64-encode the JSON so it survives SSH argument word-splitting.
+          # JSON contains spaces, braces, and potentially newlines (SSH key values)
+          # which would corrupt positional args if passed raw.
+          ENV_JSON_B64=$(echo "$ENV_JSON" | base64 -w0)
+
+          ssh deploy_target bash -s -- "$ENV_JSON_B64" "$DEPLOY_DIR" <<'REMOTE'
           set -euo pipefail
-          ENV_JSON="$1"
+          ENV_JSON=$(echo "$1" | base64 -d)
           DEPLOY_DIR="${2:-/home/ubuntu/PRawwPlus}"
 
           echo "==> [1/9] Pull latest code"
@@ -333,12 +299,14 @@ jobs:
           # Create .env if it doesn't exist
           touch "$ENV_FILE"
           chmod 600 "$ENV_FILE"
-          # Use Python to safely merge secrets into the existing .env
-          python3 - "$ENV_FILE" "$ENV_JSON" <<'PYEOF'
+          # Use Python to safely merge secrets into the existing .env.
+          # JSON is passed via stdin (not as a positional arg) to avoid
+          # any shell quoting issues with embedded newlines or special chars.
+          echo "$ENV_JSON" | python3 - "$ENV_FILE" <<'PYEOF'
           import sys, json, re, os
 
           env_path = sys.argv[1]
-          updates  = json.loads(sys.argv[2])
+          updates  = json.loads(sys.stdin.read())
 
           # Read existing .env
           try:
