@@ -266,19 +266,25 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   // This prevents unauthenticated enumeration of extension credentials.
   const dirSecret = process.env.FREESWITCH_WEBHOOK_SECRET;
   if (dirSecret) {
-    const provided =
-      req.get("x-freeswitch-token") ??
-      (typeof req.query.token === "string" ? req.query.token : undefined) ??
-      req.get("x-fs-webhook-secret") ??
-      "";
-    if (provided !== dirSecret) {
+    // Accept the secret from ANY supported carrier (query token preferred since
+    // mod_xml_curl reliably preserves it; headers kept for builds/tools that send
+    // them). Match if ANY carrier equals the secret — a stale/wrong header must
+    // not override a correct query token, so don't use first-present precedence.
+    const carriers = [
+      req.get("x-freeswitch-token"),
+      typeof req.query.token === "string" ? req.query.token : undefined,
+      req.get("x-fs-webhook-secret"),
+    ];
+    const authorized = carriers.some((c) => c === dirSecret);
+    if (!authorized) {
+      const provided = carriers.some((c) => c != null && c !== "") ? "[set]" : "[empty]";
       // IMPORTANT: return 200 not 403. FreeSWITCH's mod_xml_curl treats any
       // non-200 as a transport error and falls back to local config (no users).
       // A 200 "not found" XML is the correct way to deny a lookup so FS knows
       // the user simply doesn't exist rather than thinking the server is down.
       const { logger: log } = await import("../lib/logger");
       log.warn(
-        { provided: provided ? "[set]" : "[empty]", path: req.path },
+        { provided, path: req.path },
         "[DIR] Secret mismatch — push FreeSWITCH config again to sync the secret header",
       );
       res.setHeader("Content-Type", "text/xml");
