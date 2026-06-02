@@ -49,7 +49,7 @@ function validateEnv(): void {
     { key: "FREESWITCH_ESL_PASSWORD", note: "Required for FreeSWITCH event socket" },
     { key: "VAPID_PUBLIC_KEY",      note: "Required for web push notifications" },
     { key: "VAPID_PRIVATE_KEY",     note: "Required for web push notifications" },
-    { key: "SENDGRID_API_KEY",      note: "Required for transactional email delivery" },
+    { key: "SMTP_HOST",             note: "Required for transactional email delivery (verification, invoices, alerts)" },
   ];
 
   const missing = required.filter((e) => !process.env[e.key]);
