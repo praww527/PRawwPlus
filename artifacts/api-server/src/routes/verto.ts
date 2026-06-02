@@ -268,6 +268,7 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   if (dirSecret) {
     const provided =
       req.get("x-freeswitch-token") ??
+      (typeof req.query.token === "string" ? req.query.token : undefined) ??
       req.get("x-fs-webhook-secret") ??
       "";
     if (provided !== dirSecret) {

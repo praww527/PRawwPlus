@@ -13,7 +13,15 @@
  */
 
 export function xmlCurlConf(appUrl: string, secret?: string): string {
-  const directoryUrl = `${appUrl}/api/freeswitch/directory`;
+  const base = `${appUrl}/api/freeswitch/directory`;
+  // mod_xml_curl does NOT reliably emit custom request headers (the
+  // `xml-curl-header` param is silently ignored on current builds), so the
+  // shared secret is passed primarily as a URL query parameter — mod_xml_curl
+  // preserves the gateway-url query string verbatim when it POSTs the lookup.
+  // The header param is kept as a harmless fallback for builds that honour it.
+  const directoryUrl = secret
+    ? `${base}?token=${encodeURIComponent(secret)}`
+    : base;
   const secretHeader = secret
     ? `\n      <param name="xml-curl-header" value="X-FreeSWITCH-Token: ${secret}"/>`
     : "";
