@@ -3,6 +3,7 @@ import { useGetVertoConfig } from "@workspace/api-client-react";
 import { useCall } from "@/context/CallContext";
 import { phoneAudio } from "@/lib/phoneAudio";
 import { useVisibilityReconnect } from "@/hooks/useConnectionStatus";
+import { apiFetch } from "@/lib/apiFetch";
 
 /**
  * Initialises the Verto WebSocket client once the user's config is loaded.
@@ -219,7 +220,7 @@ export function VertoInit() {
           });
         }
 
-        await fetch("/api/users/web-push-subscription", {
+        await apiFetch("/api/users/web-push-subscription", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",

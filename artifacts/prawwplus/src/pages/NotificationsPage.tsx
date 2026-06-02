@@ -3,6 +3,7 @@ import { Bell, Phone, Voicemail, AlertCircle, MessageSquare, Star, TrendingUp, C
 import { useLocation } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/apiFetch";
 
 interface NotifPrefs {
   incomingCalls: boolean;
@@ -135,7 +136,7 @@ async function registerWebPushSubscription(): Promise<{ ok: boolean; status: Sub
       });
     }
 
-    const saveResp = await fetch("/api/users/web-push-subscription", {
+    const saveResp = await apiFetch("/api/users/web-push-subscription", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subscription: sub.toJSON() }),
