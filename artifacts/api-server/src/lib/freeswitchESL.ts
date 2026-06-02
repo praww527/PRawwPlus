@@ -499,6 +499,16 @@ class FreeSwitchESL {
         username:     SSH_USER,
         privateKey:   cleaned,
         readyTimeout: 15_000,
+        // SSH-level keepalive: send a global request every 15 s and tear the
+        // connection down after 3 unanswered (≈45 s). Without this the tunnel
+        // was being silently reaped ~every 20 min by the cloud provider's idle
+        // connection handling / sshd, causing brief ESL outages that surfaced as
+        // "ESL connected" going red, USER_NOT_REGISTERED call failures, and a
+        // degraded admin dashboard. Keepalives keep the link warm through
+        // middleboxes AND detect a dead link far faster than waiting for TCP/app
+        // timeouts, so reconnect kicks in within seconds instead of ~20 min.
+        keepaliveInterval: 15_000,
+        keepaliveCountMax: 3,
       });
     } catch (err) {
       logger.error(

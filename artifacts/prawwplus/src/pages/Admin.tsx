@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
@@ -2568,8 +2569,8 @@ function SystemTab() {
   const ts = (ms: number | null | undefined) =>
     ms ? new Date(ms).toLocaleTimeString() : "—";
 
-  const requiredVars  = health?.envVars.filter((v) => v.required) ?? [];
-  const optionalVars  = health?.envVars.filter((v) => !v.required) ?? [];
+  const requiredVars  = health?.envVars?.filter((v) => v.required) ?? [];
+  const optionalVars  = health?.envVars?.filter((v) => !v.required) ?? [];
   const allRequiredOk = requiredVars.every((v) => v.set);
 
   return (
@@ -3820,7 +3821,7 @@ function ObservabilityTab() {
       </div>
 
       {/* Latency */}
-      {data.callSetupLatency.count > 0 && (
+      {data.callSetupLatency && data.callSetupLatency.count > 0 && (
         <div>
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>Call Setup Latency ({data.callSetupLatency.count} samples)</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
@@ -4181,6 +4182,20 @@ function OperationsTab() {
             const esl = platformHealth.esl;
             const buf = platformHealth.eslBuffer;
             const recon = platformHealth.reconciliation;
+
+            // A degraded/reconnecting backend can return a 200 with a partial
+            // body (missing nested objects). Guard here so a missing field renders
+            // a fallback instead of throwing and tripping the top-level
+            // ErrorBoundary ("Something went wrong") — which is exactly when an
+            // admin opens this panel during an ESL outage.
+            if (!esl || !buf || !recon || !recon.lastStale || !Array.isArray(platformHealth.queues)) {
+              return (
+                <div style={{ background: "rgba(255,159,10,0.07)", border: "1px solid rgba(255,159,10,0.2)", borderRadius: 12, padding: "16px 18px", color: "#ff9f0a", fontSize: 13 }}>
+                  Platform health data is incomplete — the backend may be degraded or reconnecting. This panel refreshes automatically.
+                </div>
+              );
+            }
+
             const eslDisconnSec = esl.disconnectedMs != null ? Math.round(esl.disconnectedMs / 1000) : null;
             const lastEventAgo = esl.lastEventAt ? Math.round((Date.now() - esl.lastEventAt) / 1000) : null;
             const lastReconAgo = recon.lastRanAt ? Math.round((Date.now() - recon.lastRanAt) / 1000) : null;
@@ -4639,33 +4654,59 @@ export default function Admin() {
         })}
       </div>
 
-      {/* Tab content */}
-      <div>
-        {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
-        {tab === "operations"    && <OperationsTab />}
-        {tab === "observability" && <ObservabilityTab />}
-        {tab === "users"         && <UsersTab />}
-        {tab === "live"          && <LiveCallsTab />}
-        {tab === "errors"        && <ErrorsTab onSwitchTab={setTab} />}
-        {tab === "system"           && <SystemTab />}
-        {tab === "platform-health"  && <PlatformHealthTab />}
-        {tab === "push"          && <PushTab />}
-        {tab === "referrals"     && <ReferralsTab />}
-        {tab === "earnings"      && <EarningsTab />}
-        {tab === "expenses"      && <ExpensesTab />}
-        {tab === "payouts"       && <PayoutsTab />}
-        {tab === "abuse"         && <CallsAbuseTab />}
-        {tab === "announcements" && <AnnouncementsTab />}
-        {tab === "rate-plans"    && <RatePlansTab />}
-        {tab === "audit"         && <AuditTab />}
-        {tab === "alert-rules"   && <AlertRulesTab />}
-        {tab === "ip-blocks"     && <IpBlocksTab />}
-        {tab === "tenants"       && <TenantsTab />}
-        {tab === "ivr"           && <IvrQueuesTab />}
-        {tab === "security"      && <SecurityTab />}
-        {tab === "analytics"     && <AnalyticsTab />}
-        {tab === "commissions"   && <CommissionsTab />}
-      </div>
+      {/* Tab content — each panel is wrapped in a per-tab ErrorBoundary so a
+          single panel crashing (e.g. on a degraded/partial backend response)
+          can never blank the whole Admin app. Keyed by `tab` so switching tabs
+          clears any error state. */}
+      <ErrorBoundary
+        key={tab}
+        fallback={
+          <div
+            style={{
+              padding: "32px 20px",
+              textAlign: "center",
+              color: "rgba(255,255,255,0.6)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 14,
+              background: "rgba(255,255,255,0.03)",
+            }}
+          >
+            <p style={{ fontSize: 15, fontWeight: 600, margin: "0 0 6px", color: "rgba(255,255,255,0.85)" }}>
+              This panel couldn't load
+            </p>
+            <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+              The backend may be temporarily degraded. Try another tab or refresh in a moment.
+            </p>
+          </div>
+        }
+      >
+        <div>
+          {tab === "overview"      && <OverviewTab onSwitchTab={setTab} />}
+          {tab === "operations"    && <OperationsTab />}
+          {tab === "observability" && <ObservabilityTab />}
+          {tab === "users"         && <UsersTab />}
+          {tab === "live"          && <LiveCallsTab />}
+          {tab === "errors"        && <ErrorsTab onSwitchTab={setTab} />}
+          {tab === "system"           && <SystemTab />}
+          {tab === "platform-health"  && <PlatformHealthTab />}
+          {tab === "push"          && <PushTab />}
+          {tab === "referrals"     && <ReferralsTab />}
+          {tab === "earnings"      && <EarningsTab />}
+          {tab === "expenses"      && <ExpensesTab />}
+          {tab === "payouts"       && <PayoutsTab />}
+          {tab === "abuse"         && <CallsAbuseTab />}
+          {tab === "announcements" && <AnnouncementsTab />}
+          {tab === "rate-plans"    && <RatePlansTab />}
+          {tab === "audit"         && <AuditTab />}
+          {tab === "alert-rules"   && <AlertRulesTab />}
+          {tab === "ip-blocks"     && <IpBlocksTab />}
+          {tab === "tenants"       && <TenantsTab />}
+          {tab === "ivr"           && <IvrQueuesTab />}
+          {tab === "security"      && <SecurityTab />}
+          {tab === "analytics"     && <AnalyticsTab />}
+          {tab === "commissions"   && <CommissionsTab />}
+        </div>
+      </ErrorBoundary>
     </div>
   );
 }
