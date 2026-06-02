@@ -56,8 +56,14 @@ interface Pending {
 
 const RPC_TIMEOUT_MS      = 10_000;
 const ICE_TIMEOUT_MS      = 8_000;
-const RECONNECT_BASE_MS   = 5_000;   // 5 s initial backoff
-const RECONNECT_MAX_MS    = 60_000;  // 60 s cap
+// Fast reconnect: this is a phone that must be reachable for incoming calls.
+// Mobile browsers routinely drop the WebSocket on backgrounding / network
+// transitions, so a long backoff leaves the user "unregistered" — and any call
+// landing in that window goes straight to missed. Reconnect quickly after a
+// transient drop; the exponential growth + cap still prevent hammering during a
+// real outage, and repeated -32601 auth failures use the longer PERM pause.
+const RECONNECT_BASE_MS   = 1_500;   // 1.5 s initial backoff
+const RECONNECT_MAX_MS    = 15_000;  // 15 s cap
 const RECONNECT_PERM_MS   = 5 * 60_000; // 5 min backoff after repeated -32601
 
 /**

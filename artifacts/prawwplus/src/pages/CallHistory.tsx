@@ -239,7 +239,13 @@ export default function CallHistory() {
             const isExpanded = expandedId === c.id;
             const { color, bg, label, Icon } = resolveCallDisplay(c);
             const dateStr = c.startedAt ?? c.createdAt ?? c.date;
-            const rawNum = c.recipientNumber ?? c.callerNumber ?? c.number;
+            // Show the OTHER party: for inbound calls that's the caller, for
+            // outbound it's the recipient. Showing recipientNumber on an inbound
+            // call wrongly displays the user's own number.
+            const isInboundCall = (c.direction ?? "").toLowerCase().includes("in");
+            const rawNum = isInboundCall
+              ? (c.callerNumber ?? c.recipientNumber ?? c.number)
+              : (c.recipientNumber ?? c.callerNumber ?? c.number);
             const displayNum = rawNum && !/^[1-9]\d{3}$/.test(String(rawNum).trim()) ? rawNum : "Unknown";
 
             return (
