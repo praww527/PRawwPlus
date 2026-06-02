@@ -72,8 +72,22 @@ async function adminFetch(path: string, opts?: RequestInit) {
     },
     ...opts,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Request failed");
+  // Read as text first so a non-JSON error page (gateway timeout / proxy HTML)
+  // surfaces a clean message instead of crashing on res.json().
+  const raw = await res.text();
+  let data: any = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error(
+        res.ok
+          ? "Server returned an invalid response"
+          : `Request failed (HTTP ${res.status})`,
+      );
+    }
+  }
+  if (!res.ok) throw new Error(data.error || data.message || `Request failed (HTTP ${res.status})`);
   return data;
 }
 

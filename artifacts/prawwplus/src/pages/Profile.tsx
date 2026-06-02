@@ -782,7 +782,7 @@ export default function Profile() {
         <Row icon={<Bell size={15} />} iconBg="rgba(255,149,0,0.15)" label="Notifications" onClick={() => setLocation("/notifications")} />
         <Row icon={<Phone size={15} />} iconBg="rgba(48,209,88,0.15)" label="Call Settings" onClick={() => setLocation("/call-settings")} />
         <Row icon={<Activity size={15} />} iconBg="rgba(94,92,230,0.15)" label="Diagnostics" onClick={() => setLocation("/diagnostics")} />
-        <Row icon={<Mic size={15} />} iconBg="rgba(128,128,128,0.18)" label="Caller ID" value={primaryNumber ?? "Not set"} chevron={false} />
+        <Row icon={<Mic size={15} />} iconBg="rgba(128,128,128,0.18)" label="Caller ID" value={primaryNumber ?? (user?.extension ? `Ext ${user.extension}` : "Not set")} onClick={() => setSheet("numbers")} />
       </Section>
 
       {/* ── Dashboard Access ─────────────────── */}
