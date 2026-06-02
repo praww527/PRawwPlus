@@ -1362,7 +1362,14 @@ class FreeSwitchESL {
           // any scheduled re-originate setTimeout callbacks see a missing key
           // and abort cleanly.  The holdWindowRetries map is keyed by A-leg UUID,
           // so `holdWindowRetries.has(uuid)` ≡ "this channel started a hold window".
-          if (this.holdWindowRetries.has(uuid)) {
+          //
+          // We also capture `wasHoldWindowALeg` so the holdWindowActive guard
+          // below can exclude this event from ever re-opening a window — without
+          // this flag, a dialplan-hangup A-leg with cause=UNREGISTERED and a
+          // stale `otherLegUuid` pointing to a dead B-leg (whose UUID is NOT in
+          // holdWindowRetries → returns 0 < MAX) would falsely set holdWindowActive.
+          const wasHoldWindowALeg = this.holdWindowRetries.has(uuid);
+          if (wasHoldWindowALeg) {
             logger.info(
               { uuid, hangupCause },
               "[ESL] HOLD_WINDOW: A-leg channel terminated — cancelling hold window",
@@ -1488,7 +1495,12 @@ class FreeSwitchESL {
           );
           // holdWindowActive = true means: this B-leg failed with an offline cause,
           // the A-leg is still alive, and we have retries left.
+          // Guard: exclude events where THIS channel is the A-leg (wasHoldWindowALeg).
+          // That prevents the A-leg's own terminal CHANNEL_HANGUP_COMPLETE from
+          // treating its stale otherLegUuid (a dead B-leg not in holdWindowRetries
+          // → value = 0 < MAX) as a fresh hold-window opening.
           const holdWindowActive = (
+            !wasHoldWindowALeg &&
             isOfflineCause &&
             !!otherLegUuid &&
             !!missedCallEntry &&
