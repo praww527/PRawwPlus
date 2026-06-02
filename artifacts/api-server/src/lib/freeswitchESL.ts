@@ -37,6 +37,7 @@ import {
   recordRecoveryAttempt,
 } from "./bLegManager";
 import { notifyALegSessionReconnected } from "./aLegManager";
+import { sendIncomingCallWakeupByExt } from "./wakeupPush";
 
 const ESL_HOST     = process.env.FREESWITCH_ESL_HOST ?? process.env.FREESWITCH_DOMAIN ?? "";
 const ESL_PORT     = parseInt(process.env.FREESWITCH_ESL_PORT ?? "8021");
@@ -384,6 +385,17 @@ class FreeSwitchESL {
   private retryAttempts = new Map<string, number>();
 
   /**
+   * Tracks hold-window retry attempts for offline callees (UNREGISTERED /
+   * USER_NOT_REGISTERED / SUBSCRIBER_ABSENT).
+   * Key: A-leg UUID — the caller channel that is being held on ringback.
+   * Value: number of re-originate retries already scheduled (0 = window just
+   *   opened, MAX_HOLD_RETRIES = window exhausted).
+   * Entry is deleted when the A-leg channel itself hangs up, ensuring scheduled
+   * retries see a missing key and abort without touching a dead channel.
+   */
+  private holdWindowRetries = new Map<string, number>();
+
+  /**
    * Pending caller ID injections — populated by registerCallerIdInjection()
    * when POST /calls resolves the correct outbound caller ID.
    * Key: FreeSWITCH channel UUID (= fsCallId / Verto session UUID).
@@ -705,6 +717,7 @@ class FreeSwitchESL {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     clearAllHangupTimers();
     this.originateDestMap.clear();
+    this.holdWindowRetries.clear();
     // Flush pending bgapi promises so callers aren't left hanging
     for (const item of this.bgapiCmdQueue)  item.resolve?.("-ERR ESL disconnected");
     for (const item of this.bgapiJobMap.values()) item.resolve?.("-ERR ESL disconnected");
@@ -1343,6 +1356,20 @@ class FreeSwitchESL {
         if (hangupCause) augmentLastEslTrace(uuid, hangupCause);
 
         if (uuid) {
+          // ── Hold-window A-leg cancellation ────────────────────────────────────
+          // If this channel IS the A-leg (caller) and it fires CHANNEL_HANGUP
+          // while we have a hold-window open for it, cancel the window so that
+          // any scheduled re-originate setTimeout callbacks see a missing key
+          // and abort cleanly.  The holdWindowRetries map is keyed by A-leg UUID,
+          // so `holdWindowRetries.has(uuid)` ≡ "this channel started a hold window".
+          if (this.holdWindowRetries.has(uuid)) {
+            logger.info(
+              { uuid, hangupCause },
+              "[ESL] HOLD_WINDOW: A-leg channel terminated — cancelling hold window",
+            );
+            this.holdWindowRetries.delete(uuid);
+          }
+
           // ── Missed-call detection ────────────────────────────────────────────
           //
           // Treat the following as "missed" for the callee. Comments explain why
@@ -1435,12 +1462,46 @@ class FreeSwitchESL {
             }
           }
 
+          // ── Hold-window: are we in an active retry window for an offline callee?
+          //
+          // When the B-leg fails with an "offline" cause AND the A-leg is still
+          // alive (otherLegUuid present), we enter a 25–30 s hold window.
+          // During that window we:
+          //   1. Suppress the missed-call record and caller-failed push (the call
+          //      may still connect on a later retry).
+          //   2. Send an "incoming_call_wakeup" push on the first failure so the
+          //      callee's device wakes up.  The existing autoRecoverUnregistered
+          //      "please reopen" push still fires on the first failure too.
+          //   3. Schedule a re-originate attempt every ~5 s.  Each attempt is
+          //      sequential: the new B-leg's CHANNEL_HANGUP_COMPLETE fires this
+          //      handler again, which schedules the next retry or gives up.
+          //   4. Cap at MAX_HOLD_RETRIES to prevent infinite loops.
+          //
+          // The dialplan hold window in freeswitchConfig.ts plays ringback for
+          // ~30 s before the unavailable announcement, giving this logic room to
+          // bridge a reconnected callee without the caller hearing silence.
+          const MAX_HOLD_RETRIES = 4;
+          const isOfflineCause = (
+            hangupCause === "UNREGISTERED"        ||
+            hangupCause === "USER_NOT_REGISTERED" ||
+            hangupCause === "SUBSCRIBER_ABSENT"
+          );
+          // holdWindowActive = true means: this B-leg failed with an offline cause,
+          // the A-leg is still alive, and we have retries left.
+          const holdWindowActive = (
+            isOfflineCause &&
+            !!otherLegUuid &&
+            !!missedCallEntry &&
+            (this.holdWindowRetries.get(otherLegUuid) ?? 0) < MAX_HOLD_RETRIES
+          );
+
           // ── Create missed-call record (exactly once per call pair) ────────────
           //
           // Both A-leg and B-leg events may satisfy isMissedForCallee. Guard with
           // a per-call-pair key so we only create one DB record even if both legs
           // carry a missed cause (e.g. both get USER_NOT_REGISTERED).
-          if (missedCallEntry && isMissedForCallee) {
+          // SUPPRESSED while holdWindowActive — the call may still connect.
+          if (missedCallEntry && isMissedForCallee && !holdWindowActive) {
             const callPairKey = [uuid, otherLegUuid].filter(Boolean).sort().join(":");
             if (!this.missedCallProcessed.has(callPairKey)) {
               this.missedCallProcessed.add(callPairKey);
@@ -1465,6 +1526,7 @@ class FreeSwitchESL {
           // Also notify the CALLER when the call could not be connected.
           // The Verto bye covers the case where the tab is in focus; this push
           // covers the case where the caller backgrounded their app after dialling.
+          // SUPPRESSED while holdWindowActive — the call may still connect.
           const shouldNotifyCaller = (
             hangupCause === "UNREGISTERED"             ||
             hangupCause === "USER_NOT_REGISTERED"      ||
@@ -1476,7 +1538,7 @@ class FreeSwitchESL {
             hangupCause === "RECOVERY_ON_TIMER_EXPIRE" ||
             hangupCause === "CALL_REJECTED"
           );
-          if (missedCallEntry && shouldNotifyCaller) {
+          if (missedCallEntry && shouldNotifyCaller && !holdWindowActive) {
             const { destExt, callerExt } = missedCallEntry;
             this.sendCallerCallFailedPush(callerExt, destExt, hangupCause)
               .catch((e) => logger.error({ err: e }, "[Push] Caller call-failed push error"));
@@ -1486,9 +1548,14 @@ class FreeSwitchESL {
           // Fires a lightweight sofia rescan (no SSH), sends the callee a
           // "please reopen the app" push, and — if the problem persists —
           // falls back to a full SSH config push (debounced to 5 min).
+          // Only runs on the FIRST failure — suppressed on hold-window retries
+          // (retries 2-4) to avoid spamming "please reopen" each 5 s.
+          const alreadyInHoldWindow = isOfflineCause && !!otherLegUuid &&
+            (this.holdWindowRetries.get(otherLegUuid) ?? 0) > 0;
           if (
             (hangupCause === "USER_NOT_REGISTERED" || hangupCause === "UNREGISTERED") &&
-            missedCallEntry
+            missedCallEntry &&
+            !alreadyInHoldWindow
           ) {
             this.autoRecoverUnregistered(missedCallEntry.destExt)
               .catch((e) => logger.error({ err: e }, "[ESL] AUTO_RECOVERY error"));
@@ -1547,6 +1614,78 @@ class FreeSwitchESL {
               );
               this.sendApiCommand(retryCmd);
             }, 1_500);
+          }
+
+          // ── Hold-window retry for offline callee (UNREGISTERED) ───────────────
+          //
+          // Fires when the B-leg failed because the callee was offline AND we
+          // have retries remaining.  Each retry is sequential: we schedule a
+          // 5 s re-originate here; when THAT B-leg fires CHANNEL_HANGUP_COMPLETE
+          // (offline again) this block runs again and schedules the next retry
+          // until MAX_HOLD_RETRIES is reached.
+          //
+          // On the very first failure (retryCount will become 1):
+          //   • Send an incoming-call wakeup push so the device wakes up.
+          //   • The autoRecoverUnregistered "please reopen" push also fires above.
+          //
+          // The dialplan hold window (playback loops=5 ≈ 30 s) keeps the A-leg
+          // on ringback for the duration; &bridge(A-leg) issued here interrupts
+          // that playback and connects the call.
+          if (holdWindowActive && otherLegUuid && missedCallEntry) {
+            const aLegUuid = otherLegUuid;
+            const priorRetries = this.holdWindowRetries.get(aLegUuid) ?? 0;
+            const newRetryCount = priorRetries + 1;
+            this.holdWindowRetries.set(aLegUuid, newRetryCount);
+            // Evict after 60 s as a safety net (normal flow deletes on success
+            // or A-leg hangup; this prevents unbounded Map growth on any edge case).
+            setTimeout(() => {
+              if ((this.holdWindowRetries.get(aLegUuid) ?? 0) === newRetryCount) {
+                this.holdWindowRetries.delete(aLegUuid);
+              }
+            }, 60_000);
+
+            const { destExt, callerExt } = missedCallEntry;
+            const domain = process.env.FREESWITCH_DOMAIN ?? "localhost";
+
+            logger.info(
+              { aLegUuid, destExt, callerExt, hangupCause, retryNum: newRetryCount, maxRetries: MAX_HOLD_RETRIES },
+              "[ESL] HOLD_WINDOW: callee offline — scheduling re-originate",
+            );
+
+            // On first failure only: send incoming-call wakeup push so the device
+            // starts waking up in time for the first retry at t+5 s.
+            if (newRetryCount === 1) {
+              sendIncomingCallWakeupByExt(destExt, callerExt, aLegUuid)
+                .catch((e) => logger.error({ err: e }, "[ESL] HOLD_WINDOW wakeup push failed"));
+            }
+
+            setTimeout(() => {
+              // Guard: A-leg channel may have died while we were waiting (caller
+              // hung up, dialplan timeout, etc.) — the A-leg cancellation block
+              // above deletes the entry when the A-leg fires CHANNEL_HANGUP_COMPLETE.
+              if (!this.holdWindowRetries.has(aLegUuid)) {
+                logger.info(
+                  { aLegUuid, destExt, retryNum: newRetryCount },
+                  "[ESL] HOLD_WINDOW: A-leg gone before retry fired — aborting",
+                );
+                return;
+              }
+              // Re-originate to the callee and bridge the result into the A-leg.
+              // originate_timeout=8: give the newly-registered callee enough time
+              // to accept the incoming ring without blocking the A-leg too long.
+              const hwInj     = this.pendingCallerIdInjections.get(aLegUuid);
+              const hwCidNum  = hwInj?.callerIdNumber ?? callerExt;
+              const hwCidName = hwInj?.callerIdName   ?? "";
+              const hwCidVars = hwCidName
+                ? `origination_caller_id_number=${hwCidNum},origination_caller_id_name=${hwCidName},originate_timeout=8`
+                : `origination_caller_id_number=${hwCidNum},originate_timeout=8`;
+              const hwCmd = `originate {${hwCidVars}}user/${destExt}@${domain} &bridge(${aLegUuid})`;
+              logger.info(
+                { aLegUuid, destExt, callerExt, retryNum: newRetryCount, hwCmd },
+                "[ESL] HOLD_WINDOW: issuing re-originate",
+              );
+              this.sendApiCommand(hwCmd);
+            }, 5_000);
           }
 
           // Notify B-leg manager about the failure so per-call state stays accurate.

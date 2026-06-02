@@ -531,9 +531,18 @@ export function dialplanXml(fsDomain: string): string {
         <action application="bridge" data="${FS_VAR}if(${FS_VAR}execute_forward} == 1 &amp;&amp; ${FS_VAR}forward_is_num} == 1?loopback/${FS_VAR}forward_target}/prawwplus:)}"/>
       </condition>
 
-      <!-- UNREGISTERED terminal: SIT tone (913→1370→1776 Hz) + announcement.  -->
+      <!-- UNREGISTERED terminal: hold window then SIT tone + announcement.
+           The 30-second ringback gives the server hold-and-retry orchestrator
+           time to re-originate to the callee and call &bridge(A-leg) here.
+           If &bridge() fires during the playback FreeSWITCH interrupts it
+           automatically and connects the call.  If the callee never comes
+           back online the playback finishes and execution falls through to
+           the unavailable announcement — no regression on existing paths.
+           %(2000,4000,440,480) = US ring: 440+480 Hz, 2 s on / 4 s off (6 s/cycle).
+           loops=5 → ~30 s hold window, matching the server-side retry budget. -->
       <condition field="${FS_VAR}_orig_bridge_cause}" expression="^(UNREGISTERED|USER_NOT_REGISTERED|SUBSCRIBER_ABSENT|DESTINATION_OUT_OF_ORDER)$" break="on-true">
         <action application="answer"/>
+        <action application="playback" data="tone_stream://%(2000,4000,440,480);loops=5"/>
         <action application="playback" data="tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7);loops=3"/>
         <action application="speak" data="flite|kal|The number you have dialed is currently unavailable. Please try again later."/>
         <action application="sleep" data="300"/>

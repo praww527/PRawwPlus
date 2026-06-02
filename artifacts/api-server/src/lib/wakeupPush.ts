@@ -13,7 +13,7 @@
  */
 
 import { connectDB, UserModel } from "@workspace/db";
-import { sendFcmDataMessage, sendExpoPush } from "./push";
+import { sendFcmDataMessage, sendExpoPush, sendWebPushToSubscription } from "./push";
 import { logger } from "./logger";
 import { metrics } from "./metrics";
 
@@ -90,4 +90,97 @@ export async function sendWakeupToExtensions(
 ): Promise<number> {
   const results = await Promise.allSettled(userIds.map((id) => sendWakeup(id, payload)));
   return results.filter((r) => r.status === "fulfilled" && r.value).length;
+}
+
+/**
+ * Shared helper: send an incoming-call wakeup push to a callee identified by
+ * their extension number.  Used by both CHANNEL_ORIGINATE push and the
+ * hold-window retry loop so external/trunk inbound calls also wake the device.
+ *
+ * Respects DND and notificationPrefs.incomingCalls.
+ * Returns true if at least one push channel was attempted.
+ */
+export async function sendIncomingCallWakeupByExt(
+  destExtStr:    string,
+  callerExtOrNum: string,
+  aLegUuid?:     string,
+): Promise<boolean> {
+  try {
+    await connectDB();
+
+    const extNum = parseInt(destExtStr, 10);
+    if (!extNum || extNum < 1000 || extNum > 9999) return false;
+
+    const user = await UserModel.findOne({ extension: extNum })
+      .select("_id fcmToken expoPushToken webPushSubscription notificationPrefs dnd")
+      .lean();
+
+    if (!user) return false;
+    if ((user as any).dnd) return false;
+    if ((user as any).notificationPrefs?.incomingCalls === false) return false;
+
+    const data: Record<string, string> = {
+      type:          "incoming_call_wakeup",
+      toExtension:   destExtStr,
+      callerNumber:  callerExtOrNum,
+      aLegUuid:      aLegUuid ?? "",
+      serverTimestamp: new Date().toISOString(),
+    };
+
+    const title = "📞 Incoming Call";
+    const body  = `Call from ${callerExtOrNum}`;
+
+    let sent = false;
+    const tasks: Promise<void>[] = [];
+
+    if ((user as any).fcmToken) {
+      tasks.push(
+        sendFcmDataMessage((user as any).fcmToken, data).then(() => {
+          metrics.pushWakeups++;
+          sent = true;
+          logger.info({ destExtStr, callerExtOrNum }, "[wakeup] FCM incoming-call wakeup sent (hold window)");
+        }).catch((err) => {
+          logger.warn({ err, destExtStr }, "[wakeup] FCM wakeup (hold window) failed");
+        }),
+      );
+    }
+
+    if ((user as any).webPushSubscription?.endpoint) {
+      tasks.push(
+        sendWebPushToSubscription(
+          (user as any).webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+          { ...data, title, body },
+          String((user as any)._id),
+        ).then((result) => {
+          if (result.sent) {
+            sent = true;
+            logger.info({ destExtStr }, "[wakeup] web-push incoming-call wakeup sent (hold window)");
+          }
+          if (result.error === "expired") {
+            UserModel.updateOne(
+              { _id: (user as any)._id },
+              { $unset: { webPushSubscription: 1 } },
+            ).catch(() => {});
+          }
+        }),
+      );
+    }
+
+    if ((user as any).expoPushToken) {
+      tasks.push(
+        sendExpoPush((user as any).expoPushToken, title, body, data).then(() => {
+          sent = true;
+          logger.info({ destExtStr, callerExtOrNum }, "[wakeup] Expo incoming-call wakeup sent (hold window)");
+        }).catch((err) => {
+          logger.warn({ err, destExtStr }, "[wakeup] Expo wakeup (hold window) failed");
+        }),
+      );
+    }
+
+    await Promise.all(tasks);
+    return sent;
+  } catch (err) {
+    logger.error({ err, destExtStr }, "[wakeup] sendIncomingCallWakeupByExt failed");
+    return false;
+  }
 }
