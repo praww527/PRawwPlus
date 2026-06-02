@@ -319,7 +319,15 @@ async function sendWebPush(
   if (!vapidPublicKey || !vapidPrivateKey) return;
 
   try {
-    const webpush = await import("web-push");
+    // web-push is CommonJS; under the esbuild CJS bundle `await import()` returns
+    // a namespace whose API is on `.default`. Unwrap it so the functions are
+    // callable (otherwise `setVapidDetails is not a function`).
+    const webpushMod: any = await import("web-push");
+    const webpush = webpushMod.default ?? webpushMod;
+    if (typeof webpush?.setVapidDetails !== "function") {
+      logger.error({ keys: Object.keys(webpushMod ?? {}) }, "[Push] web-push module shape unexpected — setVapidDetails missing");
+      return;
+    }
     const appUrl  = process.env.APP_URL ?? "";
     const subject = appUrl ? `mailto:admin@${new URL(appUrl).hostname}` : "mailto:admin@praww.co.za";
     webpush.setVapidDetails(subject, vapidPublicKey, vapidPrivateKey);

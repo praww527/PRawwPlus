@@ -18,7 +18,16 @@ export async function sendWebPushToSubscription(
     return { sent: false, error: "VAPID keys not configured" };
   }
   try {
-    const webpush = await import("web-push");
+    // web-push is a CommonJS module; under the esbuild CJS bundle `await import()`
+    // returns a namespace whose API lives on `.default`. Unwrap it so
+    // setVapidDetails/sendNotification are callable (not `undefined`).
+    const webpushMod: any = await import("web-push");
+    const webpush = webpushMod.default ?? webpushMod;
+    if (typeof webpush?.setVapidDetails !== "function") {
+      logger.error({ keys: Object.keys(webpushMod ?? {}) }, "[Push] web-push module shape unexpected — setVapidDetails missing");
+      metrics.pushWebFailed++;
+      return { sent: false, error: "web-push module shape unexpected" };
+    }
     const appUrl  = process.env.APP_URL ?? "";
     const subject = appUrl
       ? `mailto:admin@${new URL(appUrl).hostname}`

@@ -51,10 +51,8 @@ function resolveHangupInfo(hc: HangupCause): HangupInfo {
     case "UNREGISTERED":
     case "USER_NOT_REGISTERED":
     case "SUBSCRIBER_ABSENT":
-      return { cause, causeCode, message: "The number you dialled is not available right now. Please try again later.", icon: "unavailable" };
-
     case "DESTINATION_OUT_OF_ORDER":
-      return { cause, causeCode, message: "We could not connect your call. The destination is temporarily out of service.", icon: "unavailable" };
+      return { cause, causeCode, message: "The person you are calling is offline right now. We'll try to let them know you were trying to reach them.", icon: "unavailable" };
 
     case "NO_ROUTE_DESTINATION":
     case "UNALLOCATED_NUMBER":
