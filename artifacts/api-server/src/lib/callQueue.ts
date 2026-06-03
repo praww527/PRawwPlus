@@ -13,7 +13,7 @@
 import { connectDB } from "@workspace/db";
 import { CallQueueModel, type ICallQueue, type QueueStrategy } from "@workspace/db";
 import { logger } from "./logger";
-import { broadcastSseEvent } from "../routes/adminOps";
+import { broadcastSseEvent } from "./adminBroadcast";
 
 export interface QueuedCaller {
   callerId:    string;

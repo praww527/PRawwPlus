@@ -34,6 +34,7 @@ import { armMediaWatchdog, cancelMediaWatchdog, clearAllMediaWatchdogs } from ".
 import { metrics } from "./metrics";
 import { randomUUID } from "node:crypto";
 import { cleanupBLeg } from "./bLegManager";
+import { broadcastSseEvent } from "./adminBroadcast";
 import {
   recordALegFsCallId,
   recordALegRinging,
@@ -482,6 +483,11 @@ export async function ringingCall(
       userId: result.userId, event: "ringing",
       metadata: { bLegUuid },
     }).catch(() => {});
+
+    broadcastSseEvent("call_state", {
+      event: "ringing", callId: result.callId, fsCallId: aLegUuid,
+      userId: result.userId, status: "ringing", ts: Date.now(),
+    });
   }
   return EventResult.DONE;
 }
@@ -603,6 +609,11 @@ export async function answerCall(
     userId: result.userId, event: "answered",
     metadata: { callType: call.callType },
   }).catch(() => {});
+
+  broadcastSseEvent("call_state", {
+    event: "answered", callId: result.callId, fsCallId,
+    userId: result.userId, status: "answered", ts: Date.now(),
+  });
 
   // Mid-call balance enforcement for external calls
   if (call.callType === "external") {
@@ -875,6 +886,11 @@ export async function finalizeCall(
           userId: String(resDocTxn.userId), event: "hangup",
           metadata: { hangupCause, billsec: safeBillsec, coinsUsed, finalStatus, path: "txn" },
         }).catch(() => {});
+        broadcastSseEvent("call_state", {
+          event: "ended", callId: String(resDocTxn._id), fsCallId,
+          userId: String(resDocTxn.userId), status: finalStatus,
+          hangupCause, billsec: safeBillsec, ts: Date.now(),
+        });
       }
       return EventResult.DONE;
     } catch (err) {
@@ -953,6 +969,12 @@ export async function finalizeCall(
     userId: String(resDoc.userId), event: "hangup",
     metadata: { hangupCause, billsec: safeBillsec, coinsUsed, finalStatus },
   }).catch(() => {});
+
+  broadcastSseEvent("call_state", {
+    event: "ended", callId: String(resDoc._id), fsCallId,
+    userId: String(resDoc.userId), status: finalStatus,
+    hangupCause, billsec: safeBillsec, ts: Date.now(),
+  });
 
   // ── Voicemail record creation ───────────────────────────────────────────────
   // When a call ends with ATTENDED_TRANSFER (routed to voicemail), create a
@@ -1137,6 +1159,11 @@ export async function endCallById(
   await deductCoinsAndUpdateStats(String(call.userId), 0, callId);
 
   logger.info({ callId, to, durationSecs: safeDuration }, "[Orchestrator] Internal call ended via REST");
+
+  broadcastSseEvent("call_state", {
+    event: "ended", callId, status: to, ts: Date.now(),
+  });
+
   return { ...updated, id: updated._id } as Record<string, unknown>;
 }
 

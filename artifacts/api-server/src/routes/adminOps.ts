@@ -25,6 +25,12 @@ import { getHealthHistory } from "../lib/healthRingBuffer";
 import { connectDB, UserModel } from "@workspace/db";
 import mongoose from "mongoose";
 import { logger } from "../lib/logger";
+import {
+  broadcastSseEvent,
+  addSseClient,
+  removeSseClient,
+  getSseClientCount,
+} from "../lib/adminBroadcast";
 
 const execAsync = promisify(exec);
 
@@ -53,26 +59,12 @@ setInterval(() => {
   concurrentHistory.push({ ts: Date.now(), count: metrics.activeCalls });
 }, 60_000);
 
-// ── SSE clients ───────────────────────────────────────────────────────────────
-
-const sseClients = new Set<Response>();
-
-/** Broadcast a typed SSE event to every connected admin client. */
-export function broadcastSseEvent(type: string, data: unknown): void {
-  if (sseClients.size === 0) return;
-  const msg = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of sseClients) {
-    try {
-      (client as any).write(msg);
-    } catch {
-      sseClients.delete(client);
-    }
-  }
-}
+// Re-export broadcastSseEvent so existing imports from this module keep working
+export { broadcastSseEvent } from "../lib/adminBroadcast";
 
 // Send a metrics snapshot to SSE clients every 5 s
 setInterval(() => {
-  if (sseClients.size === 0) return;
+  if (getSseClientCount() === 0) return;
   broadcastSseEvent("metrics", metrics.snapshot());
 }, 5_000);
 
@@ -230,20 +222,20 @@ router.get("/admin/events/stream", requireAdmin, (req: Request, res: Response) =
   const esl = eslStatus();
   res.write(`event: esl\ndata: ${JSON.stringify({ connected: esl.connected, enabled: esl.enabled, ts: Date.now() })}\n\n`);
 
-  sseClients.add(res);
+  addSseClient(res);
 
   // Heartbeat every 20 s to keep connection alive through proxies
   const hb = setInterval(() => {
     try {
       res.write(": heartbeat\n\n");
     } catch {
-      sseClients.delete(res);
+      removeSseClient(res);
       clearInterval(hb);
     }
   }, 20_000);
 
   req.on("close", () => {
-    sseClients.delete(res);
+    removeSseClient(res);
     clearInterval(hb);
   });
 });
