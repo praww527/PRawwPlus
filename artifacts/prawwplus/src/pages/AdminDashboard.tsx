@@ -250,6 +250,16 @@ export default function AdminDashboard() {
             {loading ? "Refreshing…" : "↻ Refresh"}
           </button>
           <button
+            onClick={() => setLocation("/admin/platform-health")}
+            style={{
+              padding: "7px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600,
+              background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.2)",
+              color: "#60a5fa", cursor: "pointer",
+            }}
+          >
+            ⬡ Platform Health
+          </button>
+          <button
             onClick={() => setLocation("/admin")}
             style={{
               padding: "7px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600,
