@@ -161,6 +161,46 @@ function parseConferenceList(raw: string): ConferenceMember[] {
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 /**
+ * GET /api/conference/rooms
+ * List all active conference rooms (in-memory map snapshot).
+ * Admin sees all rooms; regular users only see rooms they created.
+ * For each room, a live member-list query is issued to FreeSWITCH.
+ */
+router.get("/conference/rooms", async (req: Request, res: Response) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const isAdmin = (req as any).user?.isAdmin === true;
+
+  const roomEntries = Array.from(activeRooms.entries())
+    .filter(([, entry]) => isAdmin || entry.creatorUserId === userId);
+
+  const rooms = await Promise.all(
+    roomEntries.map(async ([roomId, entry]) => {
+      let members: ConferenceMember[] = [];
+      let memberCount = 0;
+      try {
+        const listResult = await sendEslBgapiAwait(`conference ${roomId} list`, 3_000);
+        members = parseConferenceList(listResult);
+        memberCount = members.length;
+      } catch {
+        // ESL unavailable — return empty member list rather than failing the whole request
+      }
+      return {
+        roomId,
+        creatorUserId: entry.creatorUserId,
+        isLocked: entry.isLocked,
+        createdAt: entry.createdAt,
+        memberCount,
+        members,
+      };
+    }),
+  );
+
+  res.json({ rooms });
+});
+
+/**
  * POST /api/conference
  * Create a conference room. If `callId` is provided the caller's current
  * A-leg is transferred into the conference immediately via ESL uuid_transfer.

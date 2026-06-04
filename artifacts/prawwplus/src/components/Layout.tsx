@@ -17,7 +17,7 @@ export const NAV_Z          = 9999;
 export const MODAL_Z        = 300;
 
 const navItems = [
-  { href: "/dashboard", label: "Keypad",    icon: Phone    },
+  { href: "/dashboard", label: "Dialpad",   icon: Phone    },
   { href: "/calls",     label: "Recents",   icon: Clock    },
   { href: "/voicemail", label: "Voicemail", icon: Voicemail },
   { href: "/contacts",  label: "Contacts",  icon: Users    },
