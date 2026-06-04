@@ -450,9 +450,31 @@ async function _pushFreeSwitchConfigImpl(opts: PushOptions = {}): Promise<PushRe
         // 4. Full reload: unload + load mod_verto so it picks up the new verto.conf.
         //    `reload mod_verto` does NOT reliably reload profile bindings — only a
         //    full cycle does.  reloadxml already ran above so the cache is fresh.
+        //
+        //    CRITICAL: after `unload mod_verto` the kernel keeps port 8081 in
+        //    TIME_WAIT for a short period (TCP linger).  Loading immediately causes
+        //    `Bind Error!, errno=98 (Address already in use)` which leaves mod_verto
+        //    with no listeners.  We poll `ss` until the port is free (up to 6 s)
+        //    before issuing `load mod_verto`.
         try {
           await execCommand(conn, `${cli} -x 'unload mod_verto'`);
-          await new Promise((r) => setTimeout(r, 1000));
+
+          // Poll until port 8081 is released (max 6 × 1 s = 6 s)
+          let portFree = false;
+          for (let i = 0; i < 6; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            const portCheck = await execCommand(
+              conn,
+              "ss -tlnp | grep ':8081 ' | grep -q LISTEN && echo busy || echo free",
+            ).then((o) => o.trim()).catch(() => "free");
+            if (portCheck === "free") { portFree = true; break; }
+          }
+          if (!portFree) {
+            // Force-free the port: kill any lingering process bound to 8081
+            await execCommand(conn, "fuser -k 8081/tcp 2>/dev/null || true").catch(() => null);
+            await new Promise((r) => setTimeout(r, 500));
+          }
+
           await execCommand(conn, `${cli} -x 'load mod_verto'`);
           steps.push("mod_verto unload+load OK");
         } catch (e) {
