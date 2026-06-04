@@ -149,7 +149,9 @@ export async function sendIncomingCallWakeupByExt(
       tasks.push(
         sendWebPushToSubscription(
           (user as any).webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
-          { ...data, title, body },
+          // Override type to "incoming_call" so the service worker shows the
+          // Answer/Decline action buttons — SW only renders those for incoming_call.
+          { ...data, type: "incoming_call", title, body },
           String((user as any)._id),
         ).then((result) => {
           if (result.sent) {

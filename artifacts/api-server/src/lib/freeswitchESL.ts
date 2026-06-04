@@ -285,6 +285,9 @@ async function sendFcmDataMessage(
           message: {
             token: fcmToken,
             data,
+            ...(androidNotification ? {
+              notification: { title: androidNotification.title, body: androidNotification.body },
+            } : {}),
             android: {
               priority: "HIGH",
               ttl: "30s",
@@ -292,12 +295,24 @@ async function sendFcmDataMessage(
                 notification: {
                   title: androidNotification.title,
                   body: androidNotification.body,
-                  channelId: "calls",
+                  channel_id: "calls",
                   sound: "default",
-                  defaultVibrateTimings: false,
-                  vibrateTimingsMillis: ["0", "250", "250", "250"],
+                  default_vibrate_timings: false,
+                  vibrate_timings_millis: ["0", "250", "250", "250"],
                 },
               } : {}),
+            },
+            apns: {
+              headers: { "apns-priority": "10" },
+              payload: {
+                aps: {
+                  "content-available": 1,
+                  ...(androidNotification ? {
+                    alert: { title: androidNotification.title, body: androidNotification.body },
+                    sound: "default",
+                  } : {}),
+                },
+              },
             },
           },
         }),

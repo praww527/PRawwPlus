@@ -197,6 +197,7 @@ export async function sendExpoPush(
 export async function sendFcmDataMessage(
   fcmToken: string,
   data: Record<string, string>,
+  notification?: { title: string; body: string },
 ): Promise<void> {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -254,7 +255,33 @@ export async function sendFcmDataMessage(
           message: {
             token: fcmToken,
             data,
-            android: { priority: "HIGH", ttl: "30s" },
+            ...(notification ? {
+              notification: { title: notification.title, body: notification.body },
+            } : {}),
+            android: {
+              priority: "HIGH",
+              ttl: "30s",
+              ...(notification ? {
+                notification: {
+                  title: notification.title,
+                  body: notification.body,
+                  channel_id: "calls",
+                  sound: "default",
+                },
+              } : {}),
+            },
+            apns: {
+              headers: { "apns-priority": "10" },
+              payload: {
+                aps: {
+                  "content-available": 1,
+                  ...(notification ? {
+                    alert: { title: notification.title, body: notification.body },
+                    sound: "default",
+                  } : {}),
+                },
+              },
+            },
           },
         }),
         signal: AbortSignal.timeout(15_000),

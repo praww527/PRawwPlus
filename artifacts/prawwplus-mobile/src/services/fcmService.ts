@@ -99,7 +99,7 @@ export function handleForegroundMessage(message: any): void {
   const data = message?.data as Record<string, string> | undefined;
   if (!data) return;
 
-  if (data.type === "call_wakeup") {
+  if (data.type === "call_wakeup" || data.type === "incoming_call_wakeup") {
     // Silent wakeup so the SIP/Verto socket reconnects before FreeSWITCH
     // tries to deliver the invite.  No CallKeep UI — the authoritative
     // incoming_call push arrives from CHANNEL_ORIGINATE with the real B-leg UUID.
@@ -135,7 +135,7 @@ export function handleBackgroundMessage(message: any): Promise<void> {
   const data = message?.data as Record<string, string> | undefined;
   if (!data) return Promise.resolve();
 
-  if (data.type === "call_wakeup") {
+  if (data.type === "call_wakeup" || data.type === "incoming_call_wakeup") {
     return Promise.resolve();
   }
 

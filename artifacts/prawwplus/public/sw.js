@@ -30,7 +30,7 @@ self.addEventListener("push", (event) => {
   let icon    = "/favicon.svg";
   let vibrate = [150];
 
-  if (data.type === "incoming_call") {
+  if (data.type === "incoming_call" || data.type === "incoming_call_wakeup" || data.type === "call_wakeup") {
     const caller = data.fromPhone || "Unknown caller";
     title  = data.title  || "📞 Incoming Call";
     body   = data.body   || `${caller} is calling you`;

@@ -410,11 +410,13 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
 
         // Web push — visible incoming-call notification with Answer / Decline
         // actions for browser users (requires VAPID keys to be configured).
+        // Override the type to "incoming_call" so the service worker shows the
+        // Answer/Decline buttons — the SW only renders those for incoming_call type.
         if (calleeOpts.webPushSubscription?.endpoint) {
           tasks.push(
             sendWebPushToSubscription(
               calleeOpts.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
-              { ...pushData, title: notifTitle, body: notifBody },
+              { ...pushData, type: "incoming_call", title: notifTitle, body: notifBody },
               String((calleeUser as any)._id),
             ).then((result) => {
               if (result.error === "expired") {
