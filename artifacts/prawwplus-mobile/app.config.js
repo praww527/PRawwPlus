@@ -3,10 +3,6 @@ module.exports = ({ config }) => {
     ...config,
     android: {
       ...config.android,
-      minSdkVersion: 24,
-      compileSdkVersion: 34,
-      targetSdkVersion: 34,
-      buildToolsVersion: "34.0.0",
       adaptiveIcon: {
         foregroundImage: "./icon.png",
         backgroundColor: "#0A84FF"

@@ -5,6 +5,7 @@
   },
   "build": {
     "development": {
+      "channel": "development",
       "developmentClient": true,
       "distribution": "internal",
       "android": {
@@ -16,6 +17,7 @@
       }
     },
     "preview": {
+      "channel": "preview",
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
@@ -25,6 +27,7 @@
       }
     },
     "production": {
+      "channel": "production",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
@@ -38,6 +41,7 @@
       }
     },
     "production-aab": {
+      "channel": "production",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
