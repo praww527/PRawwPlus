@@ -145,18 +145,28 @@ async function getInternalWsUrl(): Promise<string> {
     return process.env.FREESWITCH_INTERNAL_WS_URL.trim();
   }
 
-  const fsDomain      = (process.env.FREESWITCH_DOMAIN ?? "").trim();
-  const eslHostExplicit = process.env.FREESWITCH_ESL_HOST?.trim();
-  const eslHost       = eslHostExplicit ?? "127.0.0.1";
-  const remoteHost    = fsDomain || eslHost;
-  const localityHost  = eslHostExplicit ?? fsDomain;
+  const fsDomain   = (process.env.FREESWITCH_DOMAIN ?? "").trim();
+  const eslHost    = process.env.FREESWITCH_ESL_HOST?.trim() ?? "127.0.0.1";
+  const remoteHost = fsDomain || eslHost;
+
+  // Determine if FreeSWITCH is on this same machine.
+  // IMPORTANT: FREESWITCH_ESL_HOST is the ESL *bind address on the remote server*
+  // (always 127.0.0.1 — accessed via SSH tunnel) and must NOT be used for
+  // locality detection. Only FREESWITCH_DOMAIN tells us where FreeSWITCH lives.
   const remoteIsLocal =
-    !localityHost || localityHost === "127.0.0.1" || localityHost === "localhost";
+    !fsDomain || fsDomain === "127.0.0.1" || fsDomain === "localhost";
 
   if (process.env.FREESWITCH_WS_URL?.trim()) {
     const wsUrl = normaliseWsUrl(process.env.FREESWITCH_WS_URL.trim());
     if (isLocalWsUrl(wsUrl) && !remoteIsLocal) {
       const port = wsPort(wsUrl, 8081);
+      // Prefer SSH tunnel (port may not be publicly exposed); fall back to
+      // direct public-IP connection if SSH key is not configured.
+      const tunnelUrl = await getSshForwardUrl(port);
+      if (tunnelUrl) {
+        logger.info({ wsUrl, tunnelUrl }, "Verto proxy: tunnelling to remote FreeSWITCH via SSH");
+        return tunnelUrl;
+      }
       logger.info(
         { wsUrl, remoteHost, port },
         "Verto proxy: FREESWITCH_WS_URL is localhost but FreeSWITCH is remote — rewriting to public IP",
