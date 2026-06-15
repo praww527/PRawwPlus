@@ -8,7 +8,7 @@
     "icon": "./icon.png",
     "scheme": "prawwplus",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "runtimeVersion": {
       "policy": "appVersion"
     },
