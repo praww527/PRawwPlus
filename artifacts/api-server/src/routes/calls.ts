@@ -430,9 +430,18 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
         }
 
         // Expo push — for iOS/React Native users.
+        // Use "incoming_call" (not "call_wakeup") so the mobile FCM handler shows
+        // the native CallKeep answer/decline UI instead of ignoring the push as a
+        // silent wakeup.  "call_wakeup" showed only a plain OS alert with no way
+        // for the user to answer, which then became a missed-call notification.
         if (calleeOpts.expoPushToken) {
           tasks.push(
-            sendExpoPush(calleeOpts.expoPushToken, notifTitle, notifBody, pushData).catch((err) => {
+            sendExpoPush(
+              calleeOpts.expoPushToken,
+              notifTitle,
+              notifBody,
+              { ...pushData, type: "incoming_call" },
+            ).catch((err) => {
               logger.warn({ err, resolvedExtension }, "[calls] callee Expo push failed");
             }),
           );

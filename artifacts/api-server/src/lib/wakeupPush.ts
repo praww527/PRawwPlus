@@ -170,7 +170,11 @@ export async function sendIncomingCallWakeupByExt(
 
     if ((user as any).expoPushToken) {
       tasks.push(
-        sendExpoPush((user as any).expoPushToken, title, body, data).then(() => {
+        // Use "incoming_call" so the mobile FCM handler triggers the native
+        // CallKeep answer/decline UI.  "incoming_call_wakeup" is treated as a
+        // silent wakeup by the app — it shows as a plain OS alert with no way
+        // to answer, causing callee B to only see an unanswerable notification.
+        sendExpoPush((user as any).expoPushToken, title, body, { ...data, type: "incoming_call" }).then(() => {
           sent = true;
           logger.info({ destExtStr, callerExtOrNum }, "[wakeup] Expo incoming-call wakeup sent (hold window)");
         }).catch((err) => {

@@ -15,6 +15,12 @@ import { Platform } from "react-native";
 import { callKeepService } from "./voip/callKeepService";
 import { apiRequest } from "./api";
 
+// Track the UUID of any currently-displayed incoming CallKeep UI so we can end
+// the old one when a second "incoming_call" push arrives for the same call
+// (wakeup push arrives first with the MongoDB call ID; then CHANNEL_ORIGINATE
+// fires and sends a second push with the real FreeSWITCH B-leg UUID).
+let _pendingCallKeepUuid: string | null = null;
+
 // Lazily resolve the Firebase messaging module
 function getMessaging(): any | null {
   try {
@@ -114,6 +120,14 @@ export function handleForegroundMessage(message: any): void {
     // raw extension — both are user-visible. Show the phone if known, else a
     // generic label. SIP routing keys off the UUID, not this handle.
     const display = data.fromPhone ?? "Unknown caller";
+    // Deduplicate: end any previous pending CallKeep UI before showing the new one.
+    // This handles the case where the wakeup push (callUuid = MongoDB _id) arrives
+    // first, then CHANNEL_ORIGINATE fires and sends a second push with the real
+    // FreeSWITCH B-leg UUID — without this, both UUIDs would show simultaneously.
+    if (_pendingCallKeepUuid && _pendingCallKeepUuid !== uuid) {
+      try { callKeepService.endCall(_pendingCallKeepUuid); } catch { /* ignore */ }
+    }
+    _pendingCallKeepUuid = uuid;
     callKeepService.displayIncomingCall(uuid, display, display);
     return;
   }
@@ -124,6 +138,7 @@ export function handleForegroundMessage(message: any): void {
     if (uuid) {
       try { callKeepService.endCall(uuid); } catch { /* ignore */ }
     }
+    _pendingCallKeepUuid = null;
     return;
   }
 
@@ -145,6 +160,11 @@ export function handleBackgroundMessage(message: any): Promise<void> {
     // raw extension — both are user-visible. Show the phone if known, else a
     // generic label. SIP routing keys off the UUID, not this handle.
     const display = data.fromPhone ?? "Unknown caller";
+    // Deduplicate: end any previous pending CallKeep UI before showing the new one.
+    if (_pendingCallKeepUuid && _pendingCallKeepUuid !== uuid) {
+      try { callKeepService.endCall(_pendingCallKeepUuid); } catch { /* ignore */ }
+    }
+    _pendingCallKeepUuid = uuid;
     callKeepService.displayIncomingCall(uuid, display, display);
   }
 
@@ -153,6 +173,7 @@ export function handleBackgroundMessage(message: any): Promise<void> {
     if (uuid) {
       try { callKeepService.endCall(uuid); } catch { /* ignore */ }
     }
+    _pendingCallKeepUuid = null;
   }
 
   return Promise.resolve();
