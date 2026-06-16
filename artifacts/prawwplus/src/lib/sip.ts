@@ -15,6 +15,12 @@
  * Deduplication: if the Verto client already delivered the incoming call to
  * the app (callState !== "idle"), the SIP INVITE is immediately rejected with
  * 486 Busy Here so only one ring UI is shown to the user.
+ *
+ * IMPORTANT: this client does NOT auto-answer incoming calls. When onIncoming
+ * returns true the session is stored in pendingSession and the caller must
+ * invoke answerPending() (when the user taps Accept) or rejectPending()
+ * (when the user taps Decline). This gives the UI full control over whether
+ * the call screen is shown before WebRTC is established.
  */
 
 import JsSIP from "jssip";
@@ -35,7 +41,10 @@ export interface SipCallbacks {
   onRegistered:   () => void;
   onUnregistered: () => void;
   onError:        (msg: string) => void;
-  /** Incoming call — return true to accept, false to reject silently */
+  /**
+   * Incoming call — return true to hold the session for user action (UI will
+   * call answerPending/rejectPending), false to reject with 486 Busy Here.
+   */
   onIncoming: (
     session:      RTCSession,
     callId:       string,
@@ -70,7 +79,16 @@ export class SipClient {
   private reconnectTimer:   ReturnType<typeof setTimeout> | null = null;
   private reRegisterTimer:  ReturnType<typeof setInterval> | null = null;
   private reconnectAttempt  = 0;
+
+  /** Active session — set when a call is in progress (pending answer or answered). */
   private activeSession:    RTCSession | null = null;
+
+  /**
+   * Pending incoming session waiting for user action (answerPending / rejectPending).
+   * Separate from activeSession so we never accidentally answer a held session.
+   */
+  private pendingSession:   RTCSession | null = null;
+  private pendingCallId:    string = "";
 
   constructor(
     private config:    SipConfig,
@@ -97,6 +115,61 @@ export class SipClient {
     }
   }
 
+  /**
+   * Answer the pending incoming session (call when user taps Accept).
+   * No-op if there is no pending session.
+   */
+  answerPending(iceServers?: RTCIceServer[]) {
+    if (!this.pendingSession) {
+      console.warn("[SIP] answerPending called but no pending session");
+      return;
+    }
+    const session = this.pendingSession;
+    this.activeSession  = session;
+    this.pendingSession = null;
+
+    const pcConfig: RTCConfiguration = {
+      iceServers: iceServers ?? this.config.iceServers ?? [
+        { urls: "stun:stun.l.google.com:19302" },
+      ],
+    };
+
+    try {
+      session.answer({
+        pcConfig,
+        mediaConstraints: { audio: true, video: false },
+        sessionTimersExpires: 120,
+      } as any);
+      console.info("[SIP] answerPending — session.answer() called");
+    } catch (err) {
+      console.warn("[SIP] answerPending — session.answer() threw:", err);
+    }
+  }
+
+  /**
+   * Reject the pending incoming session (call when user taps Decline,
+   * when caller cancels, or when Verto wins the race).
+   * No-op if there is no pending session.
+   */
+  rejectPending(statusCode = 486, reason = "Busy Here") {
+    if (!this.pendingSession) return;
+    const session = this.pendingSession;
+    this.pendingSession = null;
+    try {
+      session.terminate({ status_code: statusCode, reason_phrase: reason });
+    } catch { /* ignore */ }
+    console.info("[SIP] rejectPending — terminated with", statusCode, reason);
+  }
+
+  /** Returns true if there is a pending session waiting for user action. */
+  hasPendingSession(): boolean {
+    return this.pendingSession !== null;
+  }
+
+  getPendingCallId(): string {
+    return this.pendingCallId;
+  }
+
   hangupActive(cause = "NORMAL_CLEARING") {
     if (this.activeSession) {
       try {
@@ -104,6 +177,8 @@ export class SipClient {
       } catch { /* ignore */ }
       this.activeSession = null;
     }
+    // Also reject any pending session that was never answered
+    this.rejectPending(487, cause);
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────
@@ -161,9 +236,9 @@ export class SipClient {
       const { session, originator } = data;
       if (originator !== "remote") return;   // outgoing — handled by Verto
 
-      const from = session.remote_identity?.uri?.user ?? "unknown";
-      const callId = session.id;
-      const sdp = (session as any).request?.body ?? "";
+      const from    = session.remote_identity?.uri?.user ?? "unknown";
+      const callId  = session.id;
+      const sdp     = (session as any).request?.body ?? "";
       const patchedSdp = preferOpusSdp(sdp);
 
       console.info("[SIP] Incoming INVITE from", from, "id", callId);
@@ -178,34 +253,26 @@ export class SipClient {
         return;
       }
 
-      this.activeSession = session;
+      // Store as pending — do NOT auto-answer.
+      // The UI layer calls answerPending() when the user taps Accept.
+      this.pendingSession = session;
+      this.pendingCallId  = callId;
 
       session.on("ended", (ev: any) => {
         const cause = ev?.cause ?? "NORMAL_CLEARING";
         console.info("[SIP] Session ended:", cause);
-        this.activeSession = null;
+        if (this.pendingSession === session) this.pendingSession = null;
+        if (this.activeSession  === session) this.activeSession  = null;
         this.callbacks.onHangup(callId, cause);
       });
 
       session.on("failed", (ev: any) => {
         const cause = ev?.cause ?? "CALL_FAILED";
         console.warn("[SIP] Session failed:", cause);
-        this.activeSession = null;
+        if (this.pendingSession === session) this.pendingSession = null;
+        if (this.activeSession  === session) this.activeSession  = null;
         this.callbacks.onHangup(callId, cause);
       });
-
-      // Answer the call with WebRTC
-      const pcConfig: RTCConfiguration = {
-        iceServers: this.config.iceServers ?? [
-          { urls: "stun:stun.l.google.com:19302" },
-        ],
-      };
-
-      session.answer({
-        pcConfig,
-        mediaConstraints: { audio: true, video: false },
-        sessionTimersExpires: 120,
-      } as any);
     });
 
     this.ua = ua;

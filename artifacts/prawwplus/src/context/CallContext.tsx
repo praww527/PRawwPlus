@@ -118,6 +118,18 @@ interface CallContextValue {
   makeVertoCall:    (to: string, callId?: string) => Promise<string | null>;
   answerVertoCall:  (callId: string, sdp: string) => Promise<void>;
   sendDtmf:         (digit: string) => void;
+  /**
+   * Called by SipInit when the SIP fallback path receives an incoming call
+   * (i.e. the Verto WebSocket didn't deliver the invite within the race window).
+   * Shows IncomingCallScreen and wires Accept/Decline to the SIP session.
+   */
+  startIncomingSip: (
+    callerNumber: string,
+    acceptFn:  () => void,
+    declineFn: () => void,
+  ) => void;
+  /** Clears any pending SIP answer/decline callbacks (called by SipInit on cleanup). */
+  clearIncomingSip: () => void;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
@@ -136,6 +148,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pendingIncomingNumberRef  = useRef<string | null>(null);
   const inboundRecordCreatedRef   = useRef<boolean>(false);
   const incomingNotificationRef   = useRef<Notification | null>(null);
+
+  // SIP fallback path: when Verto doesn't deliver the incoming call in time,
+  // SipInit calls startIncomingSip() which stores these callbacks so that
+  // acceptCall() / declineCall() can answer/reject the SIP session.
+  const sipAcceptRef  = useRef<(() => void) | null>(null);
+  const sipDeclineRef = useRef<(() => void) | null>(null);
 
   // Refs used inside the stale Verto-callback closure and the polling effect
   const callStateRef      = useRef<CallState>("idle");
@@ -313,6 +331,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         // Clear stale incoming SDP so a fresh offer from the next call is
         // never confused with a held reference from the ended one.
         incomingSdpRef.current = "";
+        // Clear any SIP fallback callbacks — the Verto path ended this call.
+        sipAcceptRef.current  = null;
+        sipDeclineRef.current = null;
         const epochAtHangup = callEpochRef.current;
         const info = resolveHangupInfo(hc);
         setHangupInfo(info);
@@ -429,6 +450,78 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallState("outgoing");
   }, []);
 
+  /**
+   * SIP fallback incoming call — called by SipInit when Verto didn't deliver
+   * the incoming call notification within the race window.  Shows IncomingCallScreen
+   * and wires Accept/Decline to the provided SIP session callbacks.
+   */
+  const startIncomingSip = useCallback((
+    callerNumber: string,
+    acceptFn:  () => void,
+    declineFn: () => void,
+  ) => {
+    if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
+    callEpochRef.current += 1;
+
+    sipAcceptRef.current  = acceptFn;
+    sipDeclineRef.current = declineFn;
+
+    const digits      = callerNumber.replace(/\D/g, "");
+    const looksInternal = digits.length === 4;
+
+    pendingIncomingNumberRef.current = callerNumber;
+    inboundRecordCreatedRef.current  = false;
+    setHangupInfo(null);
+    setCallInfo({
+      number:   looksInternal ? "" : callerNumber,
+      callType: looksInternal ? "internal" : "external",
+    });
+    setCallPhase("calling");
+    setCallState("incoming");
+
+    if (looksInternal) {
+      apiFetch(`/api/users/extension-lookup?extension=${encodeURIComponent(callerNumber)}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data: { found: boolean; name?: string; phone?: string | null } | null) => {
+          setCallInfo((prev) => {
+            if (!prev || callStateRef.current !== "incoming") return prev;
+            return {
+              ...prev,
+              callType: "internal",
+              number: data?.phone ?? prev.number,
+              name:   data?.name  ?? prev.name,
+            };
+          });
+        })
+        .catch(() => {});
+    }
+
+    // Browser notification when the tab is not in focus
+    if (
+      document.hidden &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
+      try {
+        const displayCaller = looksInternal ? "PRaww+ User" : callerNumber;
+        const n = new Notification("📞 Incoming Call — PRaww+", {
+          body: `${displayCaller} is calling`,
+          icon: "/favicon.svg",
+          tag: "incoming-call",
+          requireInteraction: true,
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+        incomingNotificationRef.current = n;
+      } catch {}
+    }
+  }, []);
+
+  /** Clears SIP fallback callbacks without changing call state. */
+  const clearIncomingSip = useCallback(() => {
+    sipAcceptRef.current  = null;
+    sipDeclineRef.current = null;
+  }, []);
+
   const updateCallId = useCallback((callId: string) => {
     setCallInfo((prev) => prev ? { ...prev, callId } : prev);
   }, []);
@@ -484,6 +577,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (incomingNotificationRef.current) {
       try { incomingNotificationRef.current.close(); } catch {}
       incomingNotificationRef.current = null;
+    }
+
+    // ── SIP fallback path ──────────────────────────────────────────────────
+    // When the call arrived via the SIP/WS leg (Verto was down), sipAcceptRef
+    // holds the SipClient.answerPending() callback.  Call it and transition to
+    // active directly — no Verto JSON-RPC needed.
+    if (sipAcceptRef.current) {
+      const fn = sipAcceptRef.current;
+      sipAcceptRef.current  = null;
+      sipDeclineRef.current = null;
+      try { fn(); } catch (e) { console.warn("[SIP] acceptCall SIP fn threw:", e); }
+      setHangupInfo(null);
+      setCallPhase("connected");
+      setCallState("active");
+      return;
     }
 
     if (clientRef.current && callInfo?.callId && incomingSdpRef.current != null) {
@@ -571,6 +679,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try { incomingNotificationRef.current.close(); } catch {}
       incomingNotificationRef.current = null;
     }
+
+    // ── SIP fallback path ──────────────────────────────────────────────────
+    if (sipDeclineRef.current) {
+      const fn = sipDeclineRef.current;
+      sipAcceptRef.current  = null;
+      sipDeclineRef.current = null;
+      try { fn(); } catch (e) { console.warn("[SIP] declineCall SIP fn threw:", e); }
+      setHangupInfo({ cause: "CALL_REJECTED", causeCode: 21, message: "Declined", icon: "ended" });
+      setCallPhase("ended");
+      if (hangupTimerRef.current) clearTimeout(hangupTimerRef.current);
+      hangupTimerRef.current = setTimeout(() => {
+        hangupTimerRef.current = null;
+        setCallState("idle");
+        setCallInfo(null);
+      }, 800);
+      return;
+    }
+
     if (clientRef.current && callInfo?.callId) {
       clientRef.current.hangup(callInfo.callId, "CALL_REJECTED", 21);
     }
@@ -617,6 +743,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       acceptCall, declineCall, endCall,
       setMuted, setSpeaker, holdCall, resumeCall,
       setVertoConfig, makeVertoCall, answerVertoCall, sendDtmf,
+      startIncomingSip, clearIncomingSip,
     }}>
       {children}
     </CallContext.Provider>
