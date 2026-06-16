@@ -121,14 +121,15 @@ interface CallContextValue {
   /**
    * Called by SipInit when the SIP fallback path receives an incoming call
    * (i.e. the Verto WebSocket didn't deliver the invite within the race window).
-   * Shows IncomingCallScreen and wires Accept/Decline to the SIP session.
+   * Shows IncomingCallScreen and wires Accept/Decline/HangUp to the SIP session.
    */
   startIncomingSip: (
     callerNumber: string,
     acceptFn:  () => void,
     declineFn: () => void,
+    hangupFn:  () => void,
   ) => void;
-  /** Clears any pending SIP answer/decline callbacks (called by SipInit on cleanup). */
+  /** Clears any pending SIP callbacks (called by SipInit on cleanup). */
   clearIncomingSip: () => void;
 }
 
@@ -151,9 +152,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // SIP fallback path: when Verto doesn't deliver the incoming call in time,
   // SipInit calls startIncomingSip() which stores these callbacks so that
-  // acceptCall() / declineCall() can answer/reject the SIP session.
+  // acceptCall() / declineCall() / endCall() can answer/reject/hang-up the SIP session.
   const sipAcceptRef  = useRef<(() => void) | null>(null);
   const sipDeclineRef = useRef<(() => void) | null>(null);
+  const sipHangupRef  = useRef<(() => void) | null>(null);
 
   // Refs used inside the stale Verto-callback closure and the polling effect
   const callStateRef      = useRef<CallState>("idle");
@@ -334,6 +336,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         // Clear any SIP fallback callbacks — the Verto path ended this call.
         sipAcceptRef.current  = null;
         sipDeclineRef.current = null;
+        sipHangupRef.current  = null;
         const epochAtHangup = callEpochRef.current;
         const info = resolveHangupInfo(hc);
         setHangupInfo(info);
@@ -459,12 +462,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     callerNumber: string,
     acceptFn:  () => void,
     declineFn: () => void,
+    hangupFn:  () => void,
   ) => {
     if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
     callEpochRef.current += 1;
 
     sipAcceptRef.current  = acceptFn;
     sipDeclineRef.current = declineFn;
+    sipHangupRef.current  = hangupFn;
 
     const digits      = callerNumber.replace(/\D/g, "");
     const looksInternal = digits.length === 4;
@@ -516,10 +521,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /** Clears SIP fallback callbacks without changing call state. */
+  /** Clears all SIP fallback callbacks without changing call state. */
   const clearIncomingSip = useCallback(() => {
     sipAcceptRef.current  = null;
     sipDeclineRef.current = null;
+    sipHangupRef.current  = null;
   }, []);
 
   const updateCallId = useCallback((callId: string) => {
@@ -587,6 +593,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const fn = sipAcceptRef.current;
       sipAcceptRef.current  = null;
       sipDeclineRef.current = null;
+      // sipHangupRef is intentionally kept — endCall() needs it to terminate the active session.
       try { fn(); } catch (e) { console.warn("[SIP] acceptCall SIP fn threw:", e); }
       setHangupInfo(null);
       setCallPhase("connected");
@@ -711,6 +718,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [callInfo]);
 
   const endCall = useCallback((_durationSecs?: number) => {
+    // ── SIP fallback path ──────────────────────────────────────────────────
+    // If the active call is a SIP-leg call (Verto was down), terminate it via
+    // the SipClient.hangUp() callback stored in sipHangupRef.
+    if (sipHangupRef.current) {
+      const fn = sipHangupRef.current;
+      sipHangupRef.current  = null;
+      sipAcceptRef.current  = null;
+      sipDeclineRef.current = null;
+      try { fn(); } catch (e) { console.warn("[SIP] endCall hangup fn threw:", e); }
+    }
+
     if (clientRef.current) {
       // Pass undefined so hangup() falls back to this.currentCallId — the real
       // Verto/FreeSWITCH UUID.  callInfo.callId is updated to the MongoDB

@@ -170,15 +170,23 @@ export class SipClient {
     return this.pendingCallId;
   }
 
-  hangupActive(cause = "NORMAL_CLEARING") {
+  /**
+   * Hang up the current active call (called when the local user taps End Call).
+   * Also rejects any pending incoming session that was never answered.
+   */
+  hangUp(cause = "NORMAL_CLEARING") {
     if (this.activeSession) {
       try {
         this.activeSession.terminate({ status_code: 487, reason_phrase: cause });
       } catch { /* ignore */ }
       this.activeSession = null;
     }
-    // Also reject any pending session that was never answered
     this.rejectPending(487, cause);
+  }
+
+  /** @deprecated Use hangUp() */
+  hangupActive(cause = "NORMAL_CLEARING") {
+    this.hangUp(cause);
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────

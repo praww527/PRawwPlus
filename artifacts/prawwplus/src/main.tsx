@@ -33,6 +33,15 @@ window.addEventListener("appinstalled", () => {
 // ── Service Worker registration with update detection ────────────────────────
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
+    // Snapshot: was the page already being controlled by a SW before this load?
+    // On first install the answer is "no" — skipWaiting() + clients.claim() in
+    // sw.js will fire controllerchange, but that's NOT a version-update reload;
+    // it's the initial activation.  If we reloaded on first install the app
+    // would appear to crash/close immediately after launch.
+    // On subsequent loads (SW already installed) this is "yes", meaning any
+    // future controllerchange IS a real version swap that should trigger a reload.
+    const wasControlledBeforeRegister = !!navigator.serviceWorker.controller;
+
     navigator.serviceWorker
       .register("/sw.js", { scope: "/" })
       .then((registration) => {
@@ -53,10 +62,12 @@ if ("serviceWorker" in navigator) {
           if (registration.installing) notifyUpdate(registration.installing);
         });
 
-        // Reload all open tabs when the new SW takes over.
+        // Reload all open tabs when the new SW takes over — but ONLY if there
+        // was already a previous controller.  Reloading on first install causes
+        // the PWA to close/crash immediately after launch on mobile.
         let refreshing = false;
         navigator.serviceWorker.addEventListener("controllerchange", () => {
-          if (!refreshing) {
+          if (wasControlledBeforeRegister && !refreshing) {
             refreshing = true;
             window.location.reload();
           }
