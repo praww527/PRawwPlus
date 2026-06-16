@@ -156,8 +156,18 @@ async function main() {
   // ── Detect public IP ────────────────────────────────────────────────────────
 
   info("Detecting VPS public IP …");
-  const { out: ipOut } = await exec(conn, "curl -sf https://api4.my-ip.io/ip 2>/dev/null || curl -sf https://ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}'");
-  const publicIp = ipOut.trim().split("\n")[0].trim();
+  // Accept explicit override first (passed via shell env, e.g. PUBLIC_IP=1.2.3.4 node ...)
+  // Fall back to running detection on the VPS itself.
+  let publicIp = process.env.PUBLIC_IP?.trim() ?? "";
+  if (!publicIp) {
+    const { out: ipOut } = await exec(conn,
+      "curl -sf --connect-timeout 5 https://api4.my-ip.io/ip 2>/dev/null" +
+      " || curl -sf --connect-timeout 5 https://ipv4.icanhazip.com 2>/dev/null" +
+      " || curl -sf --connect-timeout 5 https://api.ipify.org 2>/dev/null" +
+      " || hostname -I | awk '{print $1}'"
+    );
+    publicIp = ipOut.trim().split("\n")[0].trim();
+  }
   if (!publicIp) {
     fail("Could not detect VPS public IP. Set PUBLIC_IP env var and retry.");
     conn.end();
