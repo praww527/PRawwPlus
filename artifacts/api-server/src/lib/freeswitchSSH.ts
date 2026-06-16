@@ -427,23 +427,38 @@ async function _pushFreeSwitchConfigImpl(opts: PushOptions = {}): Promise<PushRe
         steps.push("Light reload: skipping mod_verto reload (connections preserved)");
       } else {
         // 3. Reload mod_event_socket so the new ACL/password takes effect immediately.
-        //    Only runs on a full admin-triggered push, NOT on startup (lightReload),
-        //    to avoid disrupting the ESL listener on every API restart.
-        //    unload+load rather than `reload` because reload can leave the module in
-        //    a broken state where it stops accepting connections.
-        //    ECONNRESET/timeout on the `load` step is expected — fs_cli loses its
-        //    connection when the socket closes after unload; the module reloads fine.
+        //    Only runs on a full admin-triggered push, NOT on startup (lightReload).
+        //
+        //    CRITICAL DESIGN NOTE — do NOT use `unload mod_event_socket` here.
+        //    Unloading mod_event_socket closes port 8021, which immediately drops
+        //    fs_cli's connection.  The subsequent `load mod_event_socket` then fails
+        //    because fs_cli needs port 8021 to be open to issue commands — leaving ESL
+        //    permanently dead until FreeSWITCH is manually restarted.
+        //
+        //    Strategy (in order of preference):
+        //      1. `reload mod_event_socket` via fs_cli — hot-swaps the module without
+        //         dropping the ESL connection.  reloadxml already updated the XML cache,
+        //         so the new password/ACL is picked up on reload.
+        //      2. Netcat raw ESL — pipe the reload command directly to port 8021 without
+        //         needing fs_cli (useful if fs_cli isn't available).
+        //      3. Skip gracefully — reloadxml already refreshed the config; the new
+        //         settings take effect on the next FreeSWITCH restart at worst.
         try {
-          await execCommand(conn, `${cli} -x 'unload mod_event_socket'`);
-          await new Promise((r) => setTimeout(r, 800));
-          await execCommand(conn, `${cli} -x 'load mod_event_socket'`);
-          steps.push("mod_event_socket unload+load OK — ESL config (ACL/password) reloaded");
+          const reloadOut = await execCommand(conn, `${cli} -x 'reload mod_event_socket'`);
+          steps.push(`mod_event_socket reload OK — ESL config reloaded${reloadOut ? `: ${reloadOut.slice(0, 120)}` : ""}`);
         } catch (e) {
           const msg = (e as Error).message ?? "";
-          if (/timeout|ECONNRESET|ENOTCONN|closed|reset/i.test(msg)) {
-            steps.push("mod_event_socket reload complete (connection closed as expected after unload)");
+          // Fallback: pipe the reload command directly to ESL via netcat (no fs_cli needed).
+          const hasNc = await execCommand(conn, "command -v nc 2>/dev/null || echo ''")
+            .then((p) => p.trim()).catch(() => "");
+          if (hasNc) {
+            const eslPw2 = FS_ESL_PASS.replace(/'/g, "'\\''");
+            const ncCmd = `printf 'auth ${eslPw2}\\n\\napi reload mod_event_socket\\n\\nexit\\n\\n' | nc -q2 127.0.0.1 8021 2>/dev/null || true`;
+            await execCommand(conn, ncCmd).catch(() => null);
+            steps.push("mod_event_socket reload via netcat ESL fallback");
           } else {
-            steps.push(`mod_event_socket reload: ${msg} — may need manual FS restart`);
+            // reloadxml already refreshed the XML cache; new settings take effect on next restart.
+            steps.push(`mod_event_socket reload skipped (${msg.slice(0, 80)}) — reloadxml already applied new config`);
           }
         }
 
