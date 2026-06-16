@@ -35,6 +35,7 @@ import {
   type WaitingCall,
 } from "@/services/voip/voipEngine";
 import { callKeepService } from "@/services/voip/callKeepService";
+import { useAuth } from "@/context/AuthContext";
 import { displayCaller } from "@/utils/callerIdentity";
 import { toneService } from "@/services/voip/toneService";
 import { networkMonitor } from "@/services/networkMonitor";
@@ -90,6 +91,8 @@ const CallContext = createContext<CallContextValue | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function CallProvider({ children }: PropsWithChildren) {
+  const { user } = useAuth();
+
   const [callState,         setCallState]         = useState<CallState>("idle");
   const [activeCall,        setActiveCall]        = useState<CallInfo | null>(null);
   const [incomingSession,   setIncomingSession]   = useState<RTCSession | null>(null);
@@ -153,6 +156,47 @@ export function CallProvider({ children }: PropsWithChildren) {
       sub.remove();
     };
   }, []);
+
+  // ── Auto-register when user logs in (on any screen) ─────────────────────
+  //
+  // Previously, register() was only called from DialpadScreen, so users who
+  // opened a different tab first (Calls, Contacts, etc.) were never registered
+  // and could not receive incoming calls.  This effect fires as soon as the
+  // authenticated user is available — regardless of which screen is active —
+  // so the SIP UA is always ready to receive calls.
+
+  useEffect(() => {
+    if (!user) return;
+    const engineState = voipEngine.getState();
+    if (engineState !== "idle") return;
+    if (!networkMonitor.isOnline()) return;
+
+    if (registerInFlightRef.current) return;
+    registerInFlightRef.current = (async () => {
+      try {
+        const res = await apiRequest("/verto/config");
+        if (!res.ok) return;
+        const config = await res.json();
+        const domain = process.env.EXPO_PUBLIC_FREESWITCH_DOMAIN ?? config.domain ?? "";
+        const iceServers = Array.isArray(config.iceServers) ? config.iceServers : undefined;
+        const sipWsUrl = typeof config.sipWsUrl === "string" ? config.sipWsUrl : undefined;
+        const creds: VoipCredentials = {
+          extension: String(config.extension),
+          password:  config.password,
+          domain,
+          iceServers,
+          sipWsUrl,
+        };
+        credentialsRef.current = creds;
+        await voipEngine.register(creds);
+      } catch (err) {
+        console.warn("[VoIP] Auto-register on login failed:", err);
+      }
+    })().finally(() => { registerInFlightRef.current = null; });
+
+    return () => { /* cleanup handled by unregister() on logout */ };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // ── Network monitor + auto re-register on recovery ────────────────────────
 

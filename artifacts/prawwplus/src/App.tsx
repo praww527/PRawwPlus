@@ -9,6 +9,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Layout } from "@/components/Layout";
 import { LoadingScreen } from "@/components/ui/spinner";
 import { CallProvider, useCall } from "@/context/CallContext";
+import { VertoInit } from "@/components/VertoInit";
+import { SipInit } from "@/components/SipInit";
 
 import Home            from "@/pages/Home";
 import LoginPage       from "@/pages/LoginPage";
@@ -126,6 +128,30 @@ function CallOverlays() {
   return null;
 }
 
+/**
+ * Mounts VertoInit and SipInit at the App level — outside the router — so
+ * they are never torn down and re-created when the user navigates between pages.
+ *
+ * Previously these lived inside Layout, which unmounts on every route change
+ * (because each route uses an inline arrow function as its `component` prop,
+ * creating a new React component type on every render).  That caused the SIP
+ * and Verto WebSocket connections to disconnect and reconnect on every
+ * navigation, and calls that arrived during the reconnection window were lost.
+ *
+ * Only rendered while the user is authenticated so we never attempt to fetch
+ * SIP/Verto config before a session exists.
+ */
+function CallConnector() {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) return null;
+  return (
+    <>
+      <VertoInit />
+      <SipInit />
+    </>
+  );
+}
+
 function BuyNumberRoute() {
   const [location] = useLocation();
   const params = new URLSearchParams(location.split("?")[1] ?? "");
@@ -186,6 +212,7 @@ function App() {
               <Router />
               <CallOverlays />
             </WouterRouter>
+            <CallConnector />
             <Toaster />
           </CallProvider>
         </TooltipProvider>
