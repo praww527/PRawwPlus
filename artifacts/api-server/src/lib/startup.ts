@@ -43,13 +43,20 @@ function validateEnv(): void {
   ];
 
   const recommended: Array<{ key: string; note: string }> = [
-    { key: "PAYFAST_MERCHANT_ID",   note: "Required for live payments (sandbox used in dev only)" },
-    { key: "PAYFAST_MERCHANT_KEY",  note: "Required for live payments" },
-    { key: "FREESWITCH_DOMAIN",     note: "Required for SIP/WebRTC calling" },
+    { key: "PAYFAST_MERCHANT_ID",     note: "Required for live payments (sandbox used in dev only)" },
+    { key: "PAYFAST_MERCHANT_KEY",    note: "Required for live payments" },
+    { key: "FREESWITCH_DOMAIN",       note: "Required for SIP/WebRTC calling" },
     { key: "FREESWITCH_ESL_PASSWORD", note: "Required for FreeSWITCH event socket" },
-    { key: "VAPID_PUBLIC_KEY",      note: "Required for web push notifications" },
-    { key: "VAPID_PRIVATE_KEY",     note: "Required for web push notifications" },
-    { key: "SMTP_HOST",             note: "Required for transactional email delivery (verification, invoices, alerts)" },
+    { key: "FREESWITCH_SSH_KEY",      note: "Required for automatic FreeSWITCH config push and voicemail SSH" },
+    { key: "VAPID_PUBLIC_KEY",        note: "Required for web push notifications" },
+    { key: "VAPID_PRIVATE_KEY",       note: "Required for web push notifications" },
+    { key: "FIREBASE_PROJECT_ID",     note: "Required for FCM push notifications (mobile wakeup on incoming calls)" },
+    { key: "FIREBASE_CLIENT_EMAIL",   note: "Required for FCM push notifications" },
+    { key: "FIREBASE_PRIVATE_KEY",    note: "Required for FCM push notifications" },
+    { key: "TURN_HOST",               note: "Required for WebRTC calls behind symmetric NAT (mobile/4G) — 30% of calls fail without TURN" },
+    { key: "TURN_SECRET",             note: "Required for HMAC TURN credential generation" },
+    { key: "SMTP_HOST",               note: "Required for transactional email delivery (verification, invoices, alerts)" },
+    { key: "ADMIN_API_KEY",           note: "Required for the /admin/platform-health monitoring endpoint" },
   ];
 
   const missing = required.filter((e) => !process.env[e.key]);
@@ -78,6 +85,22 @@ function validateEnv(): void {
     }
     if (secret === "changeme" || secret === "secret" || secret === "development") {
       logger.error("[env] SESSION_SECRET is using a default/weak value — change this before deploying");
+    }
+
+    // Warn if FreeSWITCH ESL is using the well-known default password
+    const eslPass = process.env.FREESWITCH_ESL_PASSWORD ?? "";
+    if (eslPass === "ClueCon" || eslPass === "cluecon" || eslPass === "") {
+      logger.error(
+        "[env] FREESWITCH_ESL_PASSWORD is set to the default FreeSWITCH password 'ClueCon' or is empty. " +
+        "This allows anyone who can reach port 8021 to control FreeSWITCH. " +
+        "Change it in /etc/freeswitch/autoload_configs/event_socket.conf.xml and in your .env file.",
+      );
+    }
+
+    // Warn if TURN secret is weak
+    const turnSecret = process.env.TURN_SECRET ?? "";
+    if (turnSecret.length > 0 && turnSecret.length < 32) {
+      logger.warn("[env] TURN_SECRET is shorter than 32 characters — use openssl rand -hex 32 to generate a strong secret");
     }
   }
 
