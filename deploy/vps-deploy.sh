@@ -124,47 +124,58 @@ else
 fi
 EOF
 
-# ─── Start / restart API server via PM2 ─────────────────────────────────────
+# ─── Build shared libs + API server ─────────────────────────────────────────
 echo ""
-echo "=== Starting API server with PM2 ==="
+echo "=== Building shared libraries and API server ==="
 ssh $SSH_OPTS "$SSH" "APP_DIR='$APP_DIR' bash -s" << 'EOF'
 set -e
 cd "$APP_DIR"
+echo "  Building shared libs..."
+pnpm --filter @workspace/db \
+     --filter @workspace/api-zod \
+     --filter @workspace/auth-web \
+     --filter @workspace/api-client-react \
+     run build
+echo "  Building API server..."
+pnpm --filter @workspace/api-server run build
+echo "  Build complete — dist/index.cjs exists: $(test -f artifacts/api-server/dist/index.cjs && echo YES || echo NO)"
+EOF
 
-# Write PM2 ecosystem file
-cat > ecosystem.config.cjs << 'PM2EOF'
-module.exports = {
-  apps: [{
-    name: 'prawwplus-api',
-    script: 'node_modules/.bin/tsx',
-    args: 'artifacts/api-server/src/index.ts',
-    cwd: '/home/ubuntu/PRawwPlus',
-    env_file: '/home/ubuntu/PRawwPlus/.env',
-    max_memory_restart: '512M',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    error_file: '/var/log/prawwplus/error.log',
-    out_file: '/var/log/prawwplus/out.log',
-    merge_logs: true,
-  }]
-};
-PM2EOF
+# ─── Start / restart API server via systemd ──────────────────────────────────
+echo ""
+echo "=== Starting API server with systemd ==="
+ssh $SSH_OPTS "$SSH" "APP_DIR='$APP_DIR' bash -s" << 'EOF'
+set -e
+# Install the service file (always keep it in sync with the repo)
+sudo cp "$APP_DIR/deploy/prawwplus-api.service" /etc/systemd/system/prawwplus-api.service
+sudo systemctl daemon-reload
+sudo systemctl enable prawwplus-api
 
-sudo mkdir -p /var/log/prawwplus
-
-if pm2 describe prawwplus-api &>/dev/null; then
-  echo "  Reloading existing process..."
-  pm2 reload prawwplus-api --update-env
+if systemctl is-active --quiet prawwplus-api; then
+  echo "  Restarting existing service..."
+  sudo systemctl restart prawwplus-api
 else
-  echo "  Starting new process..."
-  pm2 start ecosystem.config.cjs
+  echo "  Starting service for first time..."
+  sudo systemctl start prawwplus-api
 fi
 
-pm2 save
-# Enable PM2 on reboot
-sudo env PATH="$PATH:/usr/bin" pm2 startup systemd -u ubuntu --hp /home/ubuntu 2>/dev/null || true
+# Wait up to 30s for service to become active
+for i in $(seq 1 6); do
+  sleep 5
+  if systemctl is-active --quiet prawwplus-api; then
+    echo "  ✓ Service active after $((i*5))s"
+    break
+  fi
+  if [ "$i" -eq 6 ]; then
+    echo "  ✗ Service failed to start — recent logs:"
+    journalctl -u prawwplus-api -n 40 --no-pager
+    exit 1
+  fi
+  echo "  ... $((i*5))s"
+done
 
-echo "  PM2 status:"
-pm2 show prawwplus-api 2>/dev/null | grep -E "status|cpu|memory|restarts" || pm2 list
+echo "  systemd status:"
+systemctl status prawwplus-api --no-pager --lines=5
 EOF
 
 # ─── Set up Nginx ────────────────────────────────────────────────────────────
