@@ -1,5 +1,6 @@
 packages:
-  - artifacts/*
+  - artifacts/api-server
+  - artifacts/prawwplus
   - lib/*
   - lib/integrations/*
   - scripts
