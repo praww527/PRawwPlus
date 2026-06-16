@@ -8,6 +8,9 @@
       "channel": "development",
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "rtc.praww.co.za"
+      },
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleDebug"

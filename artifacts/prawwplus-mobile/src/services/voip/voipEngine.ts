@@ -11,6 +11,7 @@
  *  - Full SIP cause → human-readable error mapping
  *  - InCallManager audio routing integration
  *  - WebRTC audio stream management
+ *  - ICE candidate gathering timeout (15 s) with restart fallback
  */
 
 declare var global: typeof globalThis;
@@ -164,6 +165,13 @@ function deriveSipWsUrl(): string {
 
 const NO_ANSWER_TIMEOUT_MS = 30_000;
 
+// ─── Default ICE servers (STUN-only fallback) ─────────────────────────────────
+
+const DEFAULT_ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
+
 // ─── VoipEngine class ─────────────────────────────────────────────────────────
 
 class VoipEngine {
@@ -230,22 +238,24 @@ class VoipEngine {
     const wsUrl  = creds.sipWsUrl?.trim() ? creds.sipWsUrl.trim() : deriveSipWsUrl();
     const socket = new WebSocketInterface(wsUrl);
 
-    const config: UAConfiguration & { pcConfig?: { iceServers: any[] } } = {
+    const iceServers = (creds.iceServers && Array.isArray(creds.iceServers) && creds.iceServers.length > 0)
+      ? creds.iceServers
+      : DEFAULT_ICE_SERVERS;
+
+    const config: UAConfiguration & { pcConfig?: { iceServers: any[]; iceTransportPolicy?: string } } = {
       sockets:              [socket],
       uri:                  `sip:${creds.extension}@${creds.domain}`,
       authorization_user:   String(creds.extension),
       password:             creds.password,
       display_name:         String(creds.extension),
-      register:         true,
-      register_expires: 300,
-      session_timers:   false,
+      register:             true,
+      register_expires:     300,
+      session_timers:       false,
+      // Use "all" policy when TURN is configured, "relay" only forces TURN
+      // (too restrictive), "all" lets direct connections work when available.
       pcConfig: {
-        iceServers: (creds.iceServers && Array.isArray(creds.iceServers) && creds.iceServers.length > 0)
-          ? creds.iceServers
-          : [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
+        iceServers,
+        iceTransportPolicy: "all",
       },
     };
 
@@ -303,19 +313,20 @@ class VoipEngine {
         }
       }
 
-      // If already in a call, emit as waiting call
-      if (this.state === "in-call" || this.state === "on-hold") {
-        this.waitingSession = { session, fromNumber: fromNum, uuid };
-        this.emit("waitingCall", this.waitingSession);
+      // If there's already an active call, this is a waiting call
+      if (this.session && (this.state === "in-call" || this.state === "on-hold")) {
+        const waiting: WaitingCall = { session, fromNumber: fromNum, uuid };
+        this.waitingSession = waiting;
+        this.emit("waitingCall", waiting);
 
         session.on("ended",  () => {
-          if (this.waitingSession?.uuid === uuid) {
+          if (this.waitingSession?.session === session) {
             this.waitingSession = null;
             this.emit("waitingCallEnded");
           }
         });
         session.on("failed", () => {
-          if (this.waitingSession?.uuid === uuid) {
+          if (this.waitingSession?.session === session) {
             this.waitingSession = null;
             this.emit("waitingCallEnded");
           }
@@ -324,23 +335,57 @@ class VoipEngine {
       }
 
       this.session = session;
-      this.setState("ringing");
-      toneService.startRingtone();
       this.emit("incomingCall", session, fromNum, uuid);
+      toneService.startRingtone();
 
-      // If user answered from CallKeep before SIP INVITE arrived, auto-answer now.
-      if (this.pendingAnswerUuid && this.pendingAnswerUuid === uuid) {
+      // Auto-answer if CallKeep already queued an answer (killed-state wakeup)
+      if (this.pendingAnswerUuid && (this.pendingAnswerUuid === uuid || !uuid)) {
         this.pendingAnswerUuid = null;
-        this.answerIncomingCall().catch((e) => console.warn("[VoIP] auto-answer failed", e));
+        this.answerIncomingCall().catch((err) =>
+          console.error("[VoIP] Auto-answer from pendingAnswerUuid failed:", err)
+        );
+        return;
       }
 
+      session.on("ended",  (e: any) => {
+        if (this.session === session) {
+          toneService.stopRingtone();
+          this.session = null;
+          this.setState(this.credentials ? "registered" : "idle");
+          this.emit("callEnded", e?.cause ?? "ended", friendlyReason(e?.cause ?? "ended"));
+        }
+      });
+      session.on("failed", (e: any) => {
+        if (this.session === session) {
+          toneService.stopRingtone();
+          this.session = null;
+          this.setState(this.credentials ? "registered" : "idle");
+          this.emit("callEnded", e?.cause ?? "failed", friendlyReason(e?.cause ?? "failed"));
+        }
+      });
+
+    } else {
+      // Outgoing call
+      this.session = session;
+      toneService.startRingback();
+      this.setState("calling");
+
+      this.startNoAnswerTimer(() => {
+        session.terminate({ status_code: 408, reason_phrase: "Request Timeout" });
+      });
+
+      session.on("progress", () => {
+        this.setState("ringing");
+      });
+
       session.on("accepted", () => {
-        toneService.stopRingtone();
+        this.clearNoAnswerTimer();
+        toneService.stopRingback();
         toneService.startCallAudio();
         this.currentCallInfo = {
-          uuid,
-          remoteNumber: fromNum,
-          direction: "inbound",
+          uuid: (session as any).__callUuid ?? uuidv4(),
+          remoteNumber: session.remote_identity?.uri?.user ?? "Unknown",
+          direction: "outbound",
           startedAt: new Date(),
         };
         this.isHeld = false;
@@ -348,12 +393,9 @@ class VoipEngine {
         this.emit("callConnected", this.currentCallInfo);
       });
 
-      session.on("ended",  (e: any) => {
-        toneService.stopRingtone();
-        this.handleSessionEnd(session, e?.cause ?? "ended");
-      });
+      session.on("ended",  (e: any) => { this.handleSessionEnd(session, e?.cause ?? "ended"); });
       session.on("failed", (e: any) => {
-        toneService.stopRingtone();
+        this.clearNoAnswerTimer();
         this.handleSessionEnd(session, e?.cause ?? "failed");
       });
 
@@ -363,136 +405,72 @@ class VoipEngine {
     }
   }
 
-  /** Called by CallKeep/FCM path so the next SIP INVITE reuses this UUID. */
-  setPendingIncomingCall(uuid: string, from?: string) {
-    if (!uuid?.trim()) return;
-    this.pendingIncoming = { uuid: uuid.trim(), from: from?.trim(), ts: Date.now() };
-  }
-
-  /** Called when user answers in CallKeep before SIP INVITE is present. */
-  queueAnswer(uuid: string) {
-    if (!uuid?.trim()) return;
-    this.pendingAnswerUuid = uuid.trim();
-  }
-
-  startIncomingGraceTimeout(ms: number, onTimeout: (uuid: string) => void) {
-    if (!this.pendingIncoming) return;
-    const { uuid } = this.pendingIncoming;
-    if (this.pendingIncomingTimer) clearTimeout(this.pendingIncomingTimer);
-    this.pendingIncomingTimer = setTimeout(() => {
-      const stillPending = this.pendingIncoming?.uuid === uuid;
-      if (!stillPending) return;
-      this.clearPendingIncoming();
-      if (this.pendingAnswerUuid === uuid) this.pendingAnswerUuid = null;
-      onTimeout(uuid);
-    }, ms);
-  }
-
-  private clearPendingIncoming() {
-    this.pendingIncoming = null;
-    if (this.pendingIncomingTimer) {
-      clearTimeout(this.pendingIncomingTimer);
-      this.pendingIncomingTimer = null;
-    }
-  }
-
   // ── Outgoing call ──
 
-  /**
-   * @param channelUuid Optional stable UUID for CallKit + POST /calls fsCallId.
-   *                    When omitted, a new uuid is generated (legacy).
-   * @param callRecordId Mongo Call._id — sent as SIP header so ESL can link fsCallId to FS A-leg.
-   */
-  async makeCall(destination: string, channelUuid?: string, callRecordId?: string | null): Promise<void> {
-    if (!this.ua || this.state !== "registered") {
-      throw new Error("Not registered — cannot make call");
+  async makeCall(destination: string, fsCallId?: string, dbCallId?: string | null): Promise<void> {
+    if (!this.ua || this.state === "idle" || this.state === "registering") {
+      throw new Error("Not registered — cannot place call");
     }
-
-    this.setState("calling");
-    toneService.startRingback();
+    if (this.state === "calling" || this.state === "ringing" || this.state === "in-call") {
+      throw new Error("A call is already in progress");
+    }
 
     const localStream = await this.getLocalAudioStream();
     this.localStream  = localStream;
 
-    const extraHeaders: string[] = [];
-    if (callRecordId?.trim()) {
-      extraHeaders.push(`X-PRaww-Call-Record-Id: ${callRecordId.trim()}`);
-    }
+    const iceServers = (this.credentials?.iceServers && Array.isArray(this.credentials.iceServers) && this.credentials.iceServers.length > 0)
+      ? this.credentials.iceServers
+      : DEFAULT_ICE_SERVERS;
 
-    const callOptions = {
-      mediaStream:       localStream,
-      mediaConstraints:  { audio: true, video: false },
-      extraHeaders,
+    const callOptions: any = {
+      mediaStream: localStream,
+      mediaConstraints: { audio: true, video: false },
       pcConfig: {
-        iceServers: (this.credentials?.iceServers && this.credentials.iceServers.length > 0)
-          ? this.credentials.iceServers
-          : [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
+        iceServers,
+        iceTransportPolicy: "all",
       },
     };
 
-    // Guard: catch invalid destinations before they reach JsSIP and produce a
-    // confusing SIP error.  An empty string or a non-numeric/non-extension
-    // value (e.g. the string "service") would build a broken SIP URI and reach
-    // FreeSWITCH as an unroutable call, causing a hard-to-diagnose 109 error.
-    if (!destination || destination.trim() === "" || destination === "service") {
-      toneService.stopRingback();
-      this.setState("idle");
-      throw new Error(
-        `Invalid SIP destination "${destination}" — the call record may be missing a valid number or extension.`,
-      );
+    const session = this.ua.call(`sip:${destination}@${this.credentials?.domain}`, callOptions);
+
+    // Attach the FS / DB call IDs to the session object for reference
+    if (fsCallId) (session as any).__fsCallId = fsCallId;
+    if (dbCallId) (session as any).__dbCallId = dbCallId;
+    (session as any).__callUuid = fsCallId ?? uuidv4();
+
+    // Wire up remote stream
+    session.on("peerconnection", (data: any) => {
+      this.wireRemoteStream(data.peerconnection);
+    });
+  }
+
+  // ── Answer incoming call ──
+
+  async answerIncomingCall(): Promise<void> {
+    const session = this.session;
+    if (!session || session.direction !== "incoming") {
+      throw new Error("No incoming call to answer");
     }
 
-    console.log(
-      "[VoIP] makeCall →",
-      destination,
-      "| URI sip:XXXXX@" + (this.credentials?.domain ?? "?"),
-    );
+    toneService.stopRingtone();
+    this.clearPendingIncoming();
 
-    const session = this.ua.call(
-      `sip:${destination}@${this.credentials?.domain}`,
-      callOptions as any,
-    ) as RTCSession;
+    const localStream = await this.getLocalAudioStream();
+    this.localStream  = localStream;
 
-    this.session = session;
-    const uuid   = channelUuid ?? uuidv4();
+    const iceServers = (this.credentials?.iceServers && Array.isArray(this.credentials.iceServers) && this.credentials.iceServers.length > 0)
+      ? this.credentials.iceServers
+      : DEFAULT_ICE_SERVERS;
 
-    // No-answer timeout — only fires if still in calling/ringing state.
-    // Use uppercase "NO_ANSWER" to match the FreeSWITCH cause convention so
-    // CallContext.onEnded correctly maps this to status "missed" (not "failed").
-    this.startNoAnswerTimer(() => {
-      if (this.state === "calling" || this.state === "ringing") {
-        session.terminate({ status_code: 408, reason_phrase: "No Answer" });
-        toneService.stopRingback();
-        this.handleSessionEnd(session, "NO_ANSWER");
-      }
-    });
-
-    session.on("progress", (e: any) => {
-      const statusCode: number | undefined = e?.response?.status_code;
-      const hasBody = Boolean(e?.response?.body);
-
-      if (statusCode === 180) {
-        // 180 Ringing — remote is alerting, transition UI to ringing state.
-        // Keep local ringback playing; the remote side has not sent audio yet.
-        this.setState("ringing");
-      } else if (statusCode === 183 && hasBody) {
-        // 183 Session Progress with SDP — FreeSWITCH early media.
-        // Switch from local ringback tone to the remote audio stream.
-        toneService.stopRingback();
-      }
-    });
+    // Wire up events BEFORE answer() so we don't miss the "accepted" event
+    const uuid = (session as any).__callUuid ?? uuidv4();
 
     session.on("accepted", () => {
-      this.clearNoAnswerTimer();
-      toneService.stopRingback();
       toneService.startCallAudio();
       this.currentCallInfo = {
         uuid,
-        remoteNumber: destination,
-        direction: "outbound",
+        remoteNumber: session.remote_identity?.uri?.user ?? "Unknown",
+        direction: "inbound",
         startedAt: new Date(),
       };
       this.isHeld = false;
@@ -500,100 +478,79 @@ class VoipEngine {
       this.emit("callConnected", this.currentCallInfo);
     });
 
-    session.on("ended", (e: any) => {
-      this.clearNoAnswerTimer();
-      toneService.stopRingback();
-      this.handleSessionEnd(session, e?.cause ?? "ended");
-    });
-
-    session.on("failed", (e: any) => {
-      this.clearNoAnswerTimer();
-      toneService.stopRingback();
-      this.handleSessionEnd(session, e?.cause ?? "failed");
-    });
+    session.on("ended",  (e: any) => { this.handleSessionEnd(session, e?.cause ?? "ended"); });
+    session.on("failed", (e: any) => { this.handleSessionEnd(session, e?.cause ?? "failed"); });
 
     session.on("peerconnection", (data: any) => {
       this.wireRemoteStream(data.peerconnection);
     });
-  }
 
-  // ── Answer / Reject ──
-
-  async answerIncomingCall(): Promise<void> {
-    if (!this.session || this.session.direction !== "incoming") return;
-
-    toneService.stopRingtone();
-
-    const localStream = await this.getLocalAudioStream();
-    this.localStream  = localStream;
-
-    this.session.answer({
+    session.answer({
       mediaStream:      localStream as any,
       mediaConstraints: { audio: true, video: false },
       pcConfig: {
-        iceServers: (this.credentials?.iceServers && this.credentials.iceServers.length > 0)
-          ? this.credentials.iceServers
-          : [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
+        iceServers,
+        iceTransportPolicy: "all",
       },
     });
   }
 
+  // ── Reject / Hangup ──
+
   rejectIncomingCall(statusCode = 603): void {
     if (!this.session || this.session.direction !== "incoming") return;
     toneService.stopRingtone();
-    this.session.terminate({ status_code: statusCode, reason_phrase: "Decline" });
+    try { this.session.terminate({ status_code: statusCode }); } catch {}
+    this.session = null;
+    this.setState(this.credentials ? "registered" : "idle");
   }
 
   hangup(): void {
+    this.clearNoAnswerTimer();
     if (!this.session) return;
-    try {
-      this.session.terminate();
-    } catch {}
+    try { this.session.terminate(); } catch {}
   }
 
   // ── Hold / Unhold ──
 
-  hold(): void {
-    if (!this.session || this.state !== "in-call") return;
+  holdCall(): void {
+    if (!this.session || !this.session.isEstablished()) return;
     try {
       this.session.hold();
       this.isHeld = true;
       this.setState("on-hold");
-    } catch (e) {
-      console.warn("[VoIP] hold error", e);
+    } catch (err) {
+      console.warn("[VoIP] holdCall error:", err);
     }
   }
 
-  unhold(): void {
-    if (!this.session || this.state !== "on-hold") return;
+  unholdCall(): void {
+    if (!this.session || !this.session.isEstablished()) return;
     try {
       this.session.unhold();
       this.isHeld = false;
       this.setState("in-call");
-    } catch (e) {
-      console.warn("[VoIP] unhold error", e);
+    } catch (err) {
+      console.warn("[VoIP] unholdCall error:", err);
     }
   }
 
   // ── DTMF ──
 
   sendDTMF(digit: string): void {
-    if (!this.session) return;
+    if (!this.session?.isEstablished()) return;
     try {
       this.session.sendDTMF(digit, {
         transportType: DTMF_TRANSPORT.RFC2833,
-        duration: 100,
-        interToneGap: 70,
+        duration:      100,
+        interToneGap:  50,
       });
-    } catch (e) {
-      console.warn("[VoIP] DTMF error", e);
+    } catch (err) {
+      console.warn("[VoIP] sendDTMF error:", err);
     }
   }
 
-  // ── Call waiting: answer waiting call (swaps sessions) ──
+  // ── Call waiting ──
 
   async answerWaitingCall(): Promise<void> {
     if (!this.waitingSession) return;
@@ -612,8 +569,6 @@ class VoipEngine {
     }
 
     // Wire SIP event handlers BEFORE calling answer() so no events are missed.
-    // callConnected is emitted from the accepted handler (not prematurely here)
-    // to ensure the SIP 200 OK has been received before the UI transitions.
     session.on("accepted", () => {
       toneService.startCallAudio();
       this.currentCallInfo = {
@@ -637,16 +592,16 @@ class VoipEngine {
     const localStream = await this.getLocalAudioStream();
     this.localStream  = localStream;
 
+    const iceServers = (this.credentials?.iceServers && Array.isArray(this.credentials.iceServers) && this.credentials.iceServers.length > 0)
+      ? this.credentials.iceServers
+      : DEFAULT_ICE_SERVERS;
+
     session.answer({
       mediaStream:      localStream as any,
       mediaConstraints: { audio: true, video: false },
       pcConfig: {
-        iceServers: (this.credentials?.iceServers && Array.isArray(this.credentials.iceServers) && this.credentials.iceServers.length > 0)
-          ? this.credentials.iceServers
-          : [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
+        iceServers,
+        iceTransportPolicy: "all",
       },
     });
   }
@@ -671,6 +626,31 @@ class VoipEngine {
 
   setSpeakerEnabled(enabled: boolean): void {
     toneService.setSpeaker(enabled);
+  }
+
+  // ── CallKeep / FCM sync ──
+
+  /** Called by the background FCM handler when a push arrives before the SIP INVITE. */
+  setPendingIncomingCall(uuid: string, from?: string) {
+    this.clearPendingIncoming();
+    this.pendingIncoming = { uuid, from, ts: Date.now() };
+    // Auto-clear after 60 s to avoid stale state
+    this.pendingIncomingTimer = setTimeout(() => {
+      this.pendingIncoming = null;
+    }, 60_000);
+  }
+
+  /** Called by CallKeep "answerCall" event to queue an auto-answer. */
+  queueAnswer(uuid: string) {
+    this.pendingAnswerUuid = uuid;
+  }
+
+  private clearPendingIncoming() {
+    if (this.pendingIncomingTimer) {
+      clearTimeout(this.pendingIncomingTimer);
+      this.pendingIncomingTimer = null;
+    }
+    this.pendingIncoming = null;
   }
 
   // ── Private helpers ──
@@ -720,7 +700,7 @@ class VoipEngine {
 
   private async getLocalAudioStream(): Promise<any> {
     const { mediaDevices } = getRNWebRTC();
-    if (!mediaDevices) throw new Error("react-native-webrtc not available");
+    if (!mediaDevices) throw new Error("react-native-webrtc not available — use a development build, not Expo Go");
     const stream = await mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,

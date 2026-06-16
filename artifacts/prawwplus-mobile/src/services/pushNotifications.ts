@@ -17,31 +17,42 @@ export async function registerForPushNotificationsAsync(): Promise<
 > {
   if (Platform.OS === "web") return null;
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
 
-  if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
+    if (existingStatus !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== "granted") return null;
+
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("calls", {
+        name: "Calls",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#0A84FF",
+        sound: "default",
+      });
+    }
+
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      (Constants as any).manifest?.extra?.eas?.projectId;
+
+    if (!projectId) {
+      console.warn("[Push] No EAS projectId found — skipping Expo push token registration.");
+      return null;
+    }
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    return tokenData.data;
+  } catch (err) {
+    console.warn("[Push] registerForPushNotificationsAsync failed:", err);
+    return null;
   }
-
-  if (finalStatus !== "granted") return null;
-
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("calls", {
-      name: "Calls",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#0A84FF",
-      sound: "default",
-    });
-  }
-
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-  const tokenData = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
-  return tokenData.data;
 }
 
 export async function uploadPushToken(token: string): Promise<void> {
@@ -82,7 +93,7 @@ export function formatNotificationPayload(
   }
   if (data.type === "voicemail") {
     return {
-      title: "📬 New Voicemail",
+      title: "New Voicemail",
       body:  data.body ?? "You have a new voicemail message",
     };
   }
@@ -98,7 +109,6 @@ export function formatNotificationPayload(
       body:  data.body  ?? "",
     };
   }
-  // Generic fallback: if the data has title+body, show it
   if (data.title && data.body) {
     return { title: data.title, body: data.body };
   }
