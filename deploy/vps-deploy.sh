@@ -105,23 +105,103 @@ pnpm --filter @workspace/prawwplus run build
 echo "Build complete."
 EOF
 
-# ─── Write base .env (non-secrets only — add secrets manually) ───────────────
+# ─── Write .env with all secrets from CI/Replit environment ─────────────────
 echo ""
-echo "=== Writing base .env to VPS ==="
+echo "=== Writing .env to VPS ==="
+
+# Build the secrets payload as JSON in Node (handles newlines / special chars)
+SECRETS_JSON=$(node -e "
+const out = {};
+const plain = [
+  'MONGODB_URI','SESSION_SECRET','VAPID_PUBLIC_KEY','VAPID_PRIVATE_KEY',
+  'FREESWITCH_ESL_PASSWORD','FREESWITCH_WEBHOOK_SECRET',
+  'FIREBASE_PROJECT_ID','FIREBASE_CLIENT_EMAIL',
+  'SMTP_HOST','SMTP_PORT','SMTP_USER','SMTP_PASS','SMTP_FROM',
+  'PAYFAST_MERCHANT_ID','PAYFAST_MERCHANT_KEY','PAYFAST_PASSPHRASE',
+  'TURN_SECRET','ADMIN_API_KEY'
+];
+const jsonEncoded = ['FIREBASE_PRIVATE_KEY','FREESWITCH_SSH_KEY'];
+for (const k of [...plain, ...jsonEncoded]) {
+  let v = (process.env[k] || '').trim();
+  if ((v.startsWith('\"') && v.endsWith('\"')) || (v.startsWith(\"'\") && v.endsWith(\"'\"))) v = v.slice(1,-1).trim();
+  if (v) out[k] = { value: v, json: jsonEncoded.includes(k) };
+}
+process.stdout.write(JSON.stringify(out));
+")
+
+# Write the secrets payload to a temp file for scp
+SECRETS_FILE=$(mktemp /tmp/prawwplus-secrets-XXXXXX.json)
+echo "$SECRETS_JSON" > "$SECRETS_FILE"
+scp $SSH_OPTS "$SECRETS_FILE" "$SSH:/tmp/prawwplus_secrets.json" && rm -f "$SECRETS_FILE"
+
 ssh $SSH_OPTS "$SSH" "APP_DIR='$APP_DIR' bash -s" << 'EOF'
+set -e
 ENV_FILE="$APP_DIR/.env"
+
+# Create skeleton if missing
 if [ ! -f "$ENV_FILE" ]; then
-  cat > "$ENV_FILE" << 'ENVEOF'
+cat > "$ENV_FILE" << 'ENVEOF'
+# PRaww+ production environment
 PORT=8080
 NODE_ENV=production
+TRUST_PROXY=1
 APP_URL=https://rtc.praww.co.za
+LOG_LEVEL=info
+FREESWITCH_DOMAIN=158.180.29.84
+FREESWITCH_ESL_HOST=127.0.0.1
+FREESWITCH_ESL_PORT=8021
+FREESWITCH_WS_URL=ws://127.0.0.1:8081/
+FREESWITCH_SIP_WS_URL=ws://127.0.0.1:5066/
+FREESWITCH_SIP_WS_PORT=5066
 FREESWITCH_SSH_USER=ubuntu
+FREESWITCH_SSH_PORT=22
+FREESWITCH_CONF_DIR=/usr/local/freeswitch/conf
+FREESWITCH_STORAGE_DIR=/usr/local/freeswitch/storage
+FREESWITCH_EXT_IP=158.180.29.84
+FREESWITCH_INTERNAL_WS_URL=ws://127.0.0.1:8081/
+TURN_HOST=turn.praww.co.za
+TURN_PROBE_HOST=127.0.0.1
+MONGODB_USE_TRANSACTIONS=false
+LOW_BALANCE_THRESHOLD_COINS=10
+MAX_BILLSEC_PER_CALL=3600
+MAX_COINS_SPEND_PER_DAY=500
+MAX_CONCURRENT_CALLS_PER_USER=2
+RECONCILIATION_INTERVAL_MS=60000
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=""
+SMTP_PORT=587
+SMTP_FROM=PRaww+ <noreply@praww.co.za>
 ENVEOF
   echo "  Created $ENV_FILE"
-  echo "  ⚠  Add secrets (MONGODB_URI, SESSION_SECRET, FREESWITCH_SSH_KEY, etc.) to $ENV_FILE"
-else
-  echo "  $ENV_FILE already exists — not overwriting (add new vars manually)"
 fi
+
+# Always fix known path issue
+sed -i 's|^FREESWITCH_CONF_DIR=.*|FREESWITCH_CONF_DIR=/usr/local/freeswitch/conf|' "$ENV_FILE"
+
+# Upsert all secrets from the JSON payload
+python3 << 'PYEOF'
+import json, re
+
+with open('/tmp/prawwplus_secrets.json') as f:
+    secrets = json.load(f)
+
+with open('/home/ubuntu/PRawwPlus/.env') as f:
+    content = f.read()
+
+for key, meta in secrets.items():
+    val = meta['value']
+    use_json = meta['json']
+    stored = key + '=' + (json.dumps(val) if use_json else val)
+    pattern = r'^' + re.escape(key) + r'=.*'
+    if re.search(pattern, content, re.MULTILINE):
+        content = re.sub(pattern, stored, content, flags=re.MULTILINE)
+    else:
+        content += '\n' + stored
+with open('/home/ubuntu/PRawwPlus/.env', 'w') as f:
+    f.write(content)
+print('  Secrets upserted:', list(secrets.keys()))
+PYEOF
 EOF
 
 # ─── Build shared libs + API server ─────────────────────────────────────────
