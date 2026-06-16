@@ -14,7 +14,7 @@ set -e
 
 VPS_HOST="158.180.29.84"
 VPS_USER="${FREESWITCH_SSH_USER:-ubuntu}"
-APP_DIR="/opt/prawwplus"
+APP_DIR="/home/ubuntu/PRawwPlus"
 REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/praww527/PRawwPlus.git"
 CLEAN_URL="https://github.com/praww527/PRawwPlus.git"
 
@@ -138,8 +138,8 @@ module.exports = {
     name: 'prawwplus-api',
     script: 'node_modules/.bin/tsx',
     args: 'artifacts/api-server/src/index.ts',
-    cwd: '/opt/prawwplus',
-    env_file: '/opt/prawwplus/.env',
+    cwd: '/home/ubuntu/PRawwPlus',
+    env_file: '/home/ubuntu/PRawwPlus/.env',
     max_memory_restart: '512M',
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
     error_file: '/var/log/prawwplus/error.log',
@@ -181,7 +181,7 @@ server {
     server_name rtc.praww.co.za;
 
     # Serve React SPA (built static files)
-    root /opt/prawwplus/artifacts/prawwplus/dist;
+    root /home/ubuntu/PRawwPlus/artifacts/prawwplus/dist/public;
     index index.html;
 
     # WebSocket + API proxy
@@ -240,8 +240,8 @@ echo " Deployment complete!  https://rtc.praww.co.za"
 echo "══════════════════════════════════════════════════════════"
 echo ""
 echo " Next steps:"
-echo "  1. Add secrets to /opt/prawwplus/.env on the VPS:"
-echo "       ssh ubuntu@158.180.29.84 'nano /opt/prawwplus/.env'"
+echo "  1. Add secrets to /home/ubuntu/PRawwPlus/.env on the VPS:"
+echo "       ssh ubuntu@158.180.29.84 'nano /home/ubuntu/PRawwPlus/.env'"
 echo "       # Add: MONGODB_URI, SESSION_SECRET, FREESWITCH_SSH_KEY,"
 echo "       #      FREESWITCH_ESL_PASSWORD, FREESWITCH_DOMAIN,"
 echo "       #      SMTP_USER, SMTP_PASS, etc."
