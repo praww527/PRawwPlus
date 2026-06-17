@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearch, useLocation } from "wouter";
-import { useMakeCall, useGetMe } from "@workspace/api-client-react";
+import { useMakeCall, useGetMe, useListMyNumbers } from "@workspace/api-client-react";
 import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/apiFetch";
@@ -45,6 +45,8 @@ export default function DialPad() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { data: user } = useGetMe();
+  const { data: myNumbersData } = useListMyNumbers();
+  const primaryDid = (myNumbersData as any)?.myNumbers?.[0]?.number ?? null;
 
   const userPhone = (user as any)?.phone as string | undefined;
   const userPhoneVerified = (user as any)?.phoneVerified as boolean | undefined;
@@ -232,6 +234,34 @@ export default function DialPad() {
       background: "transparent",
       overflowY: "auto",
     }}>
+
+      {/* Primary DID display — prominent, no extension shown */}
+      <div style={{
+        width: "100%", maxWidth: 480,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "12px 20px 0",
+        gap: 8,
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "7px 16px", borderRadius: 30,
+          background: primaryDid ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.06)",
+          border: `1px solid ${primaryDid ? "rgba(59,130,246,0.25)" : "rgba(255,255,255,0.10)"}`,
+        }}>
+          <Phone style={{
+            width: 13, height: 13,
+            color: primaryDid ? "#93c5fd" : "rgba(255,255,255,0.3)",
+            flexShrink: 0,
+          }} />
+          <span style={{
+            fontSize: 15, fontWeight: 700, letterSpacing: "0.03em",
+            fontFamily: "var(--font-sans)",
+            color: primaryDid ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.3)",
+          }}>
+            {primaryDid ?? "No number assigned"}
+          </span>
+        </div>
+      </div>
 
       {/* Top bar: Balance (left) | Connection dot (center) | Profile (right) */}
       <div style={{
@@ -430,9 +460,6 @@ export default function DialPad() {
                 }}
               >
                 <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.88)" }}>{u.name}</span>
-                <span style={{ fontSize: 12, color: u.did ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.22)", fontFamily: "monospace" }}>
-                  {u.did ?? "no number"}
-                </span>
               </button>
             ))}
           </div>

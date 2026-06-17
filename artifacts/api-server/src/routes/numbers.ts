@@ -433,6 +433,7 @@ router.post("/numbers/admin/provision", async (req, res) => {
           assignedAt: now,
           providerRef: provisioned.providerRef,
           source: "provider",
+          userId: routeType === "agent" ? routeTarget : null,
           routeType: routeType ?? "agent",
           routeTarget: routeTarget ?? null,
         });

@@ -547,9 +547,6 @@ export default function CallingScreen() {
                     }}
                   >
                     <span style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>{u.name}</span>
-                    <span style={{ fontSize: 11, color: u.did ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>
-                      {u.did ?? "no number"}
-                    </span>
                   </button>
                 ))}
               </div>
