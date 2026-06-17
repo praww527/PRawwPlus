@@ -40,6 +40,7 @@ import IvrPage           from "@/pages/IvrPage";
 import QueuesPage        from "@/pages/QueuesPage";
 import ConferencesPage   from "@/pages/ConferencesPage";
 import NumbersPage       from "@/pages/NumbersPage";
+import RingGroupsPage    from "@/pages/admin/RingGroups";
 import CdrPage           from "@/pages/CdrPage";
 import BillingPage       from "@/pages/BillingPage";
 import TeamPage          from "@/pages/TeamPage";
@@ -199,6 +200,7 @@ function Router() {
       <Route path="/diagnostics"     component={() => <ProtectedRoute component={DiagnosticsPage} />} />
       <Route path="/admin/platform-health" component={() => <AdminRoute component={PlatformHealth} />} />
       <Route path="/admin/dashboard"  component={() => <AdminRoute     component={AdminDashboard} />} />
+      <Route path="/admin/ring-groups" component={() => <AdminRoute    component={RingGroupsPage} />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
       <Route path="/reseller"        component={() => <ResellerRoute  component={ResellerDashboard} />} />
       <Route component={NotFound} />

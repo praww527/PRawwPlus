@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
@@ -4617,6 +4618,7 @@ function OperationsTab() {
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function Admin() {
   const [tab, setTab] = useState<TabId>("overview");
+  const [, setLocation] = useLocation();
 
   return (
     <div data-theme="dark" className="space-y-4 animate-in fade-in duration-500">
@@ -4652,6 +4654,21 @@ export default function Admin() {
             </button>
           );
         })}
+        {/* Ring Groups — separate page, admin-only */}
+        <button
+          onClick={() => setLocation("/admin/ring-groups")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+            padding: "7px 14px", borderRadius: 22,
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+            border: "1px solid rgba(96,165,250,0.25)", transition: "all 0.15s",
+            background: "rgba(96,165,250,0.08)",
+            color: "#93c5fd",
+          }}
+        >
+          <Users2 style={{ width: 13, height: 13 }} />
+          Ring Groups
+        </button>
       </div>
 
       {/* Tab content — each panel is wrapped in a per-tab ErrorBoundary so a

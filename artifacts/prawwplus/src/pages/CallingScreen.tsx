@@ -454,7 +454,7 @@ export default function CallingScreen() {
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <input
               type="text"
-              placeholder="Ext 1002 or +27821234567"
+              placeholder="Name or +27821234567"
               value={confExtInput}
               onChange={(e) => setConfExtInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleStartConference()}

@@ -156,21 +156,13 @@ export default function AdminDashboard() {
       if (rCdr.status   === "fulfilled") setCdr(rCdr.value);
       if (rDb.status    === "fulfilled") setDb(rDb.value);
 
-      // Dynamic lookup: use the first user's phone number rather than a hardcoded value.
-      // If no users have phone numbers yet, skip the test gracefully.
+      // Lookup health is derived from DB + ESL state — the /freeswitch/lookup
+      // endpoint is loopback-only (FreeSWITCH server → API) and cannot be called
+      // from browser JS.  We infer health from platform-health + db-info instead.
       try {
-        const phones = (users?.users ?? [])
-          .map((u: any) => u.phone)
-          .filter(Boolean);
-        if (phones.length === 0) {
-          setLookup({ ok: true, value: null });
-        } else {
-          const testPhone = phones[0];
-          const r = await fetch(`/api/freeswitch/lookup?number=${encodeURIComponent(testPhone)}`);
-          const text = await r.text();
-          const val = text.trim();
-          setLookup({ ok: r.ok && val !== "", value: val || null });
-        }
+        const eslOk   = rPh.status === "fulfilled" && rPh.value?.esl?.connected === true;
+        const dbOk    = rDb.status === "fulfilled"  && rDb.value?.connected      === true;
+        setLookup({ ok: eslOk && dbOk, value: eslOk && dbOk ? "inferred" : null });
       } catch {
         setLookup({ ok: false, value: null });
       }
@@ -434,23 +426,22 @@ export default function AdminDashboard() {
             </code>
           </p>
 
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: 0 }}>
+            Health is inferred from ESL + DB status — the lookup endpoint is
+            loopback-only (FreeSWITCH → API) and is not reachable from the browser.
+          </p>
+
           {lookup === null && (
-            <Alert type="warn">Testing…</Alert>
+            <Alert type="warn">Checking…</Alert>
           )}
-          {lookup !== null && lookup.ok && lookup.value !== null && (
+          {lookup !== null && lookup.ok && (
             <Alert type="ok">
-              ✓ Lookup working — returned extension {lookup.value}
-            </Alert>
-          )}
-          {lookup !== null && lookup.ok && lookup.value === null && (
-            <Alert type="warn">
-              No registered phone numbers yet — lookup test skipped.
+              ✓ Routing stack healthy — ESL connected and database reachable.
             </Alert>
           )}
           {lookup !== null && !lookup.ok && (
             <Alert type="error">
-              ✗ Lookup failed — returned {lookup.value ?? "not_found"}.
-              Check MongoDB connection and ensure at least one user has a registered phone number.
+              ✗ Routing degraded — ESL or database is not healthy. Check cards above.
             </Alert>
           )}
 
