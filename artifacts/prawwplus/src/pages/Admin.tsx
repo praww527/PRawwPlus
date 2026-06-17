@@ -49,6 +49,7 @@ const TABS = [
   { id: "analytics",    label: "Analytics",     icon: LineChart    },
   { id: "commissions",  label: "Commissions",   icon: TrendingUp   },
   { id: "rate-plans",   label: "Rate Plans",    icon: Tag          },
+  { id: "numbers",      label: "Numbers",       icon: Phone        },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -4722,6 +4723,7 @@ export default function Admin() {
           {tab === "security"      && <SecurityTab />}
           {tab === "analytics"     && <AnalyticsTab />}
           {tab === "commissions"   && <CommissionsTab />}
+          {tab === "numbers"       && <NumbersTab />}
         </div>
       </ErrorBoundary>
     </div>
@@ -6360,6 +6362,417 @@ interface CommissionSummary {
   lifetimeCents: number;
   pendingCount: number;
   approvedCount: number;
+}
+
+// ─── Numbers Tab ───────────────────────────────────────────────────────────────
+interface AdminNumber {
+  id: string;
+  number: string;
+  routeType: string;
+  routeTarget: string;
+  source: string;
+  providerRef?: string;
+  locked: boolean;
+  lockedUntil?: string;
+  country?: string;
+  region?: string;
+  user?: { id: string; name?: string; email?: string; extension?: number } | null;
+}
+
+function NumbersTab() {
+  const { toast } = useToast();
+  const [numbers, setNumbers]         = useState<AdminNumber[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [fsLoading, setFsLoading]     = useState(false);
+  const [fsPushed, setFsPushed]       = useState<{ ok: boolean; steps?: string[]; error?: string } | null>(null);
+
+  const [provForm, setProvForm]       = useState({ phone_number: "", provider_ref: "", routeType: "agent", routeTarget: "" });
+  const [provisioning, setProvisioning] = useState(false);
+
+  const [routeEdit, setRouteEdit]     = useState<{ id: string; routeType: string; routeTarget: string; ringGroupExts: string } | null>(null);
+  const [routeSaving, setRouteSaving] = useState(false);
+
+  const [trunkEdit, setTrunkEdit]     = useState<{ id: string; number: string; sipTrunkHost: string; sipTrunkPort: string } | null>(null);
+  const [trunkSaving, setTrunkSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminFetch("/numbers/admin")
+      .then((d: any) => setNumbers(d.numbers ?? []))
+      .catch((e: any) => toast({ title: "Failed to load numbers", description: e.message, variant: "destructive" }))
+      .finally(() => setLoading(false));
+  }, [toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const provision = async () => {
+    if (!provForm.phone_number.trim()) { toast({ title: "phone_number is required", variant: "destructive" }); return; }
+    setProvisioning(true);
+    try {
+      await adminFetch("/numbers/admin/provision", {
+        method: "POST",
+        body: JSON.stringify({
+          phone_number: provForm.phone_number.trim(),
+          provider_ref: provForm.provider_ref.trim() || undefined,
+          routeType: provForm.routeType || "agent",
+          routeTarget: provForm.routeTarget.trim() || undefined,
+        }),
+      });
+      toast({ title: "Number provisioned" });
+      setProvForm({ phone_number: "", provider_ref: "", routeType: "agent", routeTarget: "" });
+      load();
+    } catch (e: any) {
+      toast({ title: "Provision failed", description: e.message, variant: "destructive" });
+    } finally { setProvisioning(false); }
+  };
+
+  const saveRoute = async () => {
+    if (!routeEdit) return;
+    setRouteSaving(true);
+    try {
+      const body: any = { routeType: routeEdit.routeType };
+      if (routeEdit.routeType === "agent") {
+        body.routeTarget = routeEdit.routeTarget.trim();
+      } else if (routeEdit.routeType === "ring_group") {
+        body.routeTarget = routeEdit.ringGroupExts.split(",").map((s: string) => s.trim()).filter(Boolean).join(",");
+      } else if (routeEdit.routeType === "queue") {
+        body.routeTarget = routeEdit.routeTarget.trim();
+      }
+      await adminFetch(`/numbers/${routeEdit.id}/route`, { method: "PUT", body: JSON.stringify(body) });
+      toast({ title: "Route updated" });
+      setRouteEdit(null);
+      load();
+    } catch (e: any) {
+      toast({ title: "Route update failed", description: e.message, variant: "destructive" });
+    } finally { setRouteSaving(false); }
+  };
+
+  const saveTrunk = async () => {
+    if (!trunkEdit) return;
+    setTrunkSaving(true);
+    try {
+      await adminFetch(`/numbers/${trunkEdit.id}/trunk`, {
+        method: "PUT",
+        body: JSON.stringify({
+          sipTrunkHost: trunkEdit.sipTrunkHost.trim(),
+          sipTrunkPort: trunkEdit.sipTrunkPort ? Number(trunkEdit.sipTrunkPort) : 5060,
+        }),
+      });
+      toast({ title: "SIP trunk updated via BizVoIP" });
+      setTrunkEdit(null);
+    } catch (e: any) {
+      toast({ title: "Trunk update failed", description: e.message, variant: "destructive" });
+    } finally { setTrunkSaving(false); }
+  };
+
+  const pushFsConfig = async () => {
+    setFsLoading(true);
+    setFsPushed(null);
+    try {
+      const res = await adminFetch("/freeswitch/configure", { method: "POST" });
+      setFsPushed({ ok: true, steps: res.steps ?? [] });
+      toast({ title: "FreeSWITCH config pushed" });
+    } catch (e: any) {
+      setFsPushed({ ok: false, error: e.message });
+      toast({ title: "Config push failed", description: e.message, variant: "destructive" });
+    } finally { setFsLoading(false); }
+  };
+
+  const deleteNumber = async (id: string, num: string) => {
+    if (!confirm(`Delete number ${num}? This is irreversible.`)) return;
+    try {
+      await adminFetch(`/numbers/${id}`, { method: "DELETE" });
+      toast({ title: "Number deleted" });
+      load();
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const routeLabel = (n: AdminNumber) => {
+    if (n.routeType === "agent")       return n.user ? `Agent · ${n.user.name ?? n.user.email ?? `ext ${n.user.extension}`}` : `Agent · ${n.routeTarget}`;
+    if (n.routeType === "ring_group")  return `Ring Group · ${n.routeTarget}`;
+    if (n.routeType === "queue")       return `Queue · ${n.routeTarget}`;
+    return n.routeType ?? "—";
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Phone className="w-6 h-6 text-blue-400" />
+        <h2 className="text-xl font-bold text-white">DID Numbers</h2>
+        <button onClick={load} className="ml-auto p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* FreeSWITCH Config Push */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Server className="w-4 h-4 text-green-400" />
+          <span className="text-sm font-semibold text-white">FreeSWITCH Config</span>
+        </div>
+        <p className="text-xs text-gray-400">Push dialplan + DID routing config to FreeSWITCH via SSH. Required after adding or re-routing numbers.</p>
+        <button
+          onClick={pushFsConfig}
+          disabled={fsLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-green-700/60 hover:bg-green-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {fsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+          {fsLoading ? "Pushing…" : "Push Config to FreeSWITCH"}
+        </button>
+        {fsPushed && (
+          <div className={`rounded-lg p-3 text-xs font-mono space-y-1 ${fsPushed.ok ? "bg-green-900/30 border border-green-700/40 text-green-300" : "bg-red-900/30 border border-red-700/40 text-red-300"}`}>
+            {fsPushed.error && <p className="font-semibold">{fsPushed.error}</p>}
+            {(fsPushed.steps ?? []).map((s, i) => <p key={i} className="opacity-80">{s}</p>)}
+          </div>
+        )}
+      </div>
+
+      {/* Provision new number */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <PhoneForwarded className="w-4 h-4 text-purple-400" />
+          <span className="text-sm font-semibold text-white">Provision Number</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          <div>
+            <label className="text-[10px] text-gray-400 mb-1 block">Phone Number (E.164)</label>
+            <input
+              value={provForm.phone_number}
+              onChange={e => setProvForm(f => ({ ...f, phone_number: e.target.value }))}
+              placeholder="+27XXXXXXXXX"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-400 mb-1 block">Provider Ref (optional)</label>
+            <input
+              value={provForm.provider_ref}
+              onChange={e => setProvForm(f => ({ ...f, provider_ref: e.target.value }))}
+              placeholder="BizVoIP DID ID"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-400 mb-1 block">Route Type</label>
+            <select
+              value={provForm.routeType}
+              onChange={e => setProvForm(f => ({ ...f, routeType: e.target.value }))}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="agent">Agent</option>
+              <option value="ring_group">Ring Group</option>
+              <option value="queue">Queue</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-400 mb-1 block">Route Target (User ID / ext list)</label>
+            <input
+              value={provForm.routeTarget}
+              onChange={e => setProvForm(f => ({ ...f, routeTarget: e.target.value }))}
+              placeholder="User ID or ext,ext"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
+        </div>
+        <button
+          onClick={provision}
+          disabled={provisioning}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-700/60 hover:bg-blue-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {provisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+          {provisioning ? "Provisioning…" : "Provision"}
+        </button>
+      </div>
+
+      {/* Numbers list */}
+      {loading ? (
+        <div className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-400" /></div>
+      ) : numbers.length === 0 ? (
+        <div className="text-center py-14 text-gray-500">
+          <Phone className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No numbers provisioned yet</p>
+        </div>
+      ) : (
+        <div className="overflow-auto rounded-xl border border-white/10">
+          <table className="w-full text-xs text-gray-300 border-collapse">
+            <thead>
+              <tr className="border-b border-white/10 bg-white/5">
+                {["Number","Route","Source","Status","Actions"].map(h => (
+                  <th key={h} className="text-left py-3 px-4 text-gray-400 font-medium whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {numbers.map(n => (
+                <tr key={n.id} className="border-b border-white/5 hover:bg-white/[0.03]">
+                  <td className="py-3 px-4 font-mono font-medium text-white">{n.number}</td>
+                  <td className="py-3 px-4 text-gray-300 max-w-[200px] truncate">{routeLabel(n)}</td>
+                  <td className="py-3 px-4">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${n.source === "provider" ? "text-purple-300 bg-purple-400/10" : "text-gray-400 bg-white/5"}`}>
+                      {n.source ?? "local"}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4">
+                    {n.locked ? (
+                      <span className="text-amber-400 text-[10px] font-semibold">🔒 locked</span>
+                    ) : (
+                      <span className="text-green-400 text-[10px] font-semibold">✓ active</span>
+                    )}
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setRouteEdit({ id: n.id, routeType: n.routeType ?? "agent", routeTarget: n.routeTarget ?? "", ringGroupExts: n.routeTarget ?? "" })}
+                        className="px-2 py-1 rounded text-[10px] font-medium bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 transition-colors"
+                        title="Edit route"
+                      >
+                        Route
+                      </button>
+                      {n.source === "provider" && n.providerRef && (
+                        <button
+                          onClick={() => setTrunkEdit({ id: n.id, number: n.number, sipTrunkHost: process.env.BIZVOIP_SIP_TRUNK_HOST ?? "", sipTrunkPort: "5060" })}
+                          className="px-2 py-1 rounded text-[10px] font-medium bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 transition-colors"
+                          title="Update SIP trunk"
+                        >
+                          Trunk
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteNumber(n.id, n.number)}
+                        className="p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
+                        title="Delete number"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Route edit modal */}
+      {routeEdit && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111] border border-white/10 rounded-2xl p-6 w-full max-w-md space-y-4">
+            <div className="flex items-center gap-3">
+              <GitBranch className="w-5 h-5 text-blue-400" />
+              <h3 className="text-base font-bold text-white">Edit Route</h3>
+              <button onClick={() => setRouteEdit(null)} className="ml-auto text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Route Type</label>
+                <select
+                  value={routeEdit.routeType}
+                  onChange={e => setRouteEdit(r => r ? { ...r, routeType: e.target.value } : r)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  <option value="agent">Agent (single user)</option>
+                  <option value="ring_group">Ring Group (extensions)</option>
+                  <option value="queue">Queue</option>
+                </select>
+              </div>
+              {routeEdit.routeType === "agent" && (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">User ID</label>
+                  <input
+                    value={routeEdit.routeTarget}
+                    onChange={e => setRouteEdit(r => r ? { ...r, routeTarget: e.target.value } : r)}
+                    placeholder="MongoDB user _id"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                </div>
+              )}
+              {routeEdit.routeType === "ring_group" && (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Extensions (comma-separated)</label>
+                  <input
+                    value={routeEdit.ringGroupExts}
+                    onChange={e => setRouteEdit(r => r ? { ...r, ringGroupExts: e.target.value } : r)}
+                    placeholder="1001,1002,1003"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                </div>
+              )}
+              {routeEdit.routeType === "queue" && (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Queue Name</label>
+                  <input
+                    value={routeEdit.routeTarget}
+                    onChange={e => setRouteEdit(r => r ? { ...r, routeTarget: e.target.value } : r)}
+                    placeholder="support_queue"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setRouteEdit(null)} className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors">Cancel</button>
+              <button
+                onClick={saveRoute}
+                disabled={routeSaving}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {routeSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {routeSaving ? "Saving…" : "Save Route"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SIP Trunk re-point modal */}
+      {trunkEdit && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111] border border-white/10 rounded-2xl p-6 w-full max-w-md space-y-4">
+            <div className="flex items-center gap-3">
+              <Radio className="w-5 h-5 text-purple-400" />
+              <h3 className="text-base font-bold text-white">Update SIP Trunk</h3>
+              <button onClick={() => setTrunkEdit(null)} className="ml-auto text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-xs text-gray-400">Re-point <span className="text-white font-mono">{trunkEdit.number}</span> to a new SIP trunk host via the BizVoIP API.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">SIP Trunk Host</label>
+                <input
+                  value={trunkEdit.sipTrunkHost}
+                  onChange={e => setTrunkEdit(t => t ? { ...t, sipTrunkHost: e.target.value } : t)}
+                  placeholder="portasip.bizvoip.co.za"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">SIP Port (default 5060)</label>
+                <input
+                  value={trunkEdit.sipTrunkPort}
+                  onChange={e => setTrunkEdit(t => t ? { ...t, sipTrunkPort: e.target.value } : t)}
+                  placeholder="5060"
+                  type="number"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setTrunkEdit(null)} className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-lg transition-colors">Cancel</button>
+              <button
+                onClick={saveTrunk}
+                disabled={trunkSaving}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {trunkSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radio className="w-4 h-4" />}
+                {trunkSaving ? "Updating…" : "Update Trunk"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CommissionsTab() {

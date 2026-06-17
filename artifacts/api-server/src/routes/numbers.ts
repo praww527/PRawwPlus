@@ -484,6 +484,49 @@ router.post("/numbers/admin/provision", async (req, res) => {
   res.json({ message: "Number provisioned successfully", number: phone_number, routeType, routeTarget });
 });
 
+/* ── PUT /numbers/:id/trunk — update SIP trunk host via BizVoIP (admin only) ── */
+router.put("/numbers/:id/trunk", async (req, res) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const adminUser = (req as any).user;
+  if (!adminUser?.isAdmin) { res.status(403).json({ error: "Admin access required" }); return; }
+
+  await connectDB();
+  const { id } = req.params;
+  const { sipTrunkHost, sipTrunkPort } = req.body;
+
+  if (!sipTrunkHost || typeof sipTrunkHost !== "string" || !sipTrunkHost.trim()) {
+    res.status(400).json({ error: "sipTrunkHost is required" });
+    return;
+  }
+
+  const number = await PhoneNumberModel.findById(id);
+  if (!number) { res.status(404).json({ error: "Number not found" }); return; }
+
+  const providerRef = (number as any).providerRef ?? null;
+  const source      = (number as any).source ?? null;
+
+  if (source !== "provider" || !providerRef) {
+    res.status(400).json({ error: "This number was not provisioned via a DID provider and has no trunk to update" });
+    return;
+  }
+
+  if (!hasDidProvider()) {
+    res.status(503).json({ error: "No DID provider configured. Set BIZVOIP_API_KEY + BIZVOIP_API_URL." });
+    return;
+  }
+
+  try {
+    const provider = getActiveDidProvider();
+    const port = sipTrunkPort ? Number(sipTrunkPort) : 5060;
+    await provider.updateTrunk(providerRef, sipTrunkHost.trim(), port);
+    logger.info({ numberId: id, sipTrunkHost, port, provider: provider.name }, "[numbers/trunk] SIP trunk updated");
+    res.json({ ok: true, number: number.number, sipTrunkHost: sipTrunkHost.trim(), sipTrunkPort: port });
+  } catch (err: any) {
+    logger.error({ err: err?.message, numberId: id }, "[numbers/trunk] SIP trunk update failed");
+    res.status(502).json({ error: "provider_error", message: err?.message ?? "Trunk update failed." });
+  }
+});
+
 /* ── POST /numbers/change — initiate number change (R100 via PayFast) ── */
 router.post("/numbers/change", async (req, res) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }

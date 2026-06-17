@@ -46,6 +46,9 @@ export interface DidProvider {
     sipTrunkPort?: number;
   }): Promise<ProvisionedDid>;
 
+  /** Re-point an existing DID to a new SIP trunk host (for trunk migration) */
+  updateTrunk(providerRef: string, sipTrunkHost: string, sipTrunkPort?: number): Promise<void>;
+
   /** Release a DID back to the provider (on number removal) */
   release(params: {
     phoneNumber: string;
