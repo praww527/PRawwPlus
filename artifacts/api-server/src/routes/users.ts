@@ -167,7 +167,7 @@ router.get("/users/directory", async (req: Request, res: Response) => {
     orgId,
     $or: [{ name: regex }, { username: regex }],
   })
-    .select("_id name username")
+    .select("_id name username extension")
     .limit(10)
     .lean();
 
@@ -179,10 +179,11 @@ router.get("/users/directory", async (req: Request, res: Response) => {
 
   res.json({
     users: users.map((u: any) => ({
-      id:       String(u._id),
-      name:     u.name ?? u.username ?? String(u._id),
-      username: u.username ?? null,
-      did:      didMap[String(u._id)] ?? null,
+      id:        String(u._id),
+      name:      u.name ?? u.username ?? String(u._id),
+      username:  u.username ?? null,
+      extension: u.extension ?? null,
+      did:       didMap[String(u._id)] ?? null,
     })),
   });
 });

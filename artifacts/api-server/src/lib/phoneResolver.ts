@@ -26,13 +26,24 @@ function normalizePhoneForLookup(raw: string): string[] {
 }
 
 /**
- * Resolve a phone number to an internal extension (legacy: used by dialplan phone_number_lookup).
- * Extensions are internal routing keys — never exposed to callers.
+ * Resolve a phone number or direct extension to an internal extension.
+ * Accepts:
+ *   - A 4-digit extension (1000–9999) — returned directly without a DB lookup
+ *   - A phone number (E.164 or local format) — looked up against user records
  */
 export async function resolvePhoneToExtension(recipientNumber: string): Promise<number | null> {
   if (!recipientNumber || typeof recipientNumber !== "string") return null;
 
   const trimmed = recipientNumber.trim();
+
+  // Direct extension input (1000–9999) — route internally without phone lookup
+  if (/^[1-9][0-9]{3}$/.test(trimmed)) {
+    const ext = parseInt(trimmed, 10);
+    const user = await UserModel.findOne({ extension: ext }).select("_id extension").lean();
+    if (user) return ext;
+    return null;
+  }
+
   const candidates = normalizePhoneForLookup(trimmed);
   if (candidates.length === 0) return null;
 

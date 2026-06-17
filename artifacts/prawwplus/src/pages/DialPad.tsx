@@ -64,7 +64,7 @@ export default function DialPad() {
   const zeroHandled     = useRef(false);
 
   /* ── Colleague name typeahead ──────────────────────────────────────────── */
-  type DirUser = { id: string; name: string; username: string | null; did: string | null };
+  type DirUser = { id: string; name: string; username: string | null; extension: number | null; did: string | null };
   const [dirQuery, setDirQuery]     = useState("");
   const [dirResults, setDirResults] = useState<DirUser[]>([]);
   const [dirLoading, setDirLoading] = useState(false);
@@ -127,7 +127,8 @@ export default function DialPad() {
   const isVerificationGated = !verificationStatus || verificationStatus === "none" || verificationStatus === "rejected";
   const isVerificationPending = verificationStatus === "pending";
 
-  const minLength = 7;
+  const minLength = 4;
+  const isExtension = /^[1-9]\d{3}$/.test(number.trim());
 
   const handleCall = async () => {
     if (isVerificationGated) {
@@ -140,18 +141,7 @@ export default function DialPad() {
       return;
     }
     if (!number || number.length < minLength) {
-      toast({ title: "Enter a valid mobile number", variant: "destructive" });
-      return;
-    }
-
-    // Block bare 4-digit strings — these look like internal extensions which
-    // are backend-only identifiers and must never be dialled directly by users.
-    if (/^[1-9]\d{3}$/.test(number.trim())) {
-      toast({
-        title: "Invalid number",
-        description: "Please enter the full mobile number of the person you want to call.",
-        variant: "destructive",
-      });
+      toast({ title: "Enter an extension (4 digits) or full number", variant: "destructive" });
       return;
     }
 
@@ -442,12 +432,16 @@ export default function DialPad() {
               <button
                 key={u.id}
                 onClick={() => {
-                  if (u.did) {
+                  if (u.extension) {
+                    setNumber(String(u.extension));
+                    setDirQuery("");
+                    setDirOpen(false);
+                  } else if (u.did) {
                     setNumber(u.did);
                     setDirQuery("");
                     setDirOpen(false);
                   } else {
-                    toast({ title: `${u.name} has no DID assigned`, variant: "destructive" });
+                    toast({ title: `${u.name} has no extension assigned`, variant: "destructive" });
                     setDirOpen(false);
                   }
                 }}
@@ -459,7 +453,12 @@ export default function DialPad() {
                   cursor: "pointer", textAlign: "left",
                 }}
               >
-                <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.88)" }}>{u.name}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.88)" }}>{u.name}</span>
+                  {u.extension && (
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>Ext {u.extension}</span>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -485,13 +484,13 @@ export default function DialPad() {
           fontSize: numFontSize,
           fontWeight: 300,
           letterSpacing: "0.04em",
-          color: number ? "var(--text-1)" : "transparent",
+          color: number ? (isExtension ? "#93c5fd" : "var(--text-1)") : "rgba(255,255,255,0.2)",
           userSelect: "none",
           lineHeight: 1.1,
           fontFamily: "var(--font-sans)",
-          transition: "font-size 0.1s",
+          transition: "font-size 0.1s, color 0.15s",
         }}>
-          {number || "0"}
+          {number || "Ext or number"}
         </span>
 
         {number.length > 0 && (
