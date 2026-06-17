@@ -101,6 +101,9 @@ function pstnGatewayXml(): string {
       <param name="register" value="${xmlEscape(register)}"/>
       <param name="expire-seconds" value="300"/>
       <param name="retry-seconds" value="30"/>
+      <!-- Prefer G729 for this PSTN gateway; fall back to PCMU/PCMA if unavailable -->
+      <!-- G729 transcoding requires freeswitch-mod-com-g729 on the FreeSWITCH server -->
+      <param name="codec-prefs" value="G729,PCMU,PCMA"/>
     </gateway>
   `;
 }
@@ -157,11 +160,15 @@ export function vertoConf(fsIp: string): string {
 
       <!--
         Codecs: Opus first (WebRTC / browser / mobile), G722 for HD voice on
-        SIP endpoints, then PCMU/PCMA for PSTN gateway interoperability.
+        SIP endpoints, G729 for PSTN trunk compatibility, then PCMU/PCMA fallback.
         mod_opus MUST be installed: sudo apt-get install freeswitch-mod-opus
+        G729 transcoding REQUIRES: sudo apt-get install freeswitch-mod-com-g729
+        (commercial codec — one-time licence fee from SignalWire/FreeSWITCH).
+        Without mod_com_g729 installed, FreeSWITCH will skip G729 and fall back
+        to PCMU/PCMA during codec negotiation with the PSTN gateway.
       -->
-      <param name="outbound-codec-string" value="opus,G722,PCMU,PCMA"/>
-      <param name="inbound-codec-string" value="opus,G722,PCMU,PCMA"/>
+      <param name="outbound-codec-string" value="opus,G722,G729,PCMU,PCMA"/>
+      <param name="inbound-codec-string" value="opus,G722,G729,PCMU,PCMA"/>
 
       <!--
         RTP timeouts: disconnect if no RTP arrives within 30s (dead call cleanup).
@@ -675,9 +682,10 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
     <!-- WebSocket transport on port 5066 (plain WS; TLS terminated by proxy) -->
     <param name="ws-binding" value="0.0.0.0:5066"/>
 
-    <!-- Codecs — Opus first (WebRTC), G722 (HD SIP), PCMU/PCMA (PSTN fallback) -->
-    <param name="inbound-codec-prefs" value="opus,G722,PCMU,PCMA"/>
-    <param name="outbound-codec-prefs" value="opus,G722,PCMU,PCMA"/>
+    <!-- Codecs — Opus first (WebRTC), G722 (HD SIP), G729 (PSTN trunk), PCMU/PCMA fallback -->
+    <!-- G729 transcoding requires freeswitch-mod-com-g729 on the FreeSWITCH server -->
+    <param name="inbound-codec-prefs" value="opus,G722,G729,PCMU,PCMA"/>
+    <param name="outbound-codec-prefs" value="opus,G722,G729,PCMU,PCMA"/>
     <param name="inbound-codec-negotiation" value="generous"/>
 
     <!-- STUN -->
