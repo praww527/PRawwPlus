@@ -131,6 +131,29 @@ export async function sendCommissionEarningEmail(resellerEmail: string, earning:
   );
 }
 
+export async function sendOrgInviteEmail(
+  email: string,
+  params: { orgName: string; inviterName: string; token: string; baseUrl: string },
+) {
+  const link = `${params.baseUrl}/team/join?token=${params.token}`;
+  await sendMail(
+    email,
+    `You've been invited to join ${params.orgName} on PRaww+`,
+    `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0f1e;color:#e2e8f0;padding:40px;border-radius:12px">
+      <h1 style="color:#3b82f6;font-size:28px;margin-bottom:8px">PRaww+</h1>
+      <h2 style="color:#ffffff;font-size:20px;margin-bottom:16px">You've been invited!</h2>
+      <p style="color:#94a3b8;margin-bottom:24px">
+        <strong style="color:#e2e8f0">${params.inviterName}</strong> has invited you to join
+        <strong style="color:#e2e8f0">${params.orgName}</strong> on PRaww+.
+      </p>
+      <a href="${link}" style="display:inline-block;background:#3b82f6;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:16px">Accept Invitation</a>
+      <p style="color:#64748b;font-size:12px;margin-top:32px">This invitation expires in <strong>7 days</strong>. If you don't have a PRaww+ account yet, you'll need to sign up first.</p>
+    </div>
+    `,
+  );
+}
+
 export async function sendPasswordResetEmail(email: string, token: string, baseUrl: string) {
   const link = `${baseUrl}/reset-password?token=${token}`;
   await sendMail(

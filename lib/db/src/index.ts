@@ -108,3 +108,5 @@ export * from "./models/IvrFlow";
 export * from "./models/PortRequest";
 export * from "./models/ResellerCommission";
 export * from "./models/CallerIdProfile";
+export * from "./models/Organisation";
+export * from "./models/OrgInvite";

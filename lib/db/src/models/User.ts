@@ -85,6 +85,8 @@ export interface IUser extends Document<string> {
   totpVerified?: boolean;
   resellerCommissionPct?: number;
   concurrentCallLimit?: number;
+  orgId?: string;
+  orgRole?: "owner" | "member" | "admin";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -166,6 +168,8 @@ const UserSchema = new Schema<IUser>(
     totpVerified:   { type: Boolean, default: false },
     resellerCommissionPct: { type: Number },
     concurrentCallLimit:   { type: Number },
+    orgId:   { type: String, index: true },
+    orgRole: { type: String, enum: ["owner", "member", "admin"] },
     notificationPrefs: {
       type: new Schema({
         incomingCalls: { type: Boolean, default: true },

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { connectDB, PaymentModel, UserModel, PhoneNumberModel, EarningModel } from "@workspace/db";
+import { connectDB, PaymentModel, UserModel, PhoneNumberModel, EarningModel, OrganisationModel } from "@workspace/db";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/appUrl";
@@ -310,6 +310,15 @@ router.post("/payments/webhook", async (req, res) => {
         { _id: targetUserId },
         { $inc: { coins: coinsToAdd } },
       );
+    } else if (payment.paymentType === "org_topup") {
+      const orgId = (payment.meta as any)?.orgId;
+      if (orgId) {
+        const coinsToAdd = payment.coinsAdded;
+        await OrganisationModel.updateOne(
+          { _id: orgId },
+          { $inc: { coins: coinsToAdd } },
+        );
+      }
     } else if (payment.paymentType === "number_change") {
       const meta = payment.meta as any;
       const oldNumberId = meta?.oldNumberId;

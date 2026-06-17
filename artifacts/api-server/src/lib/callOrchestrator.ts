@@ -15,7 +15,7 @@
  */
 
 import mongoose, { type ClientSession } from "mongoose";
-import { connectDB, CallModel, UserModel, VoicemailModel } from "@workspace/db";
+import { connectDB, CallModel, UserModel, VoicemailModel, OrganisationModel } from "@workspace/db";
 import { BillingLedgerModel, CdrModel } from "@workspace/db";
 import { logger } from "./logger";
 import {
@@ -286,6 +286,21 @@ function calcCoins(billsec: number, coinsPerMinute: number): number {
   return calcCoinsFromBillsec(s, coinsPerMinute);
 }
 
+/**
+ * Resolve the effective coin balance for a user.
+ * If the user belongs to an org, returns the org's shared balance; otherwise the user's own balance.
+ * Also returns the orgId so callers can debit the right record.
+ */
+async function resolveEffectiveBalance(userId: string): Promise<{ coins: number; orgId: string | null }> {
+  const user = await UserModel.findById(userId).select("coins orgId").lean();
+  if (!user) return { coins: 0, orgId: null };
+  if (user.orgId) {
+    const org = await OrganisationModel.findById(user.orgId).select("coins").lean();
+    return { coins: org?.coins ?? 0, orgId: user.orgId };
+  }
+  return { coins: user.coins ?? 0, orgId: null };
+}
+
 async function deductCoinsAndUpdateStats(
   userId: string,
   coinsUsed: number,
@@ -294,24 +309,53 @@ async function deductCoinsAndUpdateStats(
 ): Promise<void> {
   const opts = session ? { session } : {};
   try {
-    if (coinsUsed > 0) {
+    const userInfo = await UserModel.findById(userId).select("orgId").lean();
+    const orgId = userInfo?.orgId ?? null;
+
+    if (orgId) {
+      if (coinsUsed > 0) {
+        await OrganisationModel.updateOne(
+          { _id: orgId },
+          [
+            {
+              $set: {
+                coins:          { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
+                totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
+                totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
+              },
+            },
+          ],
+          opts,
+        );
+      } else {
+        await OrganisationModel.updateOne({ _id: orgId }, { $inc: { totalCallsUsed: 1 } }, opts);
+      }
+      // Still track per-user stats for usage reporting
       await UserModel.updateOne(
         { _id: userId },
-        [
-          {
-            $set: {
-              coins:          { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
-              totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
-              totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
-            },
-          },
-        ],
+        { $inc: { totalCallsUsed: 1, totalCoinsUsed: coinsUsed } },
         opts,
       );
     } else {
-      await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } }, opts);
+      if (coinsUsed > 0) {
+        await UserModel.updateOne(
+          { _id: userId },
+          [
+            {
+              $set: {
+                coins:          { $max: [0, { $subtract: ["$coins", coinsUsed] }] },
+                totalCallsUsed: { $add: ["$totalCallsUsed", 1] },
+                totalCoinsUsed: { $add: ["$totalCoinsUsed", coinsUsed] },
+              },
+            },
+          ],
+          opts,
+        );
+      } else {
+        await UserModel.updateOne({ _id: userId }, { $inc: { totalCallsUsed: 1 } }, opts);
+      }
     }
-    logger.info({ callId, userId, coinsUsed }, "[Orchestrator] Billing applied");
+    logger.info({ callId, userId, coinsUsed, orgId }, "[Orchestrator] Billing applied");
   } catch (err) {
     logger.error(
       { err, callId, userId, coinsUsed },
@@ -617,8 +661,7 @@ export async function answerCall(
 
   // Mid-call balance enforcement for external calls
   if (call.callType === "external") {
-    const user = await UserModel.findById(call.userId).select("coins").lean();
-    const coins = user?.coins ?? 0;
+    const { coins, orgId: callOrgId } = await resolveEffectiveBalance(String(call.userId));
 
     const coinsPerMinute = await resolveCoinsPerMinuteForUser(
       String(call.userId),
@@ -627,7 +670,7 @@ export async function answerCall(
     const effectiveRate = Math.max(0.0001, Number.isFinite(coinsPerMinute) ? coinsPerMinute : COINS_PER_MINUTE);
 
     if (coins < MIN_COINS_SAFETY) {
-      logger.warn({ fsCallId, coins }, "[Orchestrator] Zero balance on answer — disconnecting");
+      logger.warn({ fsCallId, coins, orgId: callOrgId }, "[Orchestrator] Zero balance on answer — disconnecting");
       sendEslCmd(
         `uuid_broadcast ${fsCallId} speak:flite|kal|Your balance is insufficient to make this call. Please top up your account. The call will be disconnected.`,
       );
@@ -638,7 +681,7 @@ export async function answerCall(
 
     const allowedSecs = Math.floor((coins / effectiveRate) * 60);
     const schedHangup = Math.max(5, allowedSecs - 5);
-    logger.info({ fsCallId, coins, allowedSecs, schedHangup },
+    logger.info({ fsCallId, coins, allowedSecs, schedHangup, orgId: callOrgId },
       "[Orchestrator] Scheduling balance-based hangup");
 
     const callUserId = String(call.userId);
@@ -650,8 +693,8 @@ export async function answerCall(
       let freshCoins = 0;
       try {
         await connectDB();
-        const freshUser = await UserModel.findById(callUserId).select("coins").lean();
-        freshCoins = freshUser?.coins ?? 0;
+        const balInfo = await resolveEffectiveBalance(callUserId);
+        freshCoins = balInfo.coins;
       } catch { /* use 0 on error — safe to hang up */ }
 
       if (freshCoins >= MIN_COINS_SAFETY) {
