@@ -29,7 +29,7 @@ import { linkCallRecordToFsALeg } from "./mobileCallLink";
 import { pushFreeSwitchConfig } from "./freeswitchSSH";
 import { appendCallEvent } from "./callEventLog";
 import { cancelMediaWatchdog } from "./mediaWatchdog";
-import { registerSipSession, unregisterSipSession, buildSipSession } from "./callSession";
+import { registerSipSession, unregisterSipSession, buildSipSession, unregisterVertoSession } from "./callSession";
 import {
   notifyRegistration,
   recordOriginateConfirmed,
@@ -374,7 +374,9 @@ async function sendWebPush(
       logger.error({ keys: Object.keys(webpushMod ?? {}) }, "[Push] web-push module shape unexpected — setVapidDetails missing");
       return;
     }
-    const appUrl  = process.env.APP_URL ?? "";
+    const rawAppUrl = process.env.APP_URL ?? "";
+    // Normalize: add https:// if APP_URL has no scheme (e.g. "rtc.praww.co.za")
+    const appUrl  = rawAppUrl && !/^[a-z]+:\/\//i.test(rawAppUrl) ? `https://${rawAppUrl}` : rawAppUrl;
     const subject = appUrl ? `mailto:admin@${new URL(appUrl).hostname}` : "mailto:admin@praww.co.za";
     webpush.setVapidDetails(subject, vapidPublicKey, vapidPrivateKey);
     await webpush.sendNotification(subscription as Parameters<typeof webpush.sendNotification>[0], JSON.stringify(data), { TTL: 60 });
@@ -1364,6 +1366,33 @@ class FreeSwitchESL {
         const callDirection         = body["Call-Direction"]                           ?? "";
         const channelName           = body["Channel-Name"]                             ?? "";
 
+        // ── Stale Verto session eviction ─────────────────────────────────────
+        //
+        // When a Verto WebRTC channel fails with DESTINATION_OUT_OF_ORDER the
+        // browser tab has closed / gone offline but FreeSWITCH still has the
+        // verto_contact() entry in its endpoint table.  Every subsequent
+        // hold-window retry will bridge to the same stale contact and fail
+        // with DESTINATION_OUT_OF_ORDER again, wasting the entire 30-second
+        // hold window.
+        //
+        // Fix: immediately evict the in-memory VertoSession for that extension
+        // so the next hold-window re-originate skips verto_contact() and goes
+        // straight to user/<ext>@domain (SIP/JsSIP mobile path).
+        if (
+          hangupCause === "DESTINATION_OUT_OF_ORDER" &&
+          channelName.startsWith("verto.rtc/")
+        ) {
+          const rawExt = channelName.slice("verto.rtc/".length).split("@")[0];
+          const staleExt = parseInt(rawExt, 10);
+          if (staleExt >= 1000 && staleExt <= 9999) {
+            unregisterVertoSession(staleExt);
+            logger.info(
+              { uuid, channelName, staleExt, hangupCause },
+              "[ESL] DEST_OOO: evicted stale Verto session — hold-window retries will use SIP path",
+            );
+          }
+        }
+
         const isFailedCall = hangupCause !== "NORMAL_CLEARING" &&
           hangupCause !== "ORIGINATOR_CANCEL" &&
           hangupCause !== "NO_ANSWER" &&
@@ -2196,10 +2225,10 @@ class FreeSwitchESL {
       // Verto (mod_verto) does not use sofia profile commands; its directory
       // is refreshed automatically via xml_curl on each auth request.
       this.sendApiCommand("sofia profile prawwplus_mobile rescan");
-      this.sendApiCommand("sofia profile prawwplus rescan");
+      this.sendApiCommand("sofia profile prawwplus_verto rescan");
       logger.info(
         { destExt },
-        "[ESL] AUTO_RECOVERY: sofia rescan triggered on prawwplus_mobile + prawwplus profiles",
+        "[ESL] AUTO_RECOVERY: sofia rescan triggered on prawwplus_mobile + prawwplus_verto profiles",
       );
     }
 
