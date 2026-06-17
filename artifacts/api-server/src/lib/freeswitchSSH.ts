@@ -23,6 +23,7 @@ import {
   dialplanXml,
   eventSocketConf,
   sipProfileXml,
+  publicDidDialplanXml,
 } from "./freeswitchConfig";
 
 const FS_DOMAIN    = process.env.FREESWITCH_DOMAIN ?? "";
@@ -190,12 +191,40 @@ async function _pushFreeSwitchConfigImpl(opts: PushOptions = {}): Promise<PushRe
     }
     steps.push(`Config dir: ${confDir}`);
 
-    // Write xml_curl.conf — use directoryBaseUrl so FreeSWITCH reaches THIS instance
+    // Write xml_curl.conf.
+    //
+    // IMPORTANT — secret source priority:
+    //   1. Read FREESWITCH_WEBHOOK_SECRET from the VPS production .env so the
+    //      token embedded in the URL always matches what the VPS API validates.
+    //   2. Fall back to the local (Replit/dev) FREESWITCH_WEBHOOK_SECRET only
+    //      when the VPS file is not accessible.
+    //
+    // This prevents a "secret mismatch" where the Replit env holds a different
+    // value than the VPS API — which causes the directory to return "not found"
+    // for every SIP auth request, blocking all registrations.
     steps.push(`Directory URL base: ${directoryBaseUrl}`);
+    let webhookSecret = process.env.FREESWITCH_WEBHOOK_SECRET;
+    try {
+      const vpsEnvPath = "/home/ubuntu/PRawwPlus/.env";
+      const vpsSecretLine = await execCommand(
+        conn,
+        `grep '^FREESWITCH_WEBHOOK_SECRET' '${vpsEnvPath}' 2>/dev/null | head -1 | cut -d= -f2-`,
+        8_000,
+      );
+      const vpsSecret = vpsSecretLine.trim().replace(/^['"]|['"]$/g, "");
+      if (vpsSecret) {
+        webhookSecret = vpsSecret;
+        steps.push("Using VPS production FREESWITCH_WEBHOOK_SECRET for xml_curl URL");
+      } else {
+        steps.push("VPS secret not found — falling back to local FREESWITCH_WEBHOOK_SECRET");
+      }
+    } catch (err) {
+      steps.push(`VPS secret read failed (${(err as Error).message}) — using local secret`);
+    }
     await writeRemoteFile(
       conn,
       `${confDir}/autoload_configs/xml_curl.conf.xml`,
-      xmlCurlConf(directoryBaseUrl, process.env.FREESWITCH_WEBHOOK_SECRET),
+      xmlCurlConf(directoryBaseUrl, webhookSecret),
     );
     steps.push("Wrote xml_curl.conf.xml");
 
@@ -241,6 +270,17 @@ async function _pushFreeSwitchConfigImpl(opts: PushOptions = {}): Promise<PushRe
       dialplanXml(FS_HOST),
     );
     steps.push("Wrote prawwplus dialplan");
+
+    // Write public DID dialplan — replaces the stock FreeSWITCH placeholder
+    // (5551212 → 1000 XML default) with a real lookup that routes any inbound
+    // PSTN DID to the correct user extension via the PRaww+ API.
+    const apiPort = parseInt(process.env.PORT ?? "8080");
+    await writeRemoteFile(
+      conn,
+      `${confDir}/dialplan/public/00_inbound_did.xml`,
+      publicDidDialplanXml(apiPort),
+    );
+    steps.push("Wrote public DID dialplan (00_inbound_did.xml)");
 
     // Remove old call_manager files if they exist (migration cleanup)
     for (const oldFile of [

@@ -13,7 +13,12 @@
  */
 
 export function xmlCurlConf(appUrl: string, secret?: string): string {
-  const base = `${appUrl}/api/freeswitch/directory`;
+  // FreeSWITCH mod_xml_curl does NOT follow HTTP 301 redirects on POST requests.
+  // Ensure the URL always includes the https:// protocol so FS hits the backend
+  // directly. APP_URL is sometimes stored without protocol (e.g. rtc.praww.co.za)
+  // which causes nginx to redirect HTTP→HTTPS and FS to get no directory data.
+  const normalizedUrl = /^https?:\/\//i.test(appUrl) ? appUrl : `https://${appUrl}`;
+  const base = `${normalizedUrl}/api/freeswitch/directory`;
   // mod_xml_curl does NOT reliably emit custom request headers (the
   // `xml-curl-header` param is silently ignored on current builds), so the
   // shared secret is passed primarily as a URL query parameter — mod_xml_curl
@@ -693,6 +698,57 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
   <gateways>${gatewayXml}
   </gateways>
 </profile>`;
+}
+
+/**
+ * Public (inbound PSTN) DID dialplan.
+ * Written to dialplan/public/00_inbound_did.xml on the FS server.
+ *
+ * Any call arriving on the external/public profile is accepted and
+ * transferred into the "prawwplus" context so the phone_number_lookup
+ * extension can resolve it to the correct user extension via the backend API.
+ *
+ * The stock FreeSWITCH placeholder (5551212 → 1000 XML default) is replaced
+ * by this catch-all which handles any DID.
+ */
+export function publicDidDialplanXml(apiPort: number): string {
+  const lookupUrl = `http://127.0.0.1:${apiPort}/api/freeswitch/lookup`;
+  return `<include>
+  <!--
+    PRawwPlus — Inbound PSTN / DID routing
+    Written by freeswitchSSH.ts; do not edit manually.
+
+    Strategy:
+      1. Query the PRaww+ API to find which user (extension) owns the DID.
+      2. If found → transfer into the "prawwplus" context on that extension.
+      3. If not found → play a polite announcement and hang up.
+
+    The lookup URL hits 127.0.0.1 (loopback) so it works even when the
+    public API domain is not yet resolving (e.g. during initial VPS setup).
+  -->
+  <extension name="inbound_did_lookup" continue="true">
+    <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$" break="never">
+      <action application="curl" data="${lookupUrl}?number=$1"/>
+      <action application="set" data="target_ext=\${curl_response_data}"/>
+      <action application="log" data="INFO [DID] \${destination_number} → ext=\${target_ext} (http \${curl_response_code})"/>
+    </condition>
+    <!-- Transfer to resolved extension in prawwplus context -->
+    <condition field="\${target_ext}" expression="^([1-9][0-9]{3})$" break="on-true">
+      <action application="set" data="domain_name=\${domain}"/>
+      <action application="transfer" data="\${target_ext} XML prawwplus"/>
+    </condition>
+  </extension>
+
+  <!-- DID not provisioned in PRaww+ — polite reject -->
+  <extension name="unprovisioned_did">
+    <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$">
+      <action application="answer"/>
+      <action application="speak" data="flite|kal|The number you have dialed is not currently in service."/>
+      <action application="sleep" data="300"/>
+      <action application="hangup" data="UNALLOCATED_NUMBER"/>
+    </condition>
+  </extension>
+</include>`;
 }
 
 export function eventSocketConf(password?: string): string {
