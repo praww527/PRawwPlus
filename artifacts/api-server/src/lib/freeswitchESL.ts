@@ -1509,9 +1509,10 @@ class FreeSwitchESL {
           // bridge a reconnected callee without the caller hearing silence.
           const MAX_HOLD_RETRIES = 4;
           const isOfflineCause = (
-            hangupCause === "UNREGISTERED"        ||
-            hangupCause === "USER_NOT_REGISTERED" ||
-            hangupCause === "SUBSCRIBER_ABSENT"
+            hangupCause === "UNREGISTERED"             ||
+            hangupCause === "USER_NOT_REGISTERED"      ||
+            hangupCause === "SUBSCRIBER_ABSENT"        ||
+            hangupCause === "DESTINATION_OUT_OF_ORDER"
           );
           // holdWindowActive = true means: this B-leg failed with an offline cause,
           // the A-leg is still alive, and we have retries left.
@@ -1585,7 +1586,9 @@ class FreeSwitchESL {
           const alreadyInHoldWindow = isOfflineCause && !!otherLegUuid &&
             (this.holdWindowRetries.get(otherLegUuid) ?? 0) > 0;
           if (
-            (hangupCause === "USER_NOT_REGISTERED" || hangupCause === "UNREGISTERED") &&
+            (hangupCause === "USER_NOT_REGISTERED" ||
+             hangupCause === "UNREGISTERED"        ||
+             hangupCause === "DESTINATION_OUT_OF_ORDER") &&
             missedCallEntry &&
             !alreadyInHoldWindow
           ) {
