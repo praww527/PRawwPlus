@@ -150,11 +150,21 @@ router.get("/users/directory", async (req: Request, res: Response) => {
   const q = req.query.q ? String(req.query.q).trim() : "";
   if (!q || q.length < 2) { res.json({ users: [] }); return; }
 
+  const requester = await UserModel.findById(requestingUserId).select("orgId isAdmin").lean();
+  if (!requester) { res.status(404).json({ error: "User not found" }); return; }
+
+  const orgId = (requester as any).orgId;
+  if (!orgId) {
+    res.json({ users: [] });
+    return;
+  }
+
   const safeQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(safeQ, "i");
 
   const users = await UserModel.find({
     _id: { $ne: requestingUserId },
+    orgId,
     $or: [{ name: regex }, { username: regex }],
   })
     .select("_id name username")
