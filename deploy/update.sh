@@ -103,6 +103,23 @@ sudo systemctl enable prawwplus-api
 sudo systemctl restart prawwplus-api
 
 echo ""
+echo "===== [+] Auto-push FreeSWITCH config ====="
+# Wait for the API server to finish initialising (ESL auth takes ~3 s)
+sleep 12
+# Use the standalone push script — reads env vars from .env via dotenv, connects
+# to FreeSWITCH via SSH, and writes all XML config files + issues a reload.
+# Failures here are non-fatal: the admin can re-trigger from the admin panel.
+if command -v pnpm >/dev/null 2>&1; then
+  set -a; [ -f "$DEPLOY_DIR/.env" ] && source "$DEPLOY_DIR/.env"; set +a
+  cd "$DEPLOY_DIR"
+  pnpm tsx artifacts/api-server/fs_push_script.ts 2>&1 \
+    && echo "  FreeSWITCH config pushed successfully" \
+    || echo "  FreeSWITCH config push failed — trigger it from Admin → FreeSWITCH → Push Config"
+else
+  echo "  pnpm not found — skipping auto FS push. Trigger it from Admin → FreeSWITCH → Push Config"
+fi
+
+echo ""
 echo "===== Update complete ====="
 echo "  Status:  sudo systemctl status prawwplus-api"
 echo "  Logs:    sudo journalctl -u prawwplus-api -n 200 --no-pager"

@@ -164,10 +164,9 @@ export function vertoConf(fsIp: string): string {
         Codecs: Opus first (WebRTC / browser / mobile), G722 for HD voice on
         SIP endpoints, G729 for PSTN trunk compatibility, then PCMU/PCMA fallback.
         mod_opus MUST be installed: sudo apt-get install freeswitch-mod-opus
-        G729 transcoding REQUIRES: sudo apt-get install freeswitch-mod-com-g729
-        (commercial codec — one-time licence fee from SignalWire/FreeSWITCH).
-        Without mod_com_g729 installed, FreeSWITCH will skip G729 and fall back
-        to PCMU/PCMA during codec negotiation with the PSTN gateway.
+        G729 support: mod_g729 (free, ships with FreeSWITCH 1.10+) provides full
+        G729 transcoding — no separate commercial licence required. Verify it is
+        loaded with: fs_cli -x "show codecs" | grep -i 729
       -->
       <param name="outbound-codec-string" value="opus,G722,G729,PCMU,PCMA"/>
       <param name="inbound-codec-string" value="opus,G722,G729,PCMU,PCMA"/>

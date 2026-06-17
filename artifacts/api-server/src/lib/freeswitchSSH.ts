@@ -312,6 +312,33 @@ async function _pushFreeSwitchConfigImpl(opts: PushOptions = {}): Promise<PushRe
       steps.push("Removed stock default directory user files (1000-1019) so xml_curl is used for auth");
     } catch { /* ignore */ }
 
+    // Write fs_cli.conf.xml so `fs_cli -x "reloadxml"` works without explicit
+    // -H / -P / -p flags. This is needed because some distributions ship a
+    // blank fs_cli.conf.xml and the tool then fails to connect to ESL with
+    // "Error Connecting []".  We write the file every push so it survives
+    // FreeSWITCH package upgrades that might overwrite or reset the conf.
+    if (FS_ESL_PASS) {
+      try {
+        const fsCliConf = [
+          `<configuration name="fs_cli.conf" description="FS CLI">`,
+          `  <settings>`,
+          `    <param name="host"     value="127.0.0.1"/>`,
+          `    <param name="port"     value="8021"/>`,
+          `    <param name="password" value="${FS_ESL_PASS.replace(/"/g, "&quot;")}"/>`,
+          `    <param name="timeout"  value="10000"/>`,
+          `  </settings>`,
+          `</configuration>`,
+        ].join("\n");
+        await execCommand(
+          conn,
+          `cat > ${confDir}/autoload_configs/fs_cli.conf.xml << 'FSCLIEOF'\n${fsCliConf}\nFSCLIEOF`,
+        );
+        steps.push("Wrote fs_cli.conf.xml (ESL password for reloadxml)");
+      } catch (e) {
+        steps.push(`fs_cli.conf.xml write skipped: ${(e as Error).message}`);
+      }
+    }
+
     // Locate fs_cli — try common install paths
     const fsCli = await execCommand(
       conn,
