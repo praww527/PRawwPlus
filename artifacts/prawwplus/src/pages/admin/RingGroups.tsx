@@ -216,9 +216,6 @@ function GroupModal({ group, agents, onClose, onSave }: GroupModalProps) {
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)", margin: 0 }}>{agentLabel(a)}</p>
-                    {a.extension && (
-                      <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: 0 }}>Ext {a.extension}</p>
-                    )}
                   </div>
                   <Plus size={14} style={{ color: "rgba(255,255,255,0.3)" }} />
                 </button>
