@@ -42,6 +42,8 @@ import ConferencesPage   from "@/pages/ConferencesPage";
 import NumbersPage       from "@/pages/NumbersPage";
 import CdrPage           from "@/pages/CdrPage";
 import BillingPage       from "@/pages/BillingPage";
+import TeamPage          from "@/pages/TeamPage";
+import JoinTeamPage      from "@/pages/JoinTeamPage";
 import NotFound          from "@/pages/not-found";
 
 initTheme();
@@ -191,6 +193,8 @@ function Router() {
       <Route path="/conferences"     component={() => <ProtectedRoute component={ConferencesPage} />} />
       <Route path="/cdr"             component={() => <ProtectedRoute component={CdrPage} />} />
       <Route path="/billing"         component={() => <ProtectedRoute component={BillingPage} />} />
+      <Route path="/team"            component={() => <ProtectedRoute component={TeamPage} />} />
+      <Route path="/team/join"       component={JoinTeamPage} />
       <Route path="/compliance"      component={() => <ProtectedRoute component={CompliancePage} />} />
       <Route path="/diagnostics"     component={() => <ProtectedRoute component={DiagnosticsPage} />} />
       <Route path="/admin/platform-health" component={() => <AdminRoute component={PlatformHealth} />} />

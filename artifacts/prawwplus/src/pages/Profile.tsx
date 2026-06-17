@@ -13,7 +13,7 @@ import {
   HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
   AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
   Moon, Sun, Monitor, Info, Coins, Camera, BadgeCheck,
-  Upload, Clock, Check, Activity, FileDown,
+  Upload, Clock, Check, Activity, FileDown, Users,
 } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { format } from "date-fns";
@@ -700,6 +700,11 @@ export default function Profile() {
         <Row icon={<Star size={15} />} iconBg="rgba(255,214,10,0.15)" label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
           onClick={() => { setSelectedPlan(currentPlan as "basic" | "pro"); setSheet("plan"); }} />
         <Row icon={<Mail size={15} />} iconBg="rgba(128,128,128,0.18)" label="Email / Login" value={user?.email ?? user?.username ?? ""} chevron={false} />
+      </Section>
+
+      {/* ── Team ─────────────────────────────── */}
+      <Section title="Team">
+        <Row icon={<Users size={15} />} iconBg="rgba(59,130,246,0.15)" label="Team & Organisation" value="Manage members" onClick={() => setLocation("/team")} />
       </Section>
 
       {/* ── Billing ─────────────────────────── */}
