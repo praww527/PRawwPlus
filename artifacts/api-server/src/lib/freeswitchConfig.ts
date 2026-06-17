@@ -14,10 +14,16 @@
 
 export function xmlCurlConf(appUrl: string, secret?: string): string {
   // FreeSWITCH mod_xml_curl does NOT follow HTTP 301 redirects on POST requests.
-  // Ensure the URL always includes the https:// protocol so FS hits the backend
-  // directly. APP_URL is sometimes stored without protocol (e.g. rtc.praww.co.za)
-  // which causes nginx to redirect HTTP→HTTPS and FS to get no directory data.
-  const normalizedUrl = /^https?:\/\//i.test(appUrl) ? appUrl : `https://${appUrl}`;
+  // Ensure the URL ALWAYS includes https:// so FS hits the backend directly.
+  // APP_URL is often stored without a protocol (e.g. "rtc.praww.co.za") in env
+  // secrets, which causes nginx to 301-redirect HTTP→HTTPS, and mod_xml_curl
+  // does not follow redirects, resulting in zero directory data and no registrations.
+  //
+  // Normalization strategy (belt-and-suspenders):
+  //   1. Strip any existing protocol prefix so we always start clean.
+  //   2. Always prepend https:// explicitly — never trust the raw value.
+  const stripped = appUrl.trim().replace(/\/$/, "").replace(/^https?:\/\//i, "");
+  const normalizedUrl = `https://${stripped}`;
   const base = `${normalizedUrl}/api/freeswitch/directory`;
   // mod_xml_curl does NOT reliably emit custom request headers (the
   // `xml-curl-header` param is silently ignored on current builds), so the
@@ -80,7 +86,10 @@ function pstnGatewayXml(): string {
   const fromDomain = (process.env.PSTN_GATEWAY_FROM_DOMAIN ?? realm).trim();
   const register = (process.env.PSTN_GATEWAY_REGISTER ?? "true").trim();
 
-  if (!name || !username || !password || !proxy) return "";
+  // Guard against literal "placeholder" values left in env files — any field
+  // set to the string "placeholder" is treated as unconfigured.
+  const isPlaceholder = (v: string) => v === "" || v.toLowerCase() === "placeholder";
+  if (isPlaceholder(name) || isPlaceholder(username) || !password || isPlaceholder(proxy)) return "";
 
   return `
     <gateway name="${xmlEscape(name)}">

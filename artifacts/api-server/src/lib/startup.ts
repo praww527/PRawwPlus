@@ -247,7 +247,12 @@ export async function runStartup(): Promise<void> {
   // ── 3. Push FreeSWITCH config (xml_curl, verto, dialplan) ───────────────
   // This ensures FreeSWITCH always has the current APP_URL so its mod_xml_curl
   // directory lookups reach our live API endpoint at rtc.PRaww.co.za.
-  if (process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {
+  //
+  // IMPORTANT: Only push in production. In development (Replit, local dev) this
+  // auto-push uses a dev APP_URL that may lack https://, overwriting the correct
+  // production config that the VPS server already pushed. Developers can push
+  // manually via the admin panel or POST /api/freeswitch/configure.
+  if (process.env.NODE_ENV === "production" && process.env.FREESWITCH_DOMAIN && process.env.FREESWITCH_SSH_KEY) {
     logger.info("[FSH] Auto-pushing FreeSWITCH config on startup (light reload)…");
     pushFreeSwitchConfig({ lightReload: true })
       .then((result) => {
