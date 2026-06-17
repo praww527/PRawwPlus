@@ -569,14 +569,62 @@ export function CallProvider({ children }: PropsWithChildren) {
   // ── Answer / Decline ──────────────────────────────────────────────────────
 
   const answerCall = useCallback(async () => {
-    // Guard: voipEngine must have a live session to answer.
-    // This can fail if the user taps Accept on the React screen but the SIP
-    // INVITE was never delivered (race between killed-state wakeup and FS timeout).
     const engineState = voipEngine.getState();
-    if (engineState === "idle" || engineState === "error" || engineState === "registering") {
-      console.warn("[CallContext] answerCall called but engine state is:", engineState);
+
+    // Completely unconnected — can't answer.
+    if (engineState === "idle" || engineState === "error") {
+      console.warn("[CallContext] answerCall called but engine is not registered:", engineState);
       return;
     }
+
+    // Registration in-flight — happens during killed-state wakeup where the
+    // user taps "Answer" on the CallKeep lock-screen before the SIP REGISTER
+    // completes.  Wait up to 10 s for the registered event; once registered
+    // the SIP INVITE (which was already being retried by FS) will arrive and
+    // pendingAnswerUuid queued by didLoadWithEvents will auto-answer it.
+    // If registration fails we bail without throwing into the UI.
+    if (engineState === "registering") {
+      console.info("[CallContext] answerCall: engine still registering — waiting up to 10 s");
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const WAIT_MS = 10_000;
+          const timer = setTimeout(() => {
+            voipEngine.off("stateChange", onState);
+            reject(new Error("Registration timed out before answer"));
+          }, WAIT_MS);
+
+          const onState = (s: CallState) => {
+            if (
+              s === "registered" ||
+              s === "in-call"    ||
+              s === "ringing"
+            ) {
+              clearTimeout(timer);
+              voipEngine.off("stateChange", onState);
+              resolve();
+            } else if (s === "idle" || s === "error") {
+              clearTimeout(timer);
+              voipEngine.off("stateChange", onState);
+              reject(new Error(`Registration failed — engine moved to: ${s}`));
+            }
+          };
+
+          voipEngine.on("stateChange", onState);
+        });
+      } catch (waitErr) {
+        console.warn("[CallContext] answerCall: registration wait failed:", waitErr);
+        return;
+      }
+
+      // After registration completes, if the SIP session was auto-answered by
+      // pendingAnswerUuid, the engine state is now "in-call".  If not (the
+      // INVITE arrived just after we resolved), fall through to answerIncomingCall.
+      if (voipEngine.getState() === "in-call") {
+        // Already answered via the auto-answer path — nothing else to do.
+        return;
+      }
+    }
+
     pendingDirectionRef.current = "inbound";
     await voipEngine.answerIncomingCall();
   }, []);

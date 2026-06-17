@@ -1090,14 +1090,11 @@ router.post("/calls/test-ring/:extension", async (req, res) => {
   const esl = eslStatus();
   if (esl.connected) {
     try {
-      const originateCmd = [
-        `originate`,
-        `{origination_caller_id_name='PRaww+ Test',`,
-        `origination_caller_id_number='0000',`,
-        `originate_timeout=30}`,
-        `user/${ext}`,
-        `&echo`,
-      ].join("");
+      const originateCmd =
+        `originate {origination_caller_id_name='PRaww+ Test',` +
+        `origination_caller_id_number='0000',` +
+        `originate_timeout=30} ` +
+        `user/${ext} &echo`;
 
       const eslResult = await sendEslBgapiAwait(originateCmd, 35_000);
       results["eslOriginate"] = eslResult.startsWith("+OK") ? "ok" : "error";
