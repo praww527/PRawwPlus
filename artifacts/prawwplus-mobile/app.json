@@ -78,8 +78,7 @@
         {
           "backgroundMessageHandlerEnabled": true
         }
-      ],
-      "react-native-callkeep"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

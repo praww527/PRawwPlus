@@ -52,7 +52,7 @@ This builds via EAS cloud servers and outputs a download URL when complete.
 | Feature | Status |
 |---|---|
 | expo-dev-client (dev menu) | ✅ included |
-| react-native-callkeep (ConnectionService) | ✅ via app.json plugin |
+| react-native-callkeep (ConnectionService) | ✅ via native autolinking + permissions in app.json |
 | @react-native-firebase/messaging (FCM) | ✅ via app.json plugin |
 | react-native-webrtc | ✅ included (native build only) |
 | react-native-incall-manager | ✅ included |
