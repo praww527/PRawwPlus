@@ -47,17 +47,27 @@ export async function resolvePhoneToExtension(recipientNumber: string): Promise<
   const candidates = normalizePhoneForLookup(trimmed);
   if (candidates.length === 0) return null;
 
-  const user = await UserModel.findOne({
-    phone: { $in: candidates },
-  }).sort({ phoneVerified: -1 }).select("_id extension").lean();
+  // Only route to an internal extension if the number is a platform DID
+  // (assigned in PhoneNumberModel). User mobile phone numbers (user.phone)
+  // are intentionally excluded so that dialling a mobile that belongs to a
+  // registered user still goes via PSTN instead of routing to their extension.
+  const did = await PhoneNumberModel.findOne({
+    number: { $in: candidates },
+  }).select("userId routeTarget routeType").lean();
 
+  if (!did) return null;
+
+  const targetUserId = (did as any).routeTarget ?? (did as any).userId;
+  if (!targetUserId) return null;
+
+  const user = await UserModel.findById(targetUserId).select("_id extension").lean();
   if (!user) return null;
 
   if (user.extension) return user.extension;
 
   logger.info(
     { userId: String(user._id), candidates },
-    "[phoneResolver] User found by phone but has no extension — provisioning now",
+    "[phoneResolver] User found by DID but has no extension — provisioning now",
   );
   const ext = await assignExtensionIfNeeded(String(user._id));
   return ext?.extension ?? null;

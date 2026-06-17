@@ -200,7 +200,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
         return;
       }
     }
-    if (user.subscriptionStatus !== "active") {
+    if (!user.isAdmin && user.subscriptionStatus !== "active") {
       res.status(400).json({
         error:   "No active subscription",
         message: "You need an active subscription to make external calls.",
