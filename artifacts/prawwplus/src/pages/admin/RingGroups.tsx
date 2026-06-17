@@ -280,7 +280,7 @@ export default function RingGroupsPage() {
       else setError((gData.reason as Error).message);
       if (uData.status === "fulfilled") {
         const all = uData.value.users ?? [];
-        setAgents(all.filter((u: any) => u.extension || u.role === "agent" || true));
+        setAgents(all.filter((u: any) => u.extension || u.role === "agent"));
       }
     } finally {
       setLoading(false);

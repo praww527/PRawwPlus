@@ -56,6 +56,12 @@ export default function CallingScreen() {
   const [confStatus, setConfStatus] = useState<string | null>(null);
   const [confBusy, setConfBusy] = useState(false);
 
+  type DirUser = { id: string; name: string; username: string | null; did: string | null };
+  const [dirResults, setDirResults] = useState<DirUser[]>([]);
+  const [dirLoading, setDirLoading] = useState(false);
+  const [dirOpen, setDirOpen] = useState(false);
+  const dirDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Reset per-call UI state whenever a brand-new call starts (callPhase → "calling").
   // Without this, onHold/muted/DTMF state from a previous call persists into the next
   // one — e.g. the UI shows "Held" at the start of a fresh outbound call.
@@ -71,9 +77,36 @@ export default function CallingScreen() {
       setConfRoomId(null);
       setConfStatus(null);
       setConfExtInput("");
+      setDirResults([]);
+      setDirOpen(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callPhase, callInfo?.callId]);
+
+  /* Debounced directory search — triggers when the conference input contains letters */
+  useEffect(() => {
+    if (dirDebounceRef.current) clearTimeout(dirDebounceRef.current);
+    const hasLetters = /[a-zA-Z]/.test(confExtInput);
+    if (!hasLetters || confExtInput.trim().length < 2) {
+      setDirResults([]);
+      setDirOpen(false);
+      return;
+    }
+    dirDebounceRef.current = setTimeout(async () => {
+      setDirLoading(true);
+      try {
+        const res = await apiFetch(`/api/users/directory?q=${encodeURIComponent(confExtInput.trim())}`, { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json() as { users: DirUser[] };
+          setDirResults(data.users ?? []);
+          setDirOpen(true);
+        }
+      } catch { /* silent — network error */ }
+      finally { setDirLoading(false); }
+    }, 280);
+    return () => { if (dirDebounceRef.current) clearTimeout(dirDebounceRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confExtInput]);
 
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -224,12 +257,13 @@ export default function CallingScreen() {
 
   const handleStartConference = useCallback(async () => {
     if (confBusy) return;
-    const ext = confExtInput.trim();
-    if (!/^\d{4}$/.test(ext) && !/^\+?\d{7,15}$/.test(ext)) {
-      setConfStatus("Enter a 4-digit extension or full phone number");
+    const phone = confExtInput.trim();
+    if (!/^\+?\d{7,15}$/.test(phone)) {
+      setConfStatus("Select a colleague from the list, or enter a full phone number (e.g. +27821234567)");
       return;
     }
     setConfBusy(true);
+    setDirOpen(false);
     setConfStatus("Setting up conference…");
     try {
       let roomId = confRoomId;
@@ -249,15 +283,14 @@ export default function CallingScreen() {
         roomId = created.roomId;
         setConfRoomId(roomId);
         if (!created.transferred) {
-          setConfStatus("Conference created — transfer via FreeSWITCH not available. Inviting participant…");
+          setConfStatus("Conference created — inviting participant…");
         }
       }
 
-      const isInternal = /^\d{4}$/.test(ext);
       const inviteRes = await apiFetch(`/api/conference/${roomId}/invite`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(isInternal ? { extension: Number(ext) } : { phone: ext }),
+        body:    JSON.stringify({ phone }),
         credentials: "include",
       });
       if (!inviteRes.ok) {
@@ -265,7 +298,7 @@ export default function CallingScreen() {
         setConfStatus(err?.error ?? "Failed to invite participant");
         return;
       }
-      setConfStatus(`Calling ${ext}…`);
+      setConfStatus(`Calling ${phone}…`);
       setConfExtInput("");
     } catch {
       setConfStatus("Network error — please try again");
@@ -451,32 +484,79 @@ export default function CallingScreen() {
             )}
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <input
-              type="text"
-              placeholder="Name or +27821234567"
-              value={confExtInput}
-              onChange={(e) => setConfExtInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleStartConference()}
-              style={{
-                flex: 1, background: "rgba(255,255,255,0.08)",
-                border: "1px solid rgba(255,255,255,0.18)",
-                borderRadius: 10, padding: "10px 14px",
-                color: "white", fontSize: 15, outline: "none",
-              }}
-            />
-            <button
-              onClick={handleStartConference}
-              disabled={confBusy}
-              style={{
-                background: confBusy ? "rgba(10,132,255,0.4)" : "#0a84ff",
-                border: "none", borderRadius: 10, padding: "10px 18px",
-                color: "white", fontWeight: 700, fontSize: 14, cursor: "pointer",
-                opacity: confBusy ? 0.7 : 1,
-              }}
-            >
-              {confBusy ? "…" : "Invite"}
-            </button>
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Search by name or enter +27821234567"
+                value={confExtInput}
+                onChange={(e) => { setConfExtInput(e.target.value); setConfStatus(null); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleStartConference();
+                  if (e.key === "Escape") setDirOpen(false);
+                }}
+                onFocus={() => dirResults.length > 0 && setDirOpen(true)}
+                style={{
+                  flex: 1, background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  borderRadius: 10, padding: "10px 14px",
+                  color: "white", fontSize: 14, outline: "none",
+                }}
+              />
+              <button
+                onClick={handleStartConference}
+                disabled={confBusy}
+                style={{
+                  background: confBusy ? "rgba(10,132,255,0.4)" : "#0a84ff",
+                  border: "none", borderRadius: 10, padding: "10px 18px",
+                  color: "white", fontWeight: 700, fontSize: 14, cursor: "pointer",
+                  opacity: confBusy ? 0.7 : 1, flexShrink: 0,
+                }}
+              >
+                {confBusy ? "…" : "Invite"}
+              </button>
+            </div>
+
+            {/* Name-based colleague autocomplete dropdown */}
+            {dirOpen && dirResults.length > 0 && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, right: 56, zIndex: 200,
+                marginTop: 4, borderRadius: 10, overflow: "hidden",
+                background: "rgba(28,28,38,0.98)", border: "1px solid rgba(255,255,255,0.14)",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+              }}>
+                {dirResults.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => {
+                      if (u.did) {
+                        setConfExtInput(u.did);
+                        setDirOpen(false);
+                        setConfStatus(null);
+                      } else {
+                        setConfStatus(`${u.name} has no DID assigned`);
+                        setDirOpen(false);
+                      }
+                    }}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center",
+                      justifyContent: "space-between", padding: "9px 14px",
+                      background: "none", border: "none",
+                      borderBottom: "1px solid rgba(255,255,255,0.06)",
+                      cursor: "pointer", textAlign: "left",
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>{u.name}</span>
+                    <span style={{ fontSize: 11, color: u.did ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>
+                      {u.did ?? "no number"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {dirLoading && (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "4px 0 0" }}>Searching…</p>
+            )}
           </div>
 
           {confStatus && (

@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { connectDB, UserModel } from "@workspace/db";
+import { connectDB, UserModel, PhoneNumberModel } from "@workspace/db";
 import { lookupUserByPhone } from "../lib/phoneResolver";
 
 const router: IRouter = Router();
@@ -136,6 +136,45 @@ router.get("/users/phone-lookup", async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Lookup failed" });
   }
+});
+
+/**
+ * GET /api/users/directory?q=...
+ * Name-based colleague lookup — returns name + DID number (no extensions exposed).
+ * Available to any authenticated user for conference invite name resolution.
+ */
+router.get("/users/directory", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  await connectDB();
+  const requestingUserId = String((req as any).user.id);
+  const q = req.query.q ? String(req.query.q).trim() : "";
+  if (!q || q.length < 2) { res.json({ users: [] }); return; }
+
+  const safeQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(safeQ, "i");
+
+  const users = await UserModel.find({
+    _id: { $ne: requestingUserId },
+    $or: [{ name: regex }, { username: regex }],
+  })
+    .select("_id name username")
+    .limit(10)
+    .lean();
+
+  const userIds = users.map((u: any) => String(u._id));
+  const phones = userIds.length
+    ? await PhoneNumberModel.find({ userId: { $in: userIds } }).select("userId number").lean()
+    : [];
+  const didMap = Object.fromEntries(phones.map((p: any) => [String(p.userId), p.number]));
+
+  res.json({
+    users: users.map((u: any) => ({
+      id:       String(u._id),
+      name:     u.name ?? u.username ?? String(u._id),
+      username: u.username ?? null,
+      did:      didMap[String(u._id)] ?? null,
+    })),
+  });
 });
 
 router.get("/users/extension-lookup", async (req: Request, res: Response) => {
