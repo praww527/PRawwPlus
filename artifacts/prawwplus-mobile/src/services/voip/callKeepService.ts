@@ -140,7 +140,11 @@ export const callKeepService = {
   showNativeCallUI(uuid: string, handle: string, displayName: string): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
-    RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+    try {
+      RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+    } catch (err) {
+      console.warn("[CallKeep] showNativeCallUI error:", err);
+    }
   },
 
   displayIncomingCall(uuid: string, handle: string, displayName: string): void {
@@ -158,31 +162,51 @@ export const callKeepService = {
         RNCallKeep.endCall(timedOutUuid);
       } catch {}
     });
-    RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+    try {
+      RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+    } catch (err) {
+      console.warn("[CallKeep] displayIncomingCall error:", err);
+    }
   },
 
   reportCallConnected(uuid: string): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
-    RNCallKeep.reportConnectedOutgoingCallWithUUID(uuid);
+    try {
+      RNCallKeep.reportConnectedOutgoingCallWithUUID(uuid);
+    } catch (err) {
+      console.warn("[CallKeep] reportCallConnected error:", err);
+    }
   },
 
   endCall(uuid: string): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
-    RNCallKeep.endCall(uuid);
+    try {
+      RNCallKeep.endCall(uuid);
+    } catch (err) {
+      console.warn("[CallKeep] endCall error:", err);
+    }
   },
 
   endAllCalls(): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
-    RNCallKeep.endAllCalls();
+    try {
+      RNCallKeep.endAllCalls();
+    } catch (err) {
+      console.warn("[CallKeep] endAllCalls error:", err);
+    }
   },
 
   reportCallEnded(uuid: string): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;
-    RNCallKeep.reportEndCallWithUUID(uuid, 2);
+    try {
+      RNCallKeep.reportEndCallWithUUID(uuid, 2);
+    } catch (err) {
+      console.warn("[CallKeep] reportCallEnded error:", err);
+    }
   },
 
   addListener(listener: CallKeepListener): () => void {
