@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useMakeCall, useGetMe, useListMyNumbers } from "@workspace/api-client-react";
 import { Delete, Phone, Loader2, UserCircle2, ChevronRight, Shield, AlertTriangle } from "lucide-react";

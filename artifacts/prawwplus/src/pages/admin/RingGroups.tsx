@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Users, Plus, Trash2, Edit2, X, Check, RefreshCw, ChevronLeft } from "lucide-react";
+import { Users, Plus, Trash2, Edit2, X, RefreshCw, ChevronLeft } from "lucide-react";
 
 function getCsrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);

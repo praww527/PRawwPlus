@@ -3,7 +3,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/apiFetch";
 import {
   Users, Plus, X, Mail, Shield, Crown, UserMinus, LogOut,
-  Building2, Loader2, Copy, Check, Clock, Trash2,
+  Building2, Loader2, Copy, Check, Clock,
 } from "lucide-react";
 
 interface OrgMember {
@@ -267,8 +267,6 @@ export default function TeamPage() {
 
   const { org, role, members, pendingInvites } = state;
   const isOwnerOrAdmin = role === "owner" || role === "admin";
-  const me = members.find(m => m.orgRole === role && role === "owner") ?? members[0];
-
   return (
     <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
@@ -423,7 +421,6 @@ export default function TeamPage() {
         </p>
         {members.map(member => {
           const [from, to] = avatarGradient(member.name || member.email);
-          const isMe = member.orgRole === role;
           return (
             <div key={member.id} style={{
               background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
