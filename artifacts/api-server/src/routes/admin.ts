@@ -2301,6 +2301,81 @@ router.get("/admin/gateway-status", requireAdmin, async (_req, res) => {
   });
 });
 
+// ── PSTN Gateway Force Re-register ────────────────────────────────────────────
+//
+// POST /api/admin/gateway-reregister
+//
+// Forces FreeSWITCH to drop the current gateway registration attempt and
+// immediately start a fresh one.  Sequence:
+//
+//   1. `sofia profile <profile> killgw <name>`   — tears down the gateway
+//   2. 1.5 s delay                               — let FreeSWITCH clean up
+//   3. `sofia profile <profile> startgw <name>`  — creates and registers it
+//   4. 2 s delay                                 — allow REGISTER round-trip
+//   5. `sofia status gateway <name>`             — read new state for response
+//
+// The profile name is read first from PSTN_SIP_PROFILE env var, then from the
+// "Profile" field returned by `sofia status gateway <name>`, then falls back to
+// "prawwplus_mobile" (the PRaww+ SIP profile on the VPS).
+
+router.post("/admin/gateway-reregister", requireAdmin, async (_req, res) => {
+  const esl         = eslStatus();
+  const gatewayName = process.env.PSTN_GATEWAY_NAME?.trim() ?? null;
+
+  if (!gatewayName) {
+    res.status(400).json({ ok: false, error: "PSTN_GATEWAY_NAME is not configured" });
+    return;
+  }
+
+  if (!esl.connected) {
+    res.status(503).json({ ok: false, error: "FreeSWITCH ESL is not connected — cannot send commands" });
+    return;
+  }
+
+  // Resolve profile name: env override > live sofia status > project default
+  let profileName = process.env.PSTN_SIP_PROFILE?.trim() ?? "";
+
+  if (!profileName) {
+    const curRaw = await sendEslBgapiAwait(`sofia status gateway ${gatewayName}`, 8_000);
+    if (!curRaw.startsWith("-ERR")) {
+      const kv = parseKeyValueTable(curRaw);
+      profileName = kv["Profile"] ?? "";
+    }
+  }
+
+  if (!profileName) profileName = "prawwplus_mobile";  // PRaww+ VPS default
+
+  // Step 1 — kill the gateway
+  const killResult  = await sendEslBgapiAwait(`sofia profile ${profileName} killgw ${gatewayName}`, 8_000);
+
+  // Step 2 — brief pause for FreeSWITCH internal cleanup
+  await new Promise<void>(r => setTimeout(r, 1_500));
+
+  // Step 3 — start (and register) the gateway
+  const startResult = await sendEslBgapiAwait(`sofia profile ${profileName} startgw ${gatewayName}`, 8_000);
+
+  // Step 4 — wait for REGISTER round-trip
+  await new Promise<void>(r => setTimeout(r, 2_000));
+
+  // Step 5 — read new state so frontend can refresh inline
+  const newRaw  = await sendEslBgapiAwait(`sofia status gateway ${gatewayName}`, 8_000);
+  let   newState: string | null = null;
+  if (!newRaw.startsWith("-ERR")) {
+    const kv = parseKeyValueTable(newRaw);
+    newState = (kv["State"] ?? "UNKNOWN").toUpperCase();
+  }
+
+  res.json({
+    ok:          true,
+    gatewayName,
+    profileName,
+    killResult:  killResult.trim(),
+    startResult: startResult.trim(),
+    newState,
+    triggeredAt: new Date().toISOString(),
+  });
+});
+
 // ── Audit Logs ─────────────────────────────────────────────────────────────────
 
 router.get("/admin/audit-logs", requireAdmin, async (req, res) => {

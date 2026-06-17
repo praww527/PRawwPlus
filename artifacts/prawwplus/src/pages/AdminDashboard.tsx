@@ -136,6 +136,9 @@ export default function AdminDashboard() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [countdown,   setCountdown]   = useState(30);
 
+  const [reregLoading, setReregLoading] = useState(false);
+  const [reregResult,  setReregResult]  = useState<{ ok: boolean; msg: string } | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -233,6 +236,25 @@ export default function AdminDashboard() {
     : gwTrying
     ? "amber"
     : "red";
+
+  const handleReregister = useCallback(async () => {
+    setReregLoading(true);
+    setReregResult(null);
+    try {
+      const r = await adminFetch("/admin/gateway-reregister", { method: "POST" });
+      const state = r.newState ?? "TRYING";
+      setReregResult({
+        ok:  true,
+        msg: `Triggered — new state: ${state}  (profile: ${r.profileName}, gw: ${r.gatewayName})`,
+      });
+      // Refresh gateway card in 3 s so fresh state renders
+      setTimeout(() => refresh(), 3_000);
+    } catch (e: any) {
+      setReregResult({ ok: false, msg: e.message ?? "Re-register failed" });
+    } finally {
+      setReregLoading(false);
+    }
+  }, [refresh]);
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1120, margin: "0 auto" }}>
@@ -572,6 +594,47 @@ export default function AdminDashboard() {
                 </Alert>
               )}
             </>
+          )}
+
+          {/* Force Re-register — shown whenever ESL is up and gateway is configured */}
+          {gwConfigured && gwEslOk && (
+            <div style={{ marginTop: 8 }}>
+              <Divider />
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <button
+                  onClick={handleReregister}
+                  disabled={reregLoading}
+                  style={{
+                    cursor:          reregLoading ? "not-allowed" : "pointer",
+                    background:      reregLoading
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(99,102,241,0.18)",
+                    border:          "1px solid rgba(99,102,241,0.35)",
+                    borderRadius:    8,
+                    color:           reregLoading ? "rgba(255,255,255,0.3)" : "#a5b4fc",
+                    fontSize:        12,
+                    fontWeight:      600,
+                    letterSpacing:   "0.04em",
+                    padding:         "7px 14px",
+                    alignSelf:       "flex-start",
+                    transition:      "background 0.15s, border-color 0.15s",
+                  }}
+                >
+                  {reregLoading ? "⏳ Re-registering…" : "↺ Force Re-register"}
+                </button>
+
+                {reregResult && (
+                  <p style={{
+                    margin:     0,
+                    fontSize:   11,
+                    lineHeight: "1.4",
+                    color:      reregResult.ok ? "#34d399" : "#f87171",
+                  }}>
+                    {reregResult.ok ? "✓" : "✗"} {reregResult.msg}
+                  </p>
+                )}
+              </div>
+            </div>
           )}
 
           {gw?.checkedAt && (
