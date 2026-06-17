@@ -195,7 +195,6 @@ export default function Profile() {
   const [otpStep, setOtpStep] = useState<"enter-phone" | "enter-otp">("enter-phone");
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneMsg, setPhoneMsg] = useState<string | null>(null);
-  const [devOtp, setDevOtp] = useState<string | null>(null);
   const [otpCountdown, setOtpCountdown] = useState<number | null>(null);
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -382,7 +381,6 @@ export default function Profile() {
     setOtpInput("");
     setOtpStep(userPhone && !userPhoneVerified ? "enter-otp" : "enter-phone");
     setPhoneMsg(null);
-    setDevOtp(null);
     setOtpCountdown(null);
     setSheet("phone");
   };
@@ -391,7 +389,6 @@ export default function Profile() {
     if (!phoneInput.trim()) { setPhoneMsg("Enter your mobile number"); return; }
     setPhoneLoading(true);
     setPhoneMsg(null);
-    setDevOtp(null);
     try {
       const res = await fetch("/api/auth/phone/send-otp", {
         method: "POST",
@@ -404,7 +401,6 @@ export default function Profile() {
         setPhoneMsg(data.error ?? "Failed to send code");
       } else {
         setPhoneMsg(data.message ?? "Verification code sent");
-        if (data.otp) setDevOtp(data.otp);
         setOtpInput("");
         setOtpCountdown(180);
         setOtpStep("enter-otp");
@@ -1010,11 +1006,6 @@ export default function Profile() {
                 style={{ width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 16, background: "var(--glass-bg)", border: "none", color: "var(--text-1)", outline: "none", boxSizing: "border-box" }}
               />
               {phoneMsg && <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>}
-              {devOtp && (
-                <div style={{ padding: "8px 12px", borderRadius: 10, background: "rgba(255,214,10,0.10)", textAlign: "center" }}>
-                  <p style={{ fontSize: 12, color: "#ffd60a" }}>Dev OTP: <strong>{devOtp}</strong></p>
-                </div>
-              )}
               <button onClick={handleSendOtp} disabled={phoneLoading}
                 style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Send Verification Code"}
@@ -1028,11 +1019,6 @@ export default function Profile() {
                   <span style={{ color: "var(--text-3)" }}> Expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, "0")}</span>
                 )}
               </p>
-              {devOtp && (
-                <div style={{ padding: "8px 12px", borderRadius: 10, background: "rgba(255,214,10,0.10)", textAlign: "center" }}>
-                  <p style={{ fontSize: 12, color: "#ffd60a" }}>Dev OTP: <strong>{devOtp}</strong></p>
-                </div>
-              )}
               <input
                 type="text"
                 inputMode="numeric"

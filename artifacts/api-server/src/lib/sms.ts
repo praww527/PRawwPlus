@@ -52,9 +52,8 @@ export async function sendSmsOtp(phone: string, otp: string): Promise<void> {
   if (!isSmsPortalConfigured()) {
     logger.warn(
       { phone },
-      "SMS Portal not configured (SMSPORTAL_Client_ID / SMSPORTAL_API_Secret missing) — OTP logged for dev only",
+      "SMS Portal not configured (SMSPORTAL_Client_ID / SMSPORTAL_API_Secret missing) — OTP not sent",
     );
-    logger.info({ phone, otp }, "DEV OTP (no SMS sent)");
     return;
   }
 

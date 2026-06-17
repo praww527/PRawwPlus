@@ -506,13 +506,11 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
       logger.warn({ phone: normalized }, "SMS Portal not configured — OTP not sent via SMS");
     }
 
-    const devMode = process.env.NODE_ENV !== "production";
     res.json({
       message: smsSent
         ? `Verification code sent via SMS to ${normalized}.`
         : `Verification code generated. Configure SMS Portal to enable SMS delivery.`,
       phone: normalized,
-      ...(devMode && !smsSent ? { otp } : {}),
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to send OTP" });

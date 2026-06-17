@@ -415,6 +415,11 @@ router.get("/admin/platform-health", async (req, res) => {
       sampledAt:   proc.sampledAt ? new Date(proc.sampledAt).toISOString() : null,
     },
 
+    didProvider: {
+      configured: !!(process.env.BIZVOIP_API_KEY && process.env.BIZVOIP_API_URL),
+      provider:   process.env.BIZVOIP_API_KEY ? "bizvoip" : null,
+    },
+
     history: history.slice(-15),  // last 15 samples (≈15 min of sparkline data)
   });
 });

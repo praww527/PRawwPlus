@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/appUrl";
 import { logger } from "../lib/logger";
+import { hasDidProvider, getActiveDidProvider } from "../lib/didProviders";
 
 const router: IRouter = Router();
 
@@ -67,16 +68,13 @@ function buildPayFastData(params: {
 
 
 function getPayFastCredentials() {
-  const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "10000100";
-  const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "46f0cd694581a";
+  const merchantId = process.env.PAYFAST_MERCHANT_ID;
+  const merchantKey = process.env.PAYFAST_MERCHANT_KEY;
   const passphrase = process.env.PAYFAST_PASSPHRASE;
-  const isSandbox = !process.env.PAYFAST_MERCHANT_ID;
-  if (isSandbox) {
-    logger.warn("[PayFast/Numbers] PAYFAST_MERCHANT_ID is not set — using sandbox credentials.");
+  if (!merchantId || !merchantKey) {
+    throw new Error("PayFast credentials not configured. Set PAYFAST_MERCHANT_ID and PAYFAST_MERCHANT_KEY.");
   }
-  const paymentUrl = isSandbox
-    ? "https://sandbox.payfast.co.za/eng/process"
-    : "https://www.payfast.co.za/eng/process";
+  const paymentUrl = "https://www.payfast.co.za/eng/process";
   return { merchantId, merchantKey, passphrase, paymentUrl };
 }
 
@@ -133,8 +131,33 @@ router.get("/numbers/search", async (req, res) => {
     return;
   }
 
-  // Return unassigned numbers from the local pool (filter by country when set)
-  const countryCode = String(req.query.country_code ?? "ZA").trim() || "ZA";
+  const countryCode  = String(req.query.country_code  ?? "ZA").trim() || "ZA";
+  const numberType   = req.query.number_type   ? String(req.query.number_type)  : undefined;
+  const contains     = req.query.contains      ? String(req.query.contains)     : undefined;
+
+  // ── Route through external DID provider when configured ──────────────────
+  if (hasDidProvider()) {
+    try {
+      const provider = getActiveDidProvider();
+      const dids = await provider.searchAvailable({ countryCode, numberType, contains, limit: 50 });
+      const numbers = dids.map((d) => ({
+        phone_number:  d.phoneNumber,
+        number_type:   d.numberType,
+        region:        d.region,
+        monthly_cost:  d.monthlyRateZar,
+        upfront_cost:  d.upfrontCostZar,
+        is_premium:    d.isPremium,
+        provider_ref:  d.providerRef,
+        source:        "provider",
+      }));
+      res.json({ numbers, total: numbers.length, provider: provider.name });
+      return;
+    } catch (err: any) {
+      logger.error({ err: err?.message }, "[numbers/search] DID provider error — falling back to local pool");
+    }
+  }
+
+  // ── Fallback: local number pool ───────────────────────────────────────────
   const poolFilter =
     countryCode === "ZA"
       ? {
@@ -150,14 +173,15 @@ router.get("/numbers/search", async (req, res) => {
 
   const numbers = available.map((n: any) => ({
     phone_number: n.number,
-    number_type: n.country ?? "local",
-    region: n.region ?? null,
+    number_type:  n.country ?? "local",
+    region:       n.region ?? null,
     monthly_cost: null,
     upfront_cost: null,
-    is_premium: isPremiumNumber(n.number),
+    is_premium:   isPremiumNumber(n.number),
+    source:       "local",
   }));
 
-  res.json({ numbers, total: numbers.length });
+  res.json({ numbers, total: numbers.length, provider: null });
 });
 
 /* ── POST /numbers/buy — assign a number from the pool to the user ── */
@@ -184,14 +208,46 @@ router.post("/numbers/buy", async (req, res) => {
     return;
   }
 
-  const { phone_number } = req.body;
+  const { phone_number, provider_ref } = req.body;
   if (!phone_number) { res.status(400).json({ error: "phone_number is required" }); return; }
 
   const now = new Date();
 
-  // Atomic claim: assign only if the number is currently unassigned. Performing
-  // the check and the write in one updateOne closes the race where two requests
-  // both read userId:null and both assign the same number.
+  // ── Route through external DID provider when configured ──────────────────
+  if (hasDidProvider()) {
+    try {
+      const provider = getActiveDidProvider();
+      const sipTrunkHost = process.env.BIZVOIP_SIP_TRUNK_HOST ?? process.env.SIP_TRUNK_HOST ?? "";
+      const provisioned = await provider.provision({
+        phoneNumber:   phone_number,
+        providerRef:   provider_ref ?? phone_number,
+        sipTrunkHost,
+      });
+      // Record in local DB so ownership, locking, and caller-ID selection all work
+      const alreadyOwned = await PhoneNumberModel.findOne({ number: phone_number });
+      if (alreadyOwned) {
+        if (alreadyOwned.userId && alreadyOwned.userId !== userId) {
+          res.status(409).json({ error: "Number already owned by another user" });
+          return;
+        }
+        await PhoneNumberModel.updateOne({ _id: alreadyOwned._id }, { userId, assignedAt: now, providerRef: provisioned.providerRef, source: "provider" });
+      } else {
+        await PhoneNumberModel.create({ _id: randomUUID(), number: phone_number, userId, assignedAt: now, providerRef: provisioned.providerRef, source: "provider" });
+      }
+      logger.info({ userId, phoneNumber: phone_number, provider: provider.name }, "[numbers/buy] DID provisioned via provider");
+      res.json({ message: "Number provisioned successfully", number: { number: phone_number, status: "active" } });
+      return;
+    } catch (err: any) {
+      logger.error({ err: err?.message, userId, phoneNumber: phone_number }, "[numbers/buy] DID provider provisioning failed");
+      res.status(502).json({ error: "provider_error", message: err?.message ?? "Number provisioning failed. Please try again." });
+      return;
+    }
+  }
+
+  // ── Fallback: local pool atomic claim ────────────────────────────────────
+  // Assign only if the number is currently unassigned. Performing the check
+  // and the write in one updateOne closes the race where two requests both
+  // read userId:null and both assign the same number.
   const claim = await PhoneNumberModel.updateOne(
     { number: phone_number, $or: [{ userId: null }, { userId: { $exists: false } }] },
     { userId, assignedAt: now },
@@ -260,8 +316,21 @@ router.delete("/numbers/:id", async (req, res) => {
     return;
   }
 
+  // If the number was provisioned via an external DID provider, release it there first
+  const providerRef = (number as any).providerRef ?? null;
+  const source      = (number as any).source ?? null;
+  if (source === "provider" && providerRef && hasDidProvider()) {
+    try {
+      const provider = getActiveDidProvider();
+      await provider.release({ phoneNumber: number.number, providerRef });
+      logger.info({ userId, phoneNumber: number.number, providerRef, provider: provider.name }, "[numbers/delete] DID released from provider");
+    } catch (err: any) {
+      logger.error({ err: err?.message, userId, phoneNumber: number.number }, "[numbers/delete] DID provider release failed — removing from local DB anyway");
+    }
+  }
+
   // Release back to the pool (set userId to null) so the number can be reused
-  await PhoneNumberModel.updateOne({ _id: id }, { $set: { userId: null, assignedAt: null } });
+  await PhoneNumberModel.updateOne({ _id: id }, { $set: { userId: null, assignedAt: null, providerRef: null, source: null } });
   res.json({ message: "Number removed successfully" });
 });
 
