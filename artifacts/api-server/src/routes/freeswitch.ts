@@ -88,13 +88,31 @@ router.get("/freeswitch/did-route", async (req: Request, res: Response) => {
 
     res.setHeader("Content-Type", "text/plain");
 
+    /*
+     * Response format (used directly by dialplan `bridge` or `transfer`):
+     *
+     *   transfer:<ext>                         — agent: transfer to extension in prawwplus
+     *   ringall:<user/1001>,<user/1002>,...    — ring group ring-all (comma = simultaneous)
+     *   seqring:<user/1001>|<user/1002>|...   — ring group round-robin (pipe = sequential)
+     *   queue:<queueName>                      — callcenter queue
+     *   unrouted                               — no route configured
+     *
+     * Using `user/<ext>` bridge URIs resolves through the FS directory so both
+     * SIP and Verto registrations are found automatically.
+     */
     switch (route.type) {
       case "agent":
-        res.send(`agent:${route.extension}`);
+        res.send(`transfer:${route.extension}`);
         break;
-      case "ring_group":
-        res.send(`ring_group:${route.extensions!.join(",")}|${route.strategy}`);
+      case "ring_group": {
+        const userUris = route.extensions!.map((e) => `user/${e}`);
+        if (route.strategy === "round-robin") {
+          res.send(`seqring:${userUris.join("|")}`);
+        } else {
+          res.send(`ringall:${userUris.join(",")}`);
+        }
         break;
+      }
       case "queue":
         res.send(`queue:${xmlEscape(route.queueName!)}`);
         break;

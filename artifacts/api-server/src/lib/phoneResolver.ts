@@ -83,7 +83,6 @@ export async function resolveDIDRoute(didNumber: string): Promise<DidRouteResult
 
   const phoneRecord = await PhoneNumberModel.findOne({
     number: { $in: searchNumbers },
-    userId: { $ne: null },
   }).lean();
 
   if (!phoneRecord) {

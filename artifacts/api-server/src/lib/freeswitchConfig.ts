@@ -739,7 +739,19 @@ export function publicDidDialplanXml(apiPort: number): string {
     public API domain is not yet resolving (e.g. during initial VPS setup).
   -->
 
-  <!-- Step 1: resolve DID → route directive -->
+  <!--
+    Step 1: resolve DID → route directive.
+
+    The API returns one of:
+      transfer:<ext>               — agent: single extension to transfer to
+      ringall:<user/E1>,<user/E2>  — ring group ring-all  (comma = simultaneous in FS bridge)
+      seqring:<user/E1>|<user/E2>  — ring group round-robin (pipe = sequential in FS bridge)
+      queue:<name>                 — callcenter queue name
+      unrouted                     — not provisioned / no route configured
+
+    Using user/<ext> URIs resolves through the FS directory so both SIP and Verto
+    registrations are found automatically without needing sofia_contact().
+  -->
   <extension name="inbound_did_resolve" continue="true">
     <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$" break="never">
       <action application="curl" data="${didRouteUrl}?number=$1"/>
@@ -749,48 +761,48 @@ export function publicDidDialplanXml(apiPort: number): string {
     </condition>
   </extension>
 
-  <!-- Step 2a: agent route — transfer to single extension -->
+  <!-- Step 2a: agent route — transfer to single extension in prawwplus context -->
   <extension name="did_route_agent" continue="true">
-    <condition field="\${did_route}" expression="^agent:([1-9][0-9]{3})$" break="on-true">
-      <action application="set" data="target_ext=$1"/>
-      <action application="log" data="INFO [DID] Routing to agent ext=$1"/>
+    <condition field="\${did_route}" expression="^transfer:([1-9][0-9]{3})$" break="on-true">
+      <action application="log" data="INFO [DID] Agent route → ext $1"/>
       <action application="transfer" data="$1 XML prawwplus"/>
     </condition>
   </extension>
 
-  <!-- Step 2b: ring_group route — ring all members simultaneously -->
+  <!--
+    Step 2b: ring_group ring-all — bridge all members simultaneously.
+    The API pre-formats the bridge string as "user/1001,user/1002,..." so FreeSWITCH
+    dials every comma-separated leg at once; first to answer wins.
+  -->
   <extension name="did_route_ring_group_all" continue="true">
-    <condition field="\${did_route}" expression="^ring_group:([0-9,]+)\\|ring-all$" break="on-true">
-      <action application="set" data="rg_members=$1"/>
+    <condition field="\${did_route}" expression="^ringall:(.+)$" break="on-true">
       <action application="set" data="call_timeout=30"/>
       <action application="set" data="hangup_after_bridge=true"/>
       <action application="set" data="continue_on_fail=true"/>
-      <action application="set" data="ringback=\${us-ring}"/>
-      <action application="log" data="INFO [DID] Ring-all group: members=$1"/>
-      <!--
-        Build comma-separated bridge string: each member gets both Verto and SIP endpoints.
-        FreeSWITCH dials all comma-separated legs simultaneously; first to answer wins.
-        We use loopback/ into the prawwplus context so each extension goes through
-        the normal internal routing (DND, forwarding, etc.).
-      -->
-      <action application="bridge" data="\${sofia_contact(*/\${rg_members}@\${domain_name})}"/>
+      <action application="log" data="INFO [DID] Ring-all → bridge $1"/>
+      <action application="bridge" data="$1"/>
     </condition>
   </extension>
 
-  <!-- Step 2c: ring_group route — round-robin (sequential transfer) -->
+  <!--
+    Step 2c: ring_group round-robin — bridge legs sequentially.
+    The API pre-formats the bridge string as "user/1001|user/1002|..." so FreeSWITCH
+    tries each pipe-separated leg in order until one answers.
+  -->
   <extension name="did_route_ring_group_rr" continue="true">
-    <condition field="\${did_route}" expression="^ring_group:([0-9]+)[,0-9]*\\|round-robin$" break="on-true">
-      <action application="set" data="rg_first_ext=$1"/>
-      <action application="log" data="INFO [DID] Round-robin group: first ext=$1"/>
-      <action application="transfer" data="$1 XML prawwplus"/>
+    <condition field="\${did_route}" expression="^seqring:(.+)$" break="on-true">
+      <action application="set" data="call_timeout=20"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="set" data="continue_on_fail=true"/>
+      <action application="log" data="INFO [DID] Round-robin → bridge $1"/>
+      <action application="bridge" data="$1"/>
     </condition>
   </extension>
 
-  <!-- Step 2d: queue route — send to callcenter queue -->
+  <!-- Step 2d: queue route — answer and queue the caller via mod_callcenter -->
   <extension name="did_route_queue" continue="true">
     <condition field="\${did_route}" expression="^queue:(.+)$" break="on-true">
-      <action application="set" data="queue_name=$1"/>
-      <action application="log" data="INFO [DID] Routing to queue: $1"/>
+      <action application="log" data="INFO [DID] Queue route → $1@default"/>
       <action application="answer"/>
       <action application="callcenter" data="$1@default"/>
     </condition>
