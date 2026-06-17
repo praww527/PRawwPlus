@@ -7,7 +7,7 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eslStatus } from "../lib/freeswitchESL";
+import { eslStatus, sendEslBgapiAwait } from "../lib/freeswitchESL";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { getAppUrl } from "../lib/appUrl";
 import { connectDB } from "@workspace/db";
@@ -246,6 +246,268 @@ router.post("/freeswitch/test-ssh", async (req: Request, res: Response) => {
 
   const result = await testSSHConnection();
   res.status(result.ok ? 200 : 500).json(result);
+});
+
+// ─── Gateway status helpers ────────────────────────────────────────────────
+
+interface GatewayRow {
+  name:        string;
+  profile:     string;
+  state:       string;
+  stateDetail: string | null;
+  realm:       string | null;
+  username:    string | null;
+  callsIn:     number | null;
+  callsOut:    number | null;
+  callsFailed: number | null;
+  uptimeInState: string | null;
+  fetchedAt:   string;
+  error:       string | null;
+}
+
+/**
+ * Parse the plain-text output of `sofia status` into a list of gateway rows.
+ * Lines that describe a gateway look like:
+ *   "          <profile>::<name>  gateway   <realm>   <STATE>"
+ * or in older FS builds:
+ *   "          <name>             gateway   <realm>   <STATE>"
+ */
+function parseSofiaStatus(raw: string): { name: string; profile: string; state: string; realm: string }[] {
+  const gateways: { name: string; profile: string; state: string; realm: string }[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.toLowerCase().includes("gateway")) continue;
+    const trimmed = line.trim();
+    const parts   = trimmed.split(/\s+/);
+    if (parts.length < 4) continue;
+
+    const nameField = parts[0];
+    const typeField = parts[1]?.toLowerCase();
+    if (typeField !== "gateway") continue;
+
+    const realm = parts[2] ?? "";
+    const state = parts[parts.length - 1] ?? "UNKNOWN";
+
+    let name    = nameField;
+    let profile = "";
+
+    if (nameField.includes("::")) {
+      const idx = nameField.indexOf("::");
+      profile   = nameField.slice(0, idx);
+      name      = nameField.slice(idx + 2);
+    }
+
+    gateways.push({ name, profile, state, realm });
+  }
+  return gateways;
+}
+
+/**
+ * Parse the plain-text output of `sofia status gateway <name>` into key→value pairs.
+ * Lines are "Key\tValue" or "Key    Value" (tab or multi-space separated).
+ */
+function parseSofiaGatewayDetail(raw: string): Record<string, string> {
+  const kv: Record<string, string> = {};
+  for (const line of raw.split("\n")) {
+    const tabIdx = line.indexOf("\t");
+    if (tabIdx > 0) {
+      const key = line.slice(0, tabIdx).trim();
+      const val = line.slice(tabIdx + 1).trim();
+      if (key) kv[key] = val;
+      continue;
+    }
+    const m = line.match(/^(\S[\w\s\-]+?)\s{2,}(.+)$/);
+    if (m) {
+      const key = m[1].trim();
+      const val = m[2].trim();
+      if (key) kv[key] = val;
+    }
+  }
+  return kv;
+}
+
+/**
+ * GET /api/freeswitch/gateway-status
+ *
+ * Returns real-time SIP gateway registration state and available PSTN coin
+ * balance without requiring SSH or fs_cli access.
+ *
+ * Response shape:
+ * {
+ *   fetchedAt:    ISO timestamp,
+ *   eslConnected: boolean,
+ *   gateways: [
+ *     {
+ *       name, profile, state, stateDetail,
+ *       realm, username,
+ *       callsIn, callsOut, callsFailed,
+ *       uptimeInState,
+ *       fetchedAt, error
+ *     }
+ *   ],
+ *   credit: {
+ *     totalCoins:     number,   // sum of all user coin balances
+ *     userCount:      number,   // users with a non-zero balance
+ *     lowBalanceThreshold: number,
+ *   },
+ *   pstnGatewayName: string | null,   // value of PSTN_GATEWAY_NAME env var
+ * }
+ *
+ * Admin-only (session cookie or Authorization: Bearer <ADMIN_API_KEY>).
+ */
+router.get("/freeswitch/gateway-status", async (req: Request, res: Response) => {
+  const adminKey  = process.env.ADMIN_API_KEY;
+  const authHdr   = (req.headers["authorization"] ?? req.headers["x-admin-key"] ?? "").toString();
+  const token     = authHdr.replace(/^Bearer\s+/i, "").trim();
+  const bearerOk  = adminKey && token === adminKey;
+  const sessionOk = (req as any).isAuthenticated?.() && (req as any).user?.isAdmin;
+
+  if (!bearerOk && !sessionOk) {
+    if (!adminKey && !sessionOk) {
+      res.status(501).json({ error: "ADMIN_API_KEY not configured and no admin session" });
+    } else {
+      res.status(403).json({ error: "Admin access required" });
+    }
+    return;
+  }
+
+  const fetchedAt       = new Date().toISOString();
+  const pstnGatewayName = process.env.PSTN_GATEWAY_NAME ?? null;
+  const esl             = eslStatus();
+
+  // ── 1. Query FreeSWITCH for all gateway states via ESL ───────────────────
+
+  let gateways: GatewayRow[] = [];
+
+  if (!esl.connected) {
+    gateways = pstnGatewayName
+      ? [{
+          name: pstnGatewayName, profile: "", state: "UNKNOWN",
+          stateDetail: null, realm: process.env.PSTN_GATEWAY_REALM ?? null,
+          username: process.env.PSTN_GATEWAY_USERNAME ?? null,
+          callsIn: null, callsOut: null, callsFailed: null,
+          uptimeInState: null, fetchedAt,
+          error: "ESL not connected — cannot query FreeSWITCH",
+        }]
+      : [];
+  } else {
+    const TIMEOUT_MS = 8_000;
+
+    // Run sofia status (all gateways) and per-gateway detail in parallel.
+    // We fetch the overview first to know which gateways exist, then detail.
+    const sofiaStatusRaw = await sendEslBgapiAwait("sofia status", TIMEOUT_MS);
+    const parsed         = parseSofiaStatus(sofiaStatusRaw);
+
+    // If the configured PSTN gateway isn't in the sofia status output yet
+    // (e.g. it's still trying to register), inject a placeholder so it
+    // always appears in the response.
+    if (pstnGatewayName && !parsed.some((g) => g.name === pstnGatewayName)) {
+      parsed.push({
+        name:    pstnGatewayName,
+        profile: "",
+        state:   "UNKNOWN",
+        realm:   process.env.PSTN_GATEWAY_REALM ?? "",
+      });
+    }
+
+    // Fetch detailed status for each gateway in parallel (cap to 10 to avoid
+    // hammering ESL with dozens of commands on a heavily-provisioned FS box).
+    gateways = await Promise.all(
+      parsed.slice(0, 10).map(async (gw): Promise<GatewayRow> => {
+        try {
+          const detail = await sendEslBgapiAwait(`sofia status gateway ${gw.name}`, TIMEOUT_MS);
+          if (detail.startsWith("-ERR")) {
+            return {
+              name:         gw.name,
+              profile:      gw.profile,
+              state:        gw.state,
+              stateDetail:  null,
+              realm:        gw.realm || null,
+              username:     null,
+              callsIn:      null,
+              callsOut:     null,
+              callsFailed:  null,
+              uptimeInState: null,
+              fetchedAt,
+              error:        detail,
+            };
+          }
+
+          const kv = parseSofiaGatewayDetail(detail);
+
+          const state        = kv["State"]   ?? kv["state"]   ?? gw.state;
+          const stateDetail  = kv["Status"]  ?? kv["status"]  ?? null;
+          const realm        = kv["Realm"]   ?? kv["realm"]   ?? gw.realm ?? null;
+          const username     = kv["Username"] ?? kv["username"] ?? null;
+          const uptimeInState = kv["Uptime-In-State"] ?? kv["uptime-in-state"] ?? null;
+
+          const toInt = (k: string) => {
+            const v = kv[k] ?? kv[k.toLowerCase()];
+            const n = v !== undefined ? parseInt(v, 10) : null;
+            return n !== null && !isNaN(n) ? n : null;
+          };
+          const callsIn     = toInt("Calls-In");
+          const callsOut    = toInt("Calls-Out");
+          const callsFailed = toInt("Calls-Failed-Total") ?? toInt("Calls-Failed");
+
+          return {
+            name: gw.name, profile: gw.profile || (kv["Profile"] ?? kv["profile"] ?? ""),
+            state, stateDetail, realm, username,
+            callsIn, callsOut, callsFailed, uptimeInState,
+            fetchedAt, error: null,
+          };
+        } catch (err: any) {
+          return {
+            name:         gw.name,
+            profile:      gw.profile,
+            state:        gw.state,
+            stateDetail:  null,
+            realm:        gw.realm || null,
+            username:     null,
+            callsIn:      null,
+            callsOut:     null,
+            callsFailed:  null,
+            uptimeInState: null,
+            fetchedAt,
+            error:        String(err?.message ?? err),
+          };
+        }
+      }),
+    );
+  }
+
+  // ── 2. Query MongoDB for total available PSTN coin credit ────────────────
+
+  let credit: {
+    totalCoins:          number;
+    userCount:           number;
+    lowBalanceThreshold: number;
+  } | null = null;
+
+  try {
+    await connectDB();
+    const { UserModel } = await import("@workspace/db");
+    const agg = await (UserModel as any).aggregate([
+      { $match: { coins: { $gt: 0 } } },
+      { $group: { _id: null, totalCoins: { $sum: "$coins" }, userCount: { $sum: 1 } } },
+    ]) as Array<{ totalCoins: number; userCount: number }>;
+
+    const row = agg[0] ?? { totalCoins: 0, userCount: 0 };
+    credit = {
+      totalCoins:          row.totalCoins,
+      userCount:           row.userCount,
+      lowBalanceThreshold: parseInt(process.env.LOW_BALANCE_THRESHOLD_COINS ?? "10", 10),
+    };
+  } catch {
+    credit = null;
+  }
+
+  res.json({
+    fetchedAt,
+    eslConnected:    esl.connected,
+    pstnGatewayName,
+    gateways,
+    credit,
+  });
 });
 
 export default router;
