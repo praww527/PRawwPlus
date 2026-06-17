@@ -19,6 +19,7 @@ import { setMediaWatchdogEsl } from "./mediaWatchdog";
 import { setSofiaRescanFn } from "./extension";
 import { cleanExpiredSipSessions } from "./callSession";
 import { startInvoiceCron } from "./invoiceCron";
+import { getDidProvider } from "./didProviders";
 
 const EXTENSION_START = 1001;
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -112,6 +113,16 @@ function validateEnv(): void {
 export async function runStartup(): Promise<void> {
   // ── 0. Validate environment ─────────────────────────────────────────────
   validateEnv();
+
+  // ── 0a. BizVoIP account ID discovery ─────────────────────────────────────
+  // Runs eagerly so the account ID is cached before the first DID API call.
+  // Non-blocking — a failure is logged as a warning, not a fatal error.
+  const didProvider = getDidProvider();
+  if (didProvider && !process.env.BIZVOIP_ACCOUNT_ID) {
+    (didProvider as any).discoverAccountId?.()
+      .then((id: string) => logger.info({ accountId: id }, "[BizVoIP] Account ID ready"))
+      .catch((err: Error) => logger.warn({ err: err.message }, "[BizVoIP] Account ID discovery failed — set BIZVOIP_ACCOUNT_ID to fix"));
+  }
 
   // ── 1. Start FreeSWITCH ESL listener ────────────────────────────────────
   // ESL is started BEFORE MongoDB so call control works even when the DB is
