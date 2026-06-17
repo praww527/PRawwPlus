@@ -5,17 +5,17 @@
  * sourced from BizVoIP / BizPortal (https://bizportal.co.za).
  *
  * Required env vars:
- *   BIZVOIP_API_KEY      — API key from BizPortal → Settings → API
- *   BIZVOIP_API_URL      — REST base URL, e.g. https://api.bizportal.co.za/v1
- *   BIZVOIP_ACCOUNT_ID   — Your BizPortal account ID (shown in the dashboard)
+ *   BIZVOIP_API_KEY      — API key from BizVoIP portal → Settings → API
+ *   BIZVOIP_API_URL      — REST base URL (default: https://api.bizvoip.co.za/v1)
+ *   BIZVOIP_ACCOUNT_ID   — Your BizVoIP account ID (shown in the portal dashboard)
  *   BIZVOIP_SIP_TRUNK_HOST — FreeSWITCH public hostname/IP for trunk registration
  *
  * API auth: Bearer token in Authorization header.
  * All endpoints use JSON request/response bodies.
  *
  * Note: BizVoIP does not publish a formal OpenAPI spec. The endpoint paths and
- * field names below are based on BizPortal API conventions and will work once
- * credentials are confirmed. Adjust paths if BizPortal provide updated docs.
+ * field names below follow standard REST conventions for South African VoIP
+ * providers. Adjust paths if BizVoIP provide updated API documentation.
  */
 
 import { logger } from "../logger";

@@ -40,6 +40,17 @@ function xmlEscape(value: string): string {
  * NO authentication — only reachable from localhost.
  */
 router.get("/freeswitch/lookup", async (req: Request, res: Response) => {
+  // Loopback-only — called by FreeSWITCH mod_curl from the same host
+  const remoteIp = req.socket?.remoteAddress ?? req.ip ?? "";
+  const isLocalhost =
+    remoteIp === "127.0.0.1" ||
+    remoteIp === "::1" ||
+    remoteIp === "::ffff:127.0.0.1";
+  if (!isLocalhost) {
+    res.status(403).send("");
+    return;
+  }
+
   const { number } = req.query as { number?: string };
   if (!number || typeof number !== "string" || number.trim().length < 9) {
     res.status(400).send("");
@@ -76,6 +87,18 @@ router.get("/freeswitch/lookup", async (req: Request, res: Response) => {
  * NO authentication — only reachable from localhost (FreeSWITCH loopback).
  */
 router.get("/freeswitch/did-route", async (req: Request, res: Response) => {
+  // Enforce loopback-only access: this endpoint is called by FreeSWITCH mod_curl
+  // running on the same host. Reject any request not originating from localhost.
+  const remoteIp = req.socket?.remoteAddress ?? req.ip ?? "";
+  const isLocalhost =
+    remoteIp === "127.0.0.1" ||
+    remoteIp === "::1" ||
+    remoteIp === "::ffff:127.0.0.1";
+  if (!isLocalhost) {
+    res.status(403).send("forbidden");
+    return;
+  }
+
   const { number } = req.query as { number?: string };
   if (!number || typeof number !== "string" || number.trim().length < 7) {
     res.status(400).send("unrouted");

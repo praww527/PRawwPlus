@@ -152,15 +152,10 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
   }
 
   if (callType === "external") {
-    // External (PSTN) calls require a verified mobile number so caller-ID
-    // and billing are accurate.  Internal extension calls are exempt.
-    if (direction !== "inbound" && (!user.phone || !user.phoneVerified)) {
-      res.status(403).json({
-        error: "Phone number required",
-        message: "You must add and verify your mobile number before making external calls.",
-      });
-      return;
-    }
+    // Phone verification is no longer required for outbound PSTN calls.
+    // Outbound caller ID is now resolved from the agent's assigned DID
+    // (see phoneResolver.getUserPrimaryDid), not the user's mobile number.
+    // Internal extension calls are always exempt.
     const hasFs = fsCallId != null && String(fsCallId).trim() !== "";
     if (hasFs && !isValidFsCallId(fsCallId)) {
       res.status(400).json({

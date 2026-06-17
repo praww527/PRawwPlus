@@ -15,14 +15,6 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-function requireAuth(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
-
 function requireAdmin(req: Request, res: Response, next: () => void): void {
   if (!(req as any).isAuthenticated?.() || !(req as any).user?.isAdmin) {
     res.status(403).json({ error: "Admin access required" });
@@ -31,8 +23,8 @@ function requireAdmin(req: Request, res: Response, next: () => void): void {
   next();
 }
 
-/* ── GET /ring-groups — list all ring groups (any authenticated user) ── */
-router.get("/ring-groups", requireAuth, async (req, res) => {
+/* ── GET /ring-groups — list all ring groups (admin only — response includes extensions) ── */
+router.get("/ring-groups", requireAdmin, async (req, res) => {
   await connectDB();
   const tenantId = typeof req.query.tenantId === "string" ? req.query.tenantId : undefined;
   const filter: any = tenantId ? { tenantId } : {};
@@ -55,8 +47,8 @@ router.get("/ring-groups", requireAuth, async (req, res) => {
   });
 });
 
-/* ── GET /ring-groups/:id — single ring group (any authenticated user) ── */
-router.get("/ring-groups/:id", requireAuth, async (req, res) => {
+/* ── GET /ring-groups/:id — single ring group (admin only — response includes extensions) ── */
+router.get("/ring-groups/:id", requireAdmin, async (req, res) => {
   await connectDB();
   const group = await RingGroupModel.findById(req.params.id).lean();
   if (!group) { res.status(404).json({ error: "Not found" }); return; }
