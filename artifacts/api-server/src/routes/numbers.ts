@@ -357,13 +357,18 @@ router.put("/numbers/:id/route", async (req, res) => {
   const number = await PhoneNumberModel.findById(id);
   if (!number) { res.status(404).json({ error: "Number not found" }); return; }
 
+  // Keep userId in sync with the agent assignment so outbound caller ID lookup works.
+  // For agent routes: userId = routeTarget (the assigned agent).
+  // For ring_group/queue routes: userId = null (no individual owner).
+  const userIdUpdate = routeType === "agent" ? routeTarget : null;
+
   await PhoneNumberModel.updateOne(
     { _id: id },
-    { $set: { routeType, routeTarget } },
+    { $set: { routeType, routeTarget, userId: userIdUpdate } },
   );
 
-  logger.info({ numberId: id, routeType, routeTarget }, "[numbers/route] DID route updated");
-  res.json({ ok: true, number: number.number, routeType, routeTarget });
+  logger.info({ numberId: id, routeType, routeTarget, userId: userIdUpdate }, "[numbers/route] DID route updated");
+  res.json({ ok: true, number: number.number, routeType, routeTarget, userId: userIdUpdate });
 });
 
 /* ── GET /numbers/admin — list all numbers with route info (admin only) ── */

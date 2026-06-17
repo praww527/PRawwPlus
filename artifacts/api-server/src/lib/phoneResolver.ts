@@ -153,20 +153,38 @@ export async function resolveDIDRoute(didNumber: string): Promise<DidRouteResult
 
 /**
  * Get the primary DID number assigned to a user (for outbound caller ID).
+ *
+ * Source-of-truth resolution order:
+ *   1. DID where routeType === "agent" AND routeTarget === userId   (canonical new model)
+ *   2. DID where userId === userId (legacy / backward compat)
+ *
  * Returns null if the user has no DID assigned.
  */
 export async function getUserPrimaryDid(userId: string): Promise<string | null> {
-  const number = await PhoneNumberModel.findOne({
+  // 1. Canonical: agent DID explicitly routed to this user
+  const canonical = await PhoneNumberModel.findOne({
+    routeType: "agent",
+    routeTarget: userId,
+  })
+    .sort({ assignedAt: -1 })
+    .select("number")
+    .lean();
+
+  if (canonical) return canonical.number;
+
+  // 2. Legacy fallback: userId field set (pre-routeTarget era)
+  const legacy = await PhoneNumberModel.findOne({
+    userId,
     $or: [
-      { userId, routeType: "agent" },
-      { userId },
+      { routeType: { $exists: false } },
+      { routeType: "agent" },
     ],
   })
     .sort({ assignedAt: -1 })
     .select("number")
     .lean();
 
-  return number ? number.number : null;
+  return legacy ? legacy.number : null;
 }
 
 export async function lookupUserByPhone(phone: string): Promise<{
