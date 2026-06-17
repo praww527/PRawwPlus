@@ -976,4 +976,117 @@ router.post("/calls/webhook/freeswitch", async (req, res) => {
   res.sendStatus(200);
 });
 
+/**
+ * POST /api/calls/test-ring/:extension
+ *
+ * Admin smoke-test: send a synthetic "incoming_call" push to all registered
+ * push channels of the user with the given extension.  No FreeSWITCH call is
+ * placed — this only fires the push so you can verify the client-side ring-
+ * through and CallKeep UI end-to-end without needing a real caller.
+ *
+ * Auth: Bearer <ADMIN_API_KEY> header  OR  authenticated admin session.
+ */
+router.post("/calls/test-ring/:extension", async (req, res) => {
+  const adminKey = process.env.ADMIN_API_KEY;
+  const auth     = req.headers["authorization"] ?? req.headers["x-admin-key"] ?? "";
+  const token    = auth.toString().replace(/^Bearer\s+/i, "").trim();
+
+  const bearerOk  = adminKey && token === adminKey;
+  const sessionOk = (req as any).isAuthenticated?.() && (req as any).user?.isAdmin;
+
+  if (!bearerOk && !sessionOk) {
+    res.status(adminKey || sessionOk ? 401 : 501).json({
+      error: adminKey ? "unauthorized" : "ADMIN_API_KEY not configured and no admin session",
+    });
+    return;
+  }
+
+  const ext = Number(req.params.extension);
+  if (!ext || !Number.isInteger(ext)) {
+    res.status(400).json({ error: "extension must be a numeric integer" });
+    return;
+  }
+
+  await connectDB();
+  const target = await UserModel.findOne({ extension: ext })
+    .select("fcmToken expoPushToken webPushSubscription dnd _id name")
+    .lean();
+
+  if (!target) {
+    res.status(404).json({ error: `No user found with extension ${ext}` });
+    return;
+  }
+
+  const t         = target as any;
+  const testUuid  = randomUUID();
+  const pushData: Record<string, string> = {
+    type:          "incoming_call",
+    callUuid:      testUuid,
+    fromPhone:     "Test Ring",
+    fromExtension: "0000",
+  };
+  const notifTitle = "📞 Test Incoming Call";
+  const notifBody  = "Smoke test — tap to verify ring-through";
+
+  const tasks: { channel: string; promise: Promise<unknown> }[] = [];
+
+  if (t.fcmToken) {
+    tasks.push({
+      channel: "fcm",
+      promise: sendFcmDataMessage(t.fcmToken, pushData).catch((err) => {
+        logger.warn({ err, ext }, "[test-ring] FCM send failed");
+        throw err;
+      }),
+    });
+  }
+
+  if (t.webPushSubscription?.endpoint) {
+    tasks.push({
+      channel: "webPush",
+      promise: sendWebPushToSubscription(
+        t.webPushSubscription as { endpoint: string; keys: { auth: string; p256dh: string } },
+        { ...pushData, title: notifTitle, body: notifBody },
+        String(t._id),
+      ).then((result) => {
+        if (result.error === "expired") {
+          UserModel.updateOne({ _id: t._id }, { $unset: { webPushSubscription: 1 } }).catch(() => {});
+          throw new Error("web-push subscription expired — cleared");
+        }
+      }),
+    });
+  }
+
+  if (t.expoPushToken) {
+    tasks.push({
+      channel: "expo",
+      promise: sendExpoPush(t.expoPushToken, notifTitle, notifBody, pushData).catch((err) => {
+        logger.warn({ err, ext }, "[test-ring] Expo push failed");
+        throw err;
+      }),
+    });
+  }
+
+  if (tasks.length === 0) {
+    res.status(422).json({
+      error: "User has no registered push tokens — cannot send test ring",
+      extension: ext,
+    });
+    return;
+  }
+
+  const results: Record<string, "ok" | "error"> = {};
+  await Promise.allSettled(tasks.map(async ({ channel, promise }) => {
+    try {
+      await promise;
+      results[channel] = "ok";
+    } catch {
+      results[channel] = "error";
+    }
+  }));
+
+  const allOk = Object.values(results).every((v) => v === "ok");
+  logger.info({ ext, testUuid, results }, "[test-ring] Smoke-test push sent");
+  res.status(allOk ? 200 : 207).json({ testUuid, extension: ext, channels: results });
+});
+
 export default router;

@@ -222,6 +222,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
       },
 
       onIncoming: (callId, callerNumber, sdp) => {
+        // Guard: reject the INVITE if a call is already in progress.
+        // Without this, a second INVITE overwrites all call state mid-call.
+        const currentState = callStateRef.current;
+        if (
+          currentState === "incoming" ||
+          currentState === "active"   ||
+          currentState === "outgoing"
+        ) {
+          console.info("[Verto] Rejecting duplicate INVITE — state:", currentState, callId);
+          try { clientRef.current?.hangup(callId, "USER_BUSY", 486); } catch {}
+          return;
+        }
+
         if (hangupTimerRef.current) { clearTimeout(hangupTimerRef.current); hangupTimerRef.current = null; }
         const epoch = ++callEpochRef.current;
         incomingSdpRef.current = sdp;
@@ -607,14 +620,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const vertoCallId = callInfo.callId;
 
       try {
-        // ── Step 1: Create the inbound DB record BEFORE answering ─────────
+        // ── Step 1: Answer the Verto call immediately ──────────────────────
         //
-        // Doing this first guarantees that callInfo.callId is the MongoDB
-        // record ID before callPhase ever becomes "connected".  Without this
-        // ordering, a fast hangup would fire signalEndCall with the raw Verto
-        // UUID (which is owned by the *caller's* outbound record, not the
-        // callee's), causing a 404 and leaving the callee's record stuck in
-        // "initiated".
+        // Answering FIRST (before the DB write) is critical: FreeSWITCH has a
+        // short timer (~4-6 s) after which it cancels the INVITE if it gets no
+        // 200 OK.  Doing the DB round-trip before answering means a slow API
+        // response causes the call to fail before audio ever establishes.
+        //
+        // The inbound DB record is created afterwards (fire-and-forget).
+        // A fast hangup may fire signalEndCall before the record exists, but
+        // a null dbCallId is already handled gracefully by endCall().
+        await clientRef.current.answerCall(vertoCallId, incomingSdpRef.current);
+        setHangupInfo(null);
+        setCallPhase("connected");
+        setCallState("active");
+
+        // ── Step 2: Create the inbound DB record asynchronously ────────────
         //
         // IMPORTANT — do NOT pass fsCallId here.  The caller's outbound record
         // already uses this Verto UUID as fsCallId.  Sharing the same value
@@ -627,41 +648,32 @@ export function CallProvider({ children }: { children: ReactNode }) {
         //                     lookup) so call history always shows a real phone
         //                     number, never a raw 4-digit extension code.
         if (!inboundRecordCreatedRef.current && pendingIncomingNumberRef.current) {
-          try {
-            const ownExt = vertoConfigRef.current?.extension;
-            // By the time the user taps "Accept", the async extension→phone
-            // lookup has almost always completed and callInfo.number holds the
-            // real mobile number.  Fall back to the raw extension only if the
-            // lookup failed or is somehow still in flight.
-            const resolvedCallerPhone =
-              callInfo?.number && callInfo.number.replace(/\D/g, "").length >= 7
-                ? callInfo.number
-                : pendingIncomingNumberRef.current;
-            const record = await createCallRecord({
-              data: {
-                recipientNumber: ownExt ? String(ownExt) : pendingIncomingNumberRef.current,
-                callerNumber:    resolvedCallerPhone,
-                direction:       "inbound",
-              },
-            } as any);
-            // Only mark as created AFTER the server confirms success so that
-            // a transient failure doesn't permanently block future retries.
-            inboundRecordCreatedRef.current = true;
-            if (record?.id) {
-              // Switch callInfo.callId to the DB record ID so signalEndCall
-              // always targets the correct document.
-              setCallInfo((prev) => prev ? { ...prev, callId: record.id } : prev);
-            }
-          } catch (e) {
-            console.warn("[Call] inbound record create failed — call will still connect but history may be incomplete", e);
-          }
+          const ownExt = vertoConfigRef.current?.extension;
+          const resolvedCallerPhone =
+            callInfo?.number && callInfo.number.replace(/\D/g, "").length >= 7
+              ? callInfo.number
+              : pendingIncomingNumberRef.current;
+          createCallRecord({
+            data: {
+              recipientNumber: ownExt ? String(ownExt) : pendingIncomingNumberRef.current,
+              callerNumber:    resolvedCallerPhone,
+              direction:       "inbound",
+            },
+          } as any)
+            .then((record: any) => {
+              // Only mark as created AFTER the server confirms success so that
+              // a transient failure doesn't permanently block future retries.
+              inboundRecordCreatedRef.current = true;
+              if (record?.id) {
+                // Switch callInfo.callId to the DB record ID so signalEndCall
+                // always targets the correct document.
+                setCallInfo((prev) => prev ? { ...prev, callId: record.id } : prev);
+              }
+            })
+            .catch((e: unknown) => {
+              console.warn("[Call] inbound record create failed — history may be incomplete", e);
+            });
         }
-
-        // ── Step 2: Answer the Verto call using the original UUID ──────────
-        await clientRef.current.answerCall(vertoCallId, incomingSdpRef.current);
-        setHangupInfo(null);
-        setCallPhase("connected");
-        setCallState("active");
       } catch (e) {
         console.warn("[Verto] answerCall error", e);
         setHangupInfo({ cause: "WebRTC Error", causeCode: 500, message: "Failed to answer call", icon: "error" });

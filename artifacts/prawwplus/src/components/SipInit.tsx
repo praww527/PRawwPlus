@@ -27,7 +27,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { phoneAudio } from "@/lib/phoneAudio";
 
 const FETCH_RETRY_MS = 30_000;
-const VERTO_RACE_MS  = 400;
+const VERTO_RACE_MS  = 800;
 
 export function SipInit() {
   const [sipConfig, setSipConfig] = useState<SipConfig | null>(null);
