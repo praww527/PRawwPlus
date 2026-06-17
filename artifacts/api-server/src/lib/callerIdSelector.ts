@@ -30,9 +30,33 @@ export type CallerIdSource =
   | "profile-override"  // admin-approved explicit CallerIdProfile (by ID)
   | "profile-default"   // admin-approved user default CallerIdProfile
   | "platform-number"   // PhoneNumber assigned to this user (DID)
-  | "verified-mobile"   // user.phone (phoneVerified === true)
   | "platform-fallback" // PLATFORM_OUTBOUND_NUMBER env var
   | "none";             // no caller ID selected (inbound / unresolved)
+
+/**
+ * Carrier CLI rules (enforced on every outbound PSTN call):
+ *  1. Only numbers owned/allocated to the platform (no arbitrary spoofing).
+ *  2. NO mobile numbers — SA mobile prefixes after "27": 6x, 7x, 8x.
+ *  3. South Africa only — must start with country code 27.
+ *  4. Format: 27XXXXXXXXX (no leading +, 11 digits total).
+ *
+ * Returns the sanitised number string on success, or null if the number
+ * violates any rule (callers must then fall through to the next priority
+ * or reject the call).
+ */
+function sanitiseCliForCarrier(raw: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  // Strip leading + and any non-digit characters
+  const digits = raw.replace(/^\+/, "").replace(/\D/g, "");
+  // Must be exactly 11 digits and start with SA country code 27
+  if (digits.length !== 11 || !digits.startsWith("27")) return null;
+  // Reject mobile numbers: third digit (first after "27") of 6, 7, 8 or 9
+  const firstAfterCC = parseInt(digits[2], 10);
+  if (firstAfterCC >= 6) {
+    return null; // 6x=Cell C/MTN, 7x=Vodacom/MTN, 8x=mobile/special — all blocked
+  }
+  return digits; // e.g. "27211100222"
+}
 
 export type CallerIdCallType = "internal" | "external-pstn";
 
@@ -159,30 +183,35 @@ export async function selectCallerId(
 
     if (profile) {
       const numNorm = normalizePhoneNumber((profile as any).number);
-      const number  = numNorm.ok ? numNorm.e164 : (profile as any).number;
-      const name    = (profile as any).name || displayName;
-
-      const sel: CallerIdSelection = {
-        callType:              "external-pstn",
-        callerIdNumber:        number,
-        callerIdName:          name,
-        callerIdSource:        "profile-override",
-        trunk,
-        destinationNormalized,
-        destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
-      };
-
-      logger.info(
-        { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: name, callerIdSource: "profile-override", profileId, trunk },
-        "[callerIdSelector] PSTN — using approved profile override",
+      const rawNumber = numNorm.ok ? numNorm.e164 : (profile as any).number;
+      const number = sanitiseCliForCarrier(rawNumber);
+      if (number) {
+        const name = (profile as any).name || displayName;
+        const sel: CallerIdSelection = {
+          callType:              "external-pstn",
+          callerIdNumber:        number,
+          callerIdName:          name,
+          callerIdSource:        "profile-override",
+          trunk,
+          destinationNormalized,
+          destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
+        };
+        logger.info(
+          { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: name, callerIdSource: "profile-override", profileId, trunk },
+          "[callerIdSelector] PSTN — using approved profile override",
+        );
+        return sel;
+      }
+      logger.warn(
+        { userId, profileId, rawNumber },
+        "[callerIdSelector] Profile override number failed carrier CLI rules (not SA landline) — falling through",
       );
-      return sel;
+    } else {
+      logger.warn(
+        { userId, profileId },
+        "[callerIdSelector] Requested CallerIdProfile not found or not approved — falling through",
+      );
     }
-
-    logger.warn(
-      { userId, profileId },
-      "[callerIdSelector] Requested CallerIdProfile not found or not approved — falling through",
-    );
   }
 
   // Priority 2: User's default CallerIdProfile (isDefault=true, approved)
@@ -196,24 +225,29 @@ export async function selectCallerId(
 
   if (defaultProfile) {
     const numNorm = normalizePhoneNumber((defaultProfile as any).number);
-    const number  = numNorm.ok ? numNorm.e164 : (defaultProfile as any).number;
-    const name    = (defaultProfile as any).name || displayName;
-
-    const sel: CallerIdSelection = {
-      callType:              "external-pstn",
-      callerIdNumber:        number,
-      callerIdName:          name,
-      callerIdSource:        "profile-default",
-      trunk,
-      destinationNormalized,
-      destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
-    };
-
-    logger.info(
-      { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: name, callerIdSource: "profile-default", profileId: String((defaultProfile as any)._id), trunk },
-      "[callerIdSelector] PSTN — using user default CallerIdProfile",
+    const rawNumber = numNorm.ok ? numNorm.e164 : (defaultProfile as any).number;
+    const number = sanitiseCliForCarrier(rawNumber);
+    if (number) {
+      const name = (defaultProfile as any).name || displayName;
+      const sel: CallerIdSelection = {
+        callType:              "external-pstn",
+        callerIdNumber:        number,
+        callerIdName:          name,
+        callerIdSource:        "profile-default",
+        trunk,
+        destinationNormalized,
+        destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
+      };
+      logger.info(
+        { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: name, callerIdSource: "profile-default", profileId: String((defaultProfile as any)._id), trunk },
+        "[callerIdSelector] PSTN — using user default CallerIdProfile",
+      );
+      return sel;
+    }
+    logger.warn(
+      { userId, rawNumber },
+      "[callerIdSelector] Default profile number failed carrier CLI rules (not SA landline) — falling through",
     );
-    return sel;
   }
 
   // Priority 3: Platform-assigned PhoneNumber (DID) owned by this user
@@ -226,73 +260,65 @@ export async function selectCallerId(
 
   if (platformNumber) {
     const numNorm = normalizePhoneNumber((platformNumber as any).number);
-    const number  = numNorm.ok ? numNorm.e164 : (platformNumber as any).number;
-    const name    = (platformNumber as any).cnamName || displayName;
-
-    const sel: CallerIdSelection = {
-      callType:              "external-pstn",
-      callerIdNumber:        number,
-      callerIdName:          name,
-      callerIdSource:        "platform-number",
-      trunk,
-      destinationNormalized,
-      destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
-    };
-
-    logger.info(
-      { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: name, callerIdSource: "platform-number", platformNumberId: String((platformNumber as any)._id), trunk },
-      "[callerIdSelector] PSTN — using platform-assigned DID number",
+    const rawNumber = numNorm.ok ? numNorm.e164 : (platformNumber as any).number;
+    const number = sanitiseCliForCarrier(rawNumber);
+    if (number) {
+      const name = (platformNumber as any).cnamName || displayName;
+      const sel: CallerIdSelection = {
+        callType:              "external-pstn",
+        callerIdNumber:        number,
+        callerIdName:          name,
+        callerIdSource:        "platform-number",
+        trunk,
+        destinationNormalized,
+        destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
+      };
+      logger.info(
+        { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: name, callerIdSource: "platform-number", platformNumberId: String((platformNumber as any)._id), trunk },
+        "[callerIdSelector] PSTN — using platform-assigned DID number",
+      );
+      return sel;
+    }
+    logger.warn(
+      { userId, rawNumber },
+      "[callerIdSelector] Platform DID failed carrier CLI rules (not SA landline) — falling through",
     );
-    return sel;
   }
 
-  // Priority 4: User's verified mobile number
-  if ((user as any)?.phone && (user as any)?.phoneVerified) {
-    const numNorm = normalizePhoneNumber((user as any).phone);
-    const number  = numNorm.ok ? numNorm.e164 : (user as any).phone;
+  // NOTE: Verified mobile numbers are intentionally NOT used as CLI.
+  // Carrier rule: mobile numbers may not be presented as the calling line identity.
 
-    const sel: CallerIdSelection = {
-      callType:              "external-pstn",
-      callerIdNumber:        number,
-      callerIdName:          displayName,
-      callerIdSource:        "verified-mobile",
-      trunk,
-      destinationNormalized,
-      destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
-    };
-
-    logger.info(
-      { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdName: displayName, callerIdSource: "verified-mobile", trunk },
-      "[callerIdSelector] PSTN — using verified mobile number",
-    );
-    return sel;
-  }
-
-  // Priority 5: Platform fallback number
+  // Priority 4: Platform fallback number
   const fallback = (process.env.PLATFORM_OUTBOUND_NUMBER ?? "").trim();
   if (fallback) {
     const numNorm = normalizePhoneNumber(fallback);
-    const number  = numNorm.ok ? numNorm.e164 : fallback;
-
-    const sel: CallerIdSelection = {
-      callType:              "external-pstn",
-      callerIdNumber:        number,
-      callerIdName:          "PRaww+",
-      callerIdSource:        "platform-fallback",
-      trunk,
-      destinationNormalized,
-      destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
-    };
-
-    logger.warn(
-      { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdSource: "platform-fallback", trunk, note: "No verified mobile or platform DID — using platform fallback" },
-      "[callerIdSelector] PSTN — using platform fallback number",
+    const rawNumber = numNorm.ok ? numNorm.e164 : fallback;
+    const number = sanitiseCliForCarrier(rawNumber);
+    if (number) {
+      const sel: CallerIdSelection = {
+        callType:              "external-pstn",
+        callerIdNumber:        number,
+        callerIdName:          "PRaww+",
+        callerIdSource:        "platform-fallback",
+        trunk,
+        destinationNormalized,
+        destinationType:       destinationType === "unknown" ? "unknown" : destinationType,
+      };
+      logger.warn(
+        { userId, destination, destinationNorm: destinationNormalized, callerIdNumber: number, callerIdSource: "platform-fallback", trunk },
+        "[callerIdSelector] PSTN — using platform fallback number",
+      );
+      return sel;
+    }
+    logger.error(
+      { userId, rawNumber },
+      "[callerIdSelector] PLATFORM_OUTBOUND_NUMBER failed carrier CLI rules — must be a SA landline in format 27XXXXXXXXX",
     );
-    return sel;
   }
 
   throw new Error(
-    "No verified outbound caller ID available for PSTN call. " +
-    "Verify your mobile number, request a platform number, or set PLATFORM_OUTBOUND_NUMBER.",
+    "No valid outbound caller ID for PSTN call. " +
+    "Carrier rules require a South African landline number (format 27XXXXXXXXX). " +
+    "Assign a platform DID or set PLATFORM_OUTBOUND_NUMBER to a valid SA landline.",
   );
 }

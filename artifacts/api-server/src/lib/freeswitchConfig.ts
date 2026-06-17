@@ -101,9 +101,11 @@ function pstnGatewayXml(): string {
       <param name="register" value="${xmlEscape(register)}"/>
       <param name="expire-seconds" value="300"/>
       <param name="retry-seconds" value="30"/>
-      <!-- Prefer G729 for this PSTN gateway; fall back to PCMU/PCMA if unavailable -->
+      <!-- Carrier requires G729 only — no PCMU/PCMA fallback on this trunk -->
       <!-- G729 transcoding requires freeswitch-mod-com-g729 on the FreeSWITCH server -->
-      <param name="codec-prefs" value="G729,PCMU,PCMA"/>
+      <param name="codec-prefs" value="G729"/>
+      <!-- Carrier requires RFC2833 for DTMF — inband and SIP INFO are not supported -->
+      <param name="dtmf-type" value="rfc2833"/>
     </gateway>
   `;
 }
@@ -232,39 +234,45 @@ export function dialplanXml(fsDomain: string): string {
     <extension name="external_pstn_numbers" continue="false">
       <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$">
         <!--
-          Resolve caller's phone number from directory — same logic as internal calls.
-          For outbound PSTN legs the gateway uses outbound_caller_id_number as the
-          ANI (Automatic Number Identification) presented to the PSTN network.
-          Using the mobile number instead of the internal extension prevents "unknown
-          number" rejections from carriers that validate the calling party number.
+          Resolve caller's display name/number from directory.
+          The API server injects effective_caller_id_number via user variables
+          before the call reaches the dialplan — these lines provide a fallback.
         -->
         <action application="set" data="effective_caller_id_name=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_name)},${FS_VAR}caller_id_name})}"/>
         <action application="set" data="effective_caller_id_number=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_number)},${FS_VAR}caller_id_number})}"/>
         <action application="set" data="outbound_caller_id_name=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var outbound_caller_id_name)},${FS_VAR}caller_id_name})}"/>
         <action application="set" data="outbound_caller_id_number=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var outbound_caller_id_number)},${FS_VAR}caller_id_number})}"/>
+
+        <!--
+          ── Carrier CLI rules ────────────────────────────────────────────────
+          Carrier requires CLI in format 27XXXXXXXXX (no leading +).
+          Strip any leading + from both effective and outbound caller ID numbers.
+          regex() returns the capture group when matched, or "" when not matched;
+          default() falls back to the original value when regex() returns "".
+        -->
+        <action application="set" data="effective_caller_id_number=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}effective_caller_id_number}|^\+(.+)$|$1)},${FS_VAR}effective_caller_id_number})}"/>
+        <action application="set" data="outbound_caller_id_number=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}outbound_caller_id_number}|^\+(.+)$|$1)},${FS_VAR}outbound_caller_id_number})}"/>
+
         <action application="set" data="call_timeout=45"/>
         <action application="set" data="hangup_after_bridge=true"/>
         <action application="set" data="continue_on_fail=false"/>
 
         <!--
-          ── South African E.164 normalisation (dialplan safety net) ────────────
-          Numbers MUST reach the carrier in +27xxxxxxxxx format.
-          The API server normalises before dialling but this dialplan layer
-          provides a second guard so raw 0-prefixed or unprefixed numbers
-          never reach the gateway.
+          ── Destination normalisation (dialplan safety net) ──────────────────
+          Carrier requires destination in format 27XXXXXXXXX (no leading +).
+          The API server normalises before dialling but this layer guards against
+          raw 0-prefixed or +27-prefixed numbers slipping through.
 
-          Step 1: 0XXXXXXXXX (10 digits, local SA format) → +27XXXXXXXXX
-            regex() returns the replacement when pattern matches, else "".
-            default() returns the second arg when the first is "".
-          Step 2: 27XXXXXXXXX (no +, 11 digits) → +27XXXXXXXXX
-          Step 3: If neither rule matched, keep $1 unchanged (already +27 or foreign).
+          Step 1: 0XXXXXXXXX (10 digits, local SA) → 27XXXXXXXXX
+          Step 2: +27XXXXXXXXX (E.164 with +) → 27XXXXXXXXX
+          Step 3: Already 27XXXXXXXXX — unchanged.
         -->
         <action application="set" data="pstn_dest=$1"/>
-        <action application="set" data="pstn_dest=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}pstn_dest}|^0([0-9]{9})$|+27$1)},${FS_VAR}pstn_dest})}"/>
-        <action application="set" data="pstn_dest=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}pstn_dest}|^27([0-9]{9})$|+27$1)},${FS_VAR}pstn_dest})}"/>
+        <action application="set" data="pstn_dest=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}pstn_dest}|^0([0-9]{9})$|27$1)},${FS_VAR}pstn_dest})}"/>
+        <action application="set" data="pstn_dest=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}pstn_dest}|^\+27([0-9]{9})$|27$1)},${FS_VAR}pstn_dest})}"/>
 
         <!-- Log raw vs normalised destination before bridge — critical for carrier debugging -->
-        <action application="log" data="INFO [PSTN-BRIDGE] rawDest=$1 normalizedDest=${FS_VAR}pstn_dest} bridge=sofia/gateway/${xmlEscape(gateway)}/${FS_VAR}pstn_dest}"/>
+        <action application="log" data="INFO [PSTN-BRIDGE] rawDest=$1 normalizedDest=${FS_VAR}pstn_dest} cli=${FS_VAR}effective_caller_id_number} bridge=sofia/gateway/${xmlEscape(gateway)}/${FS_VAR}pstn_dest}"/>
 
         <!-- Billing notice: caller hears this before the PSTN call is bridged -->
         <action application="answer"/>
@@ -687,6 +695,9 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
     <param name="inbound-codec-prefs" value="opus,G722,G729,PCMU,PCMA"/>
     <param name="outbound-codec-prefs" value="opus,G722,G729,PCMU,PCMA"/>
     <param name="inbound-codec-negotiation" value="generous"/>
+
+    <!-- DTMF — carrier requires RFC2833 (RTP telephone-event); inband and SIP INFO disabled -->
+    <param name="dtmf-type" value="rfc2833"/>
 
     <!-- STUN -->
     <param name="stun-enabled" value="true"/>
