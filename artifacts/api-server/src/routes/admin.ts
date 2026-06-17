@@ -2160,6 +2160,147 @@ router.get("/admin/session/all-sip", requireAdmin, async (req, res) => {
   });
 });
 
+// ── PSTN Gateway Registration Status ─────────────────────────────────────────
+//
+// GET /api/admin/gateway-status
+//
+// Queries FreeSWITCH via ESL bgapi for real-time PSTN gateway registration
+// state, negotiated codec, and last registration attempt details.
+//
+// FreeSWITCH `sofia status gateway <name>` emits a key-value table:
+//   Name          <gateway_name>
+//   State         REGED | NOREG | TRYING | FAILED | EXPIRED
+//   Status        UP | DOWN
+//   Realm         sip.carrier.example
+//   Username      sip_username
+//   Proxy         sip.carrier.example
+//   Contact       <sip:gw+name@ip:port;transport=udp>
+//   Expires       3600
+//   Freq          3600
+//   Uptime        12345
+//   CallsIn/Out   n
+//   PingState     0/0/0
+//
+// Returns structured JSON — the frontend renders this as the gateway card.
+
+function parseKeyValueTable(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^([A-Za-z][A-Za-z0-9_]*)\s{2,}(.+)$/);
+    if (m) out[m[1].trim()] = m[2].trim();
+  }
+  return out;
+}
+
+router.get("/admin/gateway-status", requireAdmin, async (_req, res) => {
+  const esl          = eslStatus();
+  const gatewayName  = process.env.PSTN_GATEWAY_NAME?.trim() ?? null;
+  const proxyHost    = process.env.PSTN_GATEWAY_PROXY?.trim() ?? null;
+  const gwUsername   = process.env.PSTN_GATEWAY_USERNAME?.trim() ?? null;
+  const gwRegister   = process.env.PSTN_GATEWAY_REGISTER ?? "true";
+  const checkedAt    = new Date().toISOString();
+
+  if (!gatewayName) {
+    res.json({
+      configured: false,
+      eslConnected: esl.connected,
+      gateway: null,
+      checkedAt,
+    });
+    return;
+  }
+
+  if (!esl.connected) {
+    res.json({
+      configured: true,
+      eslConnected: false,
+      gateway: null,
+      gatewayName,
+      checkedAt,
+    });
+    return;
+  }
+
+  // Query FreeSWITCH for the gateway row in sofia status
+  const raw      = await sendEslBgapiAwait(`sofia status gateway ${gatewayName}`, 8_000);
+  const isErrGw  = raw.startsWith("-ERR") || raw.trim() === "";
+
+  // Also fetch full sofia status for profile/codec context
+  const sofiaRaw = await sendEslBgapiAwait("sofia status", 8_000);
+
+  let gateway: Record<string, unknown> | null = null;
+
+  if (!isErrGw) {
+    const kv = parseKeyValueTable(raw);
+
+    const state = (kv["State"] ?? "UNKNOWN").toUpperCase();
+    const status = (kv["Status"] ?? "").toUpperCase();
+
+    // Derive a simple registration health signal
+    const registered = state === "REGED";
+    const trying     = state === "TRYING" || state === "REGISTER";
+    const failed     = state === "FAILED" || state === "EXPIRED" || state === "NOREG";
+
+    // Parse uptime into human-readable
+    const uptimeSec = kv["Uptime"] ? parseInt(kv["Uptime"], 10) : null;
+    const uptimeHuman = uptimeSec != null && uptimeSec > 0
+      ? (() => {
+          const d = Math.floor(uptimeSec / 86400);
+          const h = Math.floor((uptimeSec % 86400) / 3600);
+          const m = Math.floor((uptimeSec % 3600) / 60);
+          const s = uptimeSec % 60;
+          if (d > 0) return `${d}d ${h}h ${m}m`;
+          if (h > 0) return `${h}h ${m}m`;
+          if (m > 0) return `${m}m ${s}s`;
+          return `${s}s`;
+        })()
+      : null;
+
+    gateway = {
+      name:          gatewayName,
+      state,
+      status,
+      registered,
+      trying,
+      failed,
+      realm:         kv["Realm"]    ?? proxyHost,
+      username:      kv["Username"] ?? gwUsername,
+      proxy:         kv["Proxy"]    ?? proxyHost,
+      contact:       kv["Contact"]  ?? null,
+      profile:       kv["Profile"]  ?? null,
+      scheme:        kv["Scheme"]   ?? null,
+      expires:       kv["Expires"]  ? parseInt(kv["Expires"], 10)  : null,
+      freq:          kv["Freq"]     ? parseInt(kv["Freq"],    10)  : null,
+      uptimeSec,
+      uptimeHuman,
+      callsIn:       kv["CallsIn"]       ? parseInt(kv["CallsIn"],       10) : 0,
+      callsOut:      kv["CallsOut"]      ? parseInt(kv["CallsOut"],      10) : 0,
+      failedCallsIn: kv["FailedCallsIn"] ? parseInt(kv["FailedCallsIn"], 10) : 0,
+      failedCallsOut:kv["FailedCallsOut"]? parseInt(kv["FailedCallsOut"],10) : 0,
+      pingState:     kv["PingState"] ?? null,
+      register:      gwRegister !== "false",
+    };
+  }
+
+  // Extract codec info from sofia status profile block (codec is profile-level)
+  let codec: string | null = null;
+  if (!sofiaRaw.startsWith("-ERR")) {
+    const codecMatch = sofiaRaw.match(/Codecs:\s+([^\n]+)/);
+    if (codecMatch) codec = codecMatch[1].trim();
+  }
+
+  res.json({
+    configured: true,
+    eslConnected: esl.connected,
+    gatewayName,
+    proxyHost,
+    codec,
+    gateway,
+    rawError: isErrGw ? raw : null,
+    checkedAt,
+  });
+});
+
 // ── Audit Logs ─────────────────────────────────────────────────────────────────
 
 router.get("/admin/audit-logs", requireAdmin, async (req, res) => {

@@ -129,6 +129,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<any>(null);
   const [cdr,   setCdr]   = useState<any>(null);
   const [db,    setDb]    = useState<any>(null);
+  const [gw,    setGw]    = useState<any>(null);
   const [lookup, setLookup] = useState<{ ok: boolean; value: string | null } | null>(null);
 
   const [loading,     setLoading]     = useState(true);
@@ -138,7 +139,7 @@ export default function AdminDashboard() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [rPh, rSm, rRegs, rLive, rUsers, rCdr, rDb] = await Promise.allSettled([
+      const [rPh, rSm, rRegs, rLive, rUsers, rCdr, rDb, rGw] = await Promise.allSettled([
         adminFetch("/admin/platform-health"),
         adminFetch("/admin/system-metrics"),
         adminFetch("/admin/live-registrations"),
@@ -146,6 +147,7 @@ export default function AdminDashboard() {
         adminFetch("/admin/users?limit=200"),
         adminFetch("/admin/calls?limit=10"),
         adminFetch("/admin/db-info"),
+        adminFetch("/admin/gateway-status"),
       ]);
 
       if (rPh.status    === "fulfilled") setPh(rPh.value);
@@ -155,6 +157,7 @@ export default function AdminDashboard() {
       if (rUsers.status === "fulfilled") setUsers(rUsers.value);
       if (rCdr.status   === "fulfilled") setCdr(rCdr.value);
       if (rDb.status    === "fulfilled") setDb(rDb.value);
+      if (rGw.status    === "fulfilled") setGw(rGw.value);
 
       // Lookup health is derived from DB + ESL state — the /freeswitch/lookup
       // endpoint is loopback-only (FreeSWITCH server → API) and cannot be called
@@ -210,6 +213,26 @@ export default function AdminDashboard() {
   const apiStatus: StatusColor    = dbConnected ? "green" : "red";
   const lookupStatus: StatusColor = lookup === null ? "amber" : lookup.ok ? "green" : "red";
   const usersStatus: StatusColor  = withoutExt > 0 ? "amber" : "green";
+
+  // PSTN gateway derived state
+  const gwConfigured   = gw?.configured ?? false;
+  const gwEslOk        = gw?.eslConnected ?? false;
+  const gwInfo         = gw?.gateway ?? null;
+  const gwName         = gw?.gatewayName ?? null;
+  const gwCodec        = gw?.codec ?? null;
+  const gwRegistered   = gwInfo?.registered === true;
+  const gwTrying       = gwInfo?.trying === true;
+  const gwFailed       = gwInfo?.failed === true;
+  const gwState        = gwInfo?.state ?? null;
+  const gwStatus: StatusColor = !gwConfigured
+    ? "amber"
+    : !gwEslOk
+    ? "amber"
+    : gwRegistered
+    ? "green"
+    : gwTrying
+    ? "amber"
+    : "red";
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1120, margin: "0 auto" }}>
@@ -459,6 +482,102 @@ export default function AdminDashboard() {
             <Alert type="error">
               Wrong database — calls will not route
             </Alert>
+          )}
+        </Card>
+
+        {/* ══ PSTN Gateway ══ */}
+        <Card title="PSTN Trunk / Gateway" status={gwStatus}>
+          {!gwConfigured ? (
+            <>
+              <Row label="Configuration" value="Not configured" status="amber" />
+              <Alert type="warn">
+                Set PSTN_GATEWAY_NAME and credentials in environment secrets to enable external calls.
+              </Alert>
+            </>
+          ) : !gwEslOk ? (
+            <>
+              <Row label="Gateway" value={gwName ?? "—"} />
+              <Row label="ESL" value="Not connected" status="amber" />
+              <Alert type="warn">ESL must be connected to query gateway registration state.</Alert>
+            </>
+          ) : gwInfo === null ? (
+            <>
+              <Row label="Gateway" value={gwName ?? "—"} />
+              <Row label="Registration" value="Not found in FreeSWITCH" status="red" />
+              <Alert type="error">
+                Gateway "{gwName}" not registered in FreeSWITCH. Push config and reload Sofia.
+              </Alert>
+            </>
+          ) : (
+            <>
+              <Row
+                label="Registration"
+                value={
+                  gwRegistered ? "REGISTERED"
+                    : gwTrying  ? "TRYING"
+                    : gwFailed  ? "NOT REGISTERED"
+                    : gwState ?? "UNKNOWN"
+                }
+                status={
+                  gwRegistered ? "green"
+                    : gwTrying  ? "amber"
+                    : "red"
+                }
+              />
+              <Row label="Gateway name"  value={gwName ?? "—"} />
+              {gwInfo?.realm    && <Row label="Realm / Proxy"  value={String(gwInfo.realm)} />}
+              {gwInfo?.username && <Row label="SIP username"   value={String(gwInfo.username)} />}
+              {gwInfo?.profile  && <Row label="SIP profile"    value={String(gwInfo.profile)} />}
+              {gwCodec          && <Row label="Codec"          value={gwCodec} />}
+              {gwInfo?.scheme   && <Row label="Auth scheme"    value={String(gwInfo.scheme)} />}
+
+              <Divider />
+
+              {gwInfo?.expires != null && (
+                <Row label="Reg TTL"     value={`${gwInfo.expires}s`} />
+              )}
+              {gwInfo?.freq != null && (
+                <Row label="Reg freq"    value={`every ${gwInfo.freq}s`} />
+              )}
+              {gwInfo?.uptimeHuman ? (
+                <Row label="Uptime" value={String(gwInfo.uptimeHuman)} status="green" />
+              ) : gwRegistered ? (
+                <Row label="Uptime" value="<1s" />
+              ) : null}
+              {gwInfo?.pingState && gwInfo.pingState !== "0/0/0" && (
+                <Row label="Ping state" value={String(gwInfo.pingState)} />
+              )}
+
+              <Divider />
+              <SectionLabel>Call Counters</SectionLabel>
+
+              <Row label="Calls in"          value={String(gwInfo?.callsIn  ?? 0)} />
+              <Row label="Calls out"         value={String(gwInfo?.callsOut ?? 0)} />
+              {(gwInfo?.failedCallsIn ?? 0) > 0 && (
+                <Row label="Failed in"  value={String(gwInfo.failedCallsIn)}  status="red" />
+              )}
+              {(gwInfo?.failedCallsOut ?? 0) > 0 && (
+                <Row label="Failed out" value={String(gwInfo.failedCallsOut)} status="red" />
+              )}
+
+              {gwRegistered && (
+                <Alert type="ok">✓ PSTN trunk is registered — external calls are enabled.</Alert>
+              )}
+              {gwTrying && (
+                <Alert type="warn">⏳ FreeSWITCH is attempting SIP registration with the carrier…</Alert>
+              )}
+              {gwFailed && (
+                <Alert type="error">
+                  ✗ Gateway failed to register. Check SIP credentials and carrier connectivity.
+                </Alert>
+              )}
+            </>
+          )}
+
+          {gw?.checkedAt && (
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", margin: "4px 0 0" }}>
+              Checked {new Date(gw.checkedAt).toLocaleTimeString()}
+            </p>
           )}
         </Card>
 
