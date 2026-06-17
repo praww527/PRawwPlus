@@ -124,9 +124,10 @@ router.get("/numbers/search", async (req, res) => {
   await connectDB();
 
   const userId = (req as any).user.id;
+  const isAdmin = (req as any).user?.isAdmin === true;
   const user = await UserModel.findById(userId).lean();
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  if (user.subscriptionStatus !== "active") {
+  if (!isAdmin && user.subscriptionStatus !== "active") {
     res.status(403).json({ error: "subscription_required", message: "Subscribe to search numbers." });
     return;
   }
