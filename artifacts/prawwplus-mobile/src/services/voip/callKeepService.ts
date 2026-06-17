@@ -129,6 +129,20 @@ export const callKeepService = {
     });
   },
 
+  /**
+   * Show the native CallKeep incoming-call UI without touching VoipEngine
+   * session state.  Use this from within the `onIncoming` VoIP event handler
+   * (when the SIP session is already established) so we don't clobber the
+   * already-matched pendingIncoming or restart the grace timer unnecessarily.
+   * Safe to call even if the native UI is already visible for the same UUID —
+   * CallKit (iOS) and ConnectionService (Android) deduplicate by UUID.
+   */
+  showNativeCallUI(uuid: string, handle: string, displayName: string): void {
+    const RNCallKeep = getRNCallKeep();
+    if (!RNCallKeep) return;
+    RNCallKeep.displayIncomingCall(uuid, handle, displayName, "number", false);
+  },
+
   displayIncomingCall(uuid: string, handle: string, displayName: string): void {
     const RNCallKeep = getRNCallKeep();
     if (!RNCallKeep) return;

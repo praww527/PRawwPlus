@@ -320,13 +320,33 @@ export function CallProvider({ children }: PropsWithChildren) {
     };
 
     const onIncoming = (session: RTCSession, from: string, uuid: string) => {
+      // Guard: the engine must be in a state that can accept an incoming call.
+      // "in-call" / "on-hold" are handled as waiting calls by VoipEngine itself;
+      // if we get here in those states, something is wrong — reject and bail.
+      const engineState = voipEngine.getState();
+      if (engineState === "idle" || engineState === "error") {
+        console.warn("[CallContext] onIncoming fired in unexpected state:", engineState, "— rejecting");
+        voipEngine.rejectIncomingCall();
+        return;
+      }
+
       setIncomingSession(session);
       setIncomingFrom(from);
       setIncomingUuid(uuid);
       incomingFromRef.current = from;
       pendingDirectionRef.current = "inbound";
       setLastFailureReason(null);
-      callKeepService.displayIncomingCall(uuid, displayCaller(from), displayCaller(from));
+
+      // Show the native CallKeep UI (idempotent if push already showed it).
+      // Use showNativeCallUI — not displayIncomingCall — because the SIP session
+      // is already established here; we must NOT reset pendingIncoming or restart
+      // the grace timer (displayIncomingCall has those side effects).
+      callKeepService.showNativeCallUI(uuid, displayCaller(from), displayCaller(from));
+
+      // navigate() already guards with navigationRef.isReady(); if the navigator
+      // is not yet mounted (app woken from killed state), the user will see the
+      // native lock-screen CallKeep UI and go directly to ActiveCall when they
+      // answer — onConnected → navigate("ActiveCall") handles that path.
       navigate("IncomingCall");
     };
 
@@ -549,6 +569,14 @@ export function CallProvider({ children }: PropsWithChildren) {
   // ── Answer / Decline ──────────────────────────────────────────────────────
 
   const answerCall = useCallback(async () => {
+    // Guard: voipEngine must have a live session to answer.
+    // This can fail if the user taps Accept on the React screen but the SIP
+    // INVITE was never delivered (race between killed-state wakeup and FS timeout).
+    const engineState = voipEngine.getState();
+    if (engineState === "idle" || engineState === "error" || engineState === "registering") {
+      console.warn("[CallContext] answerCall called but engine state is:", engineState);
+      return;
+    }
     pendingDirectionRef.current = "inbound";
     await voipEngine.answerIncomingCall();
   }, []);

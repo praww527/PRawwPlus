@@ -653,6 +653,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
             callInfo?.number && callInfo.number.replace(/\D/g, "").length >= 7
               ? callInfo.number
               : pendingIncomingNumberRef.current;
+          // Snapshot the call epoch now so the async .then() can guard against
+          // patching a stale record ID onto a new or already-ended call.
+          const answerEpoch = callEpochRef.current;
           createCallRecord({
             data: {
               recipientNumber: ownExt ? String(ownExt) : pendingIncomingNumberRef.current,
@@ -661,6 +664,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
             },
           } as any)
             .then((record: any) => {
+              // Guard: bail if the call epoch changed since we answered.
+              // This prevents a slow API response from patching the DB record ID
+              // onto a subsequent call that started after this one ended.
+              if (callEpochRef.current !== answerEpoch) return;
               // Only mark as created AFTER the server confirms success so that
               // a transient failure doesn't permanently block future retries.
               inboundRecordCreatedRef.current = true;

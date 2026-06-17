@@ -1066,15 +1066,9 @@ router.post("/calls/test-ring/:extension", async (req, res) => {
     });
   }
 
-  if (tasks.length === 0) {
-    res.status(422).json({
-      error: "User has no registered push tokens — cannot send test ring",
-      extension: ext,
-    });
-    return;
-  }
+  const results: Record<string, "ok" | "error" | "skipped"> = {};
 
-  const results: Record<string, "ok" | "error"> = {};
+  // ── Send push notifications (all channels) ─────────────────────────────────
   await Promise.allSettled(tasks.map(async ({ channel, promise }) => {
     try {
       await promise;
@@ -1084,8 +1078,49 @@ router.post("/calls/test-ring/:extension", async (req, res) => {
     }
   }));
 
-  const allOk = Object.values(results).every((v) => v === "ok");
-  logger.info({ ext, testUuid, results }, "[test-ring] Smoke-test push sent");
+  // ── Originate a real FreeSWITCH call to exercise the full Verto/SIP path ──
+  //
+  // Sends a genuine INVITE to the target extension via the dialplan so the
+  // web Verto and mobile JsSIP stacks are exercised end-to-end, not just the
+  // push delivery path.  We bridge the A-leg to `&echo` (FreeSWITCH built-in
+  // audio echo application) so the callee hears their own voice — confirming
+  // two-way audio without needing a second real caller.
+  //
+  // Only attempted when ESL is connected; falls back gracefully if FS is down.
+  const esl = eslStatus();
+  if (esl.connected) {
+    try {
+      const originateCmd = [
+        `originate`,
+        `{origination_caller_id_name='PRaww+ Test',`,
+        `origination_caller_id_number='0000',`,
+        `originate_timeout=30}`,
+        `user/${ext}`,
+        `&echo`,
+      ].join("");
+
+      const eslResult = await sendEslBgapiAwait(originateCmd, 35_000);
+      results["eslOriginate"] = eslResult.startsWith("+OK") ? "ok" : "error";
+      logger.info({ ext, eslResult }, "[test-ring] ESL originate result");
+    } catch (eslErr) {
+      logger.warn({ eslErr, ext }, "[test-ring] ESL originate failed");
+      results["eslOriginate"] = "error";
+    }
+  } else {
+    results["eslOriginate"] = "skipped";
+    logger.info({ ext }, "[test-ring] ESL not connected — skipping originate");
+  }
+
+  if (tasks.length === 0 && results["eslOriginate"] === "skipped") {
+    res.status(422).json({
+      error: "User has no push tokens and FreeSWITCH ESL is not connected — cannot send test ring",
+      extension: ext,
+    });
+    return;
+  }
+
+  const allOk = Object.values(results).every((v) => v === "ok" || v === "skipped");
+  logger.info({ ext, testUuid, results }, "[test-ring] Smoke-test complete");
   res.status(allOk ? 200 : 207).json({ testUuid, extension: ext, channels: results });
 });
 

@@ -193,6 +193,8 @@ class VoipEngine {
     | null = null;
   private pendingAnswerUuid: string | null = null;
   private pendingIncomingTimer: ReturnType<typeof setTimeout> | null = null;
+  // No-answer grace timer: fires if the callee never answers a push-delivered call
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Event emitter ──
 
@@ -284,6 +286,7 @@ class VoipEngine {
 
   async unregister(): Promise<void> {
     this.clearNoAnswerTimer();
+    this.clearGraceTimeout();
     this.session?.terminate();
     this.session = null;
     this.ua?.stop();
@@ -453,6 +456,7 @@ class VoipEngine {
     }
 
     toneService.stopRingtone();
+    this.clearGraceTimeout();
     this.clearPendingIncoming();
 
     const localStream = await this.getLocalAudioStream();
@@ -643,6 +647,37 @@ class VoipEngine {
   /** Called by CallKeep "answerCall" event to queue an auto-answer. */
   queueAnswer(uuid: string) {
     this.pendingAnswerUuid = uuid;
+  }
+
+  /**
+   * Start a no-answer grace timer for a push-delivered incoming call.
+   *
+   * Called by callKeepService.displayIncomingCall() immediately after the
+   * native CallKeep UI is shown.  If the call is answered (or ended by the
+   * remote side) before the timer fires, clearGraceTimeout() cancels it.
+   * If the timer fires first, onTimeout is called with the call UUID so the
+   * caller can dismiss the native UI (e.g. via RNCallKeep.endCall).
+   *
+   * The UUID is read from pendingIncoming at call time because displayIncomingCall
+   * always calls setPendingIncomingCall() just before this method.
+   */
+  startIncomingGraceTimeout(ms: number, onTimeout: (uuid: string) => void): void {
+    const uuid = this.pendingIncoming?.uuid;
+    if (!uuid) return;
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    const captured = uuid;
+    this.graceTimer = setTimeout(() => {
+      this.graceTimer = null;
+      onTimeout(captured);
+    }, ms);
+  }
+
+  /** Cancel any pending grace timeout (call answered or remote hangup). */
+  clearGraceTimeout(): void {
+    if (this.graceTimer) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
   }
 
   private clearPendingIncoming() {
