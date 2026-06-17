@@ -121,6 +121,31 @@ export default function BillingPage() {
               ))}
             </div>
           )}
+
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16 }} className="p-5 col-span-full space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-white/40">Top Up — Manual EFT</p>
+            <p className="text-sm text-white/60 leading-relaxed">
+              Transfer funds directly to our account. Your coins will be allocated within 1 business day after payment is confirmed.
+            </p>
+            <div className="space-y-1.5">
+              {[
+                { label: "Bank",           value: "First National Bank (FNB)" },
+                { label: "Account name",   value: "PRaww+ (Pty) Ltd" },
+                { label: "Account number", value: "63012345678" },
+                { label: "Branch code",    value: "250655 (Universal)" },
+                { label: "Account type",   value: "Business Cheque" },
+                { label: "Reference",      value: "Your email address" },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between text-sm py-1 border-b border-white/5 last:border-0">
+                  <span className="text-white/40">{label}</span>
+                  <span className="text-white/80 font-medium select-all">{value}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-white/30 pt-1">
+              After payment, email <span className="text-indigo-400">billing@praww.co.za</span> with your proof of payment and coin amount required.
+            </p>
+          </div>
         </div>
       ) : tab === "invoices" ? (
         invoices.length === 0 ? (

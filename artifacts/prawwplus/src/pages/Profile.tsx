@@ -651,51 +651,9 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* ── Add mobile number banner ─────────── */}
-      {(!userPhone || !userPhoneVerified) && (
-        <button
-          onClick={openPhoneSheet}
-          style={{
-            width: "100%", textAlign: "left",
-            padding: "14px 16px",
-            background: "rgba(10,132,255,0.08)", border: "none", borderRadius: 14,
-            display: "flex", alignItems: "center", gap: 14,
-            cursor: "pointer",
-            marginTop: 16,
-            WebkitTapHighlightColor: "transparent",
-          }}
-          onPointerDown={(e) => (e.currentTarget.style.background = "rgba(10,132,255,0.14)")}
-          onPointerUp={(e) => (e.currentTarget.style.background = "rgba(10,132,255,0.08)")}
-          onPointerLeave={(e) => (e.currentTarget.style.background = "rgba(10,132,255,0.08)")}
-        >
-          <div style={{
-            width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-            background: "rgba(10,132,255,0.18)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <Smartphone style={{ width: 22, height: 22, color: "#0a84ff", strokeWidth: 1.5 }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", margin: 0 }}>
-              {!userPhone ? "Add your mobile number" : "Verify your mobile number"}
-            </p>
-            <p style={{ fontSize: 13, color: "var(--text-2)", margin: "3px 0 0", lineHeight: 1.4 }}>
-              {!userPhone ? "Required to call and receive calls" : `${userPhone} — tap to verify`}
-            </p>
-          </div>
-          <ChevronRight style={{ width: 16, height: 16, color: "var(--text-3)", flexShrink: 0 }} />
-        </button>
-      )}
 
       {/* ── Account ─────────────────────────── */}
       <Section title="Account">
-        <Row
-          icon={<Smartphone size={15} />}
-          iconBg="rgba(48,209,88,0.15)"
-          label="Mobile Number"
-          value={userPhone ? (userPhoneVerified ? userPhone : `${userPhone} · Unverified`) : "Not set"}
-          onClick={openPhoneSheet}
-        />
         <Row icon={<Hash size={15} />} iconBg="rgba(10,132,255,0.15)" label="DID Phone Number" value={primaryNumber ?? "None"} onClick={() => setSheet("numbers")} />
         <Row icon={<Star size={15} />} iconBg="rgba(255,214,10,0.15)" label="Subscription Plan" value={isActive ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} · Active` : "None"}
           onClick={() => { setSelectedPlan(currentPlan as "basic" | "pro"); setSheet("plan"); }} />
@@ -711,7 +669,7 @@ export default function Profile() {
       <Section title="Billing">
         <Row icon={<Coins size={15} />} iconBg="rgba(255,149,0,0.15)" label="Coin Balance" value={`${coins} coins`} chevron={false} />
         <Row icon={<Plus size={15} />} iconBg="rgba(48,209,88,0.15)" label="Top Up Coins" onClick={() => setSheet("topup")} />
-        <Row icon={<CreditCard size={15} />} iconBg="rgba(128,128,128,0.18)" label="Payment Methods" value="PayFast" chevron={false} />
+        <Row icon={<CreditCard size={15} />} iconBg="rgba(128,128,128,0.18)" label="Payment Methods" value="Manual EFT" chevron={false} />
         <Row icon={<Receipt size={15} />} iconBg="rgba(128,128,128,0.18)" label="Transaction History" onClick={() => setSheet("history")} />
         <Row
           icon={<FileDown size={15} />}
@@ -986,67 +944,18 @@ export default function Profile() {
         </Modal>
       )}
 
-      {/* ── Sheet: Mobile Number Verification ─ */}
+      {/* ── Sheet: Mobile Number Verification (removed) ─ */}
       {sheet === "phone" && (
-        <Modal title={otpStep === "enter-phone" ? "Mobile Number" : "Verify Code"} onClose={() => setSheet("none")}>
-          {otpStep === "enter-phone" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Modal title="Mobile Number" onClose={() => setSheet("none")}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
-                Add your mobile number to enable app-to-app calling with other PRaww+ users worldwide.
+                Mobile number management has been removed. Contact support if you need to update your number.
               </p>
-              {userPhoneVerified && userPhone && (
-                <div style={{ padding: "10px 14px", borderRadius: 12, background: "rgba(48,209,88,0.10)" }}>
-                  <p style={{ fontSize: 13, color: "#30d158", fontWeight: 600 }}>
-                    <CheckCircle2 style={{ width: 13, height: 13, display: "inline", marginRight: 6 }} />
-                    Current: {userPhone}
-                  </p>
-                  <p style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>Enter a new number below to change it</p>
-                </div>
-              )}
-              <input
-                type="tel"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
-                placeholder="+27 82 123 4567"
-                style={{ width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 16, background: "var(--glass-bg)", border: "none", color: "var(--text-1)", outline: "none", boxSizing: "border-box" }}
-              />
-              {phoneMsg && <p style={{ fontSize: 13, color: phoneMsg.includes("sent") ? "#30d158" : "#ff453a", textAlign: "center" }}>{phoneMsg}</p>}
-              <button onClick={handleSendOtp} disabled={phoneLoading}
-                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Send Verification Code"}
+              <button onClick={() => setSheet("none")}
+                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+                Close
               </button>
             </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.5 }}>
-                Enter the 6-digit code sent to {phoneInput}.
-                {otpCountdown !== null && otpCountdown > 0 && (
-                  <span style={{ color: "var(--text-3)" }}> Expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, "0")}</span>
-                )}
-              </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={otpInput}
-                onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-                style={{ width: "100%", padding: "13px 16px", borderRadius: 14, fontSize: 24, letterSpacing: "0.4em", textAlign: "center", background: "var(--glass-bg)", border: "none", color: "var(--text-1)", outline: "none", boxSizing: "border-box" }}
-              />
-              {phoneMsg && (
-                <p style={{ fontSize: 13, color: "#ff453a", textAlign: "center" }}>{phoneMsg}</p>
-              )}
-              <button onClick={handleVerifyOtp} disabled={phoneLoading}
-                style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "hsl(var(--primary))", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {phoneLoading ? <Loader2 style={{ width: 16, height: 16 }} className="animate-spin" /> : "Verify Code"}
-              </button>
-              {otpCountdown === 0 && (
-                <button onClick={() => setOtpStep("enter-phone")}
-                  style={{ background: "none", border: "none", color: "hsl(var(--primary))", fontSize: 14, cursor: "pointer", textAlign: "center", padding: "4px 0" }}>
-                  Change number or resend
-                </button>
-              )}
-            </div>
-          )}
         </Modal>
       )}
 

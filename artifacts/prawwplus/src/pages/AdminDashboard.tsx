@@ -139,6 +139,9 @@ export default function AdminDashboard() {
   const [reregLoading, setReregLoading] = useState(false);
   const [reregResult,  setReregResult]  = useState<{ ok: boolean; msg: string } | null>(null);
 
+  const [testCallLoading, setTestCallLoading] = useState(false);
+  const [testCallResult,  setTestCallResult]  = useState<{ ok: boolean; msg: string } | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -255,6 +258,24 @@ export default function AdminDashboard() {
       setReregLoading(false);
     }
   }, [refresh]);
+
+  const handleTestCall = useCallback(async () => {
+    setTestCallLoading(true);
+    setTestCallResult(null);
+    try {
+      const r = await adminFetch("/admin/gateway-test-call", { method: "POST" });
+      setTestCallResult({
+        ok:  r.ok,
+        msg: r.ok
+          ? `✓ Call completed — dest: ${r.dest}, cause: ${r.cause}`
+          : `✗ Call failed — ${r.cause ?? r.error ?? "unknown error"}`,
+      });
+    } catch (e: any) {
+      setTestCallResult({ ok: false, msg: e.message ?? "Test call failed" });
+    } finally {
+      setTestCallLoading(false);
+    }
+  }, []);
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1120, margin: "0 auto" }}>
@@ -631,6 +652,41 @@ export default function AdminDashboard() {
                     color:      reregResult.ok ? "#34d399" : "#f87171",
                   }}>
                     {reregResult.ok ? "✓" : "✗"} {reregResult.msg}
+                  </p>
+                )}
+
+                {/* PSTN Test Call */}
+                <button
+                  onClick={handleTestCall}
+                  disabled={testCallLoading || !gwRegistered}
+                  title={!gwRegistered ? "Gateway must be registered to test calls" : "Originate a short outbound call via the PSTN gateway"}
+                  style={{
+                    cursor:          testCallLoading || !gwRegistered ? "not-allowed" : "pointer",
+                    background:      testCallLoading || !gwRegistered
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(52,211,153,0.14)",
+                    border:          "1px solid rgba(52,211,153,0.3)",
+                    borderRadius:    8,
+                    color:           testCallLoading || !gwRegistered ? "rgba(255,255,255,0.25)" : "#34d399",
+                    fontSize:        12,
+                    fontWeight:      600,
+                    letterSpacing:   "0.04em",
+                    padding:         "7px 14px",
+                    alignSelf:       "flex-start",
+                    transition:      "background 0.15s, border-color 0.15s",
+                  }}
+                >
+                  {testCallLoading ? "📞 Calling…" : "📞 Test PSTN Call"}
+                </button>
+
+                {testCallResult && (
+                  <p style={{
+                    margin:     0,
+                    fontSize:   11,
+                    lineHeight: "1.4",
+                    color:      testCallResult.ok ? "#34d399" : "#f87171",
+                  }}>
+                    {testCallResult.msg}
                   </p>
                 )}
               </div>

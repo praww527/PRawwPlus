@@ -63,13 +63,6 @@ export default function DialPad() {
   const longPressFired  = useRef(false);
   const zeroHandled     = useRef(false);
 
-  /* ── Colleague name typeahead ──────────────────────────────────────────── */
-  type DirUser = { id: string; name: string; username: string | null; extension: number | null; did: string | null };
-  const [dirQuery, setDirQuery]     = useState("");
-  const [dirResults, setDirResults] = useState<DirUser[]>([]);
-  const [dirLoading, setDirLoading] = useState(false);
-  const [dirOpen, setDirOpen]       = useState(false);
-  const dirDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── ESL offline auto-retry ────────────────────────────────────────────────
   const { eslOfflinePending, eslRetryNumberRef, handleEslOfflineError, stopEslRetry } =
@@ -81,25 +74,6 @@ export default function DialPad() {
     if (dial) setNumber(decodeURIComponent(dial));
   }, [search]);
 
-  /* Debounced directory search — fires when dirQuery changes and has ≥2 chars */
-  useEffect(() => {
-    if (dirDebounceRef.current) clearTimeout(dirDebounceRef.current);
-    if (dirQuery.trim().length < 2) { setDirResults([]); setDirOpen(false); return; }
-    dirDebounceRef.current = setTimeout(async () => {
-      setDirLoading(true);
-      try {
-        const res = await apiFetch(`/api/users/directory?q=${encodeURIComponent(dirQuery.trim())}`, { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json() as { users: DirUser[] };
-          setDirResults(data.users ?? []);
-          setDirOpen(true);
-        }
-      } catch { /* silent */ }
-      finally { setDirLoading(false); }
-    }, 280);
-    return () => { if (dirDebounceRef.current) clearTimeout(dirDebounceRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirQuery]);
 
   const press = (key: string) => setNumber((n) => n.length < 20 ? n + key : n);
 
@@ -401,83 +375,6 @@ export default function DialPad() {
       )}
 
       <div style={{ flex: 1, minHeight: 16 }} />
-
-      {/* Colleague name typeahead search */}
-      <div style={{
-        width: GRID_W + 40, maxWidth: "100%",
-        position: "relative", marginBottom: 10, paddingLeft: 4, paddingRight: 4,
-      }}>
-        <input
-          type="text"
-          placeholder="Search colleague by name…"
-          value={dirQuery}
-          onChange={(e) => setDirQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && setDirOpen(false)}
-          onFocus={() => dirResults.length > 0 && setDirOpen(true)}
-          style={{
-            width: "100%", boxSizing: "border-box",
-            padding: "10px 14px", borderRadius: 14,
-            background: "rgba(255,255,255,0.05)",
-            border: "0.5px solid rgba(255,255,255,0.12)",
-            borderTop: "0.5px solid rgba(255,255,255,0.20)",
-            backdropFilter: "blur(48px) saturate(2.2)",
-            WebkitBackdropFilter: "blur(48px) saturate(2.2)",
-            boxShadow: "0 0.5px 0 rgba(255,255,255,0.18) inset, 0 4px 20px rgba(0,0,0,0.4)",
-            color: "rgba(255,255,255,0.85)", fontSize: 14, outline: "none",
-          }}
-        />
-        {dirLoading && (
-          <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
-            Searching…
-          </span>
-        )}
-        {dirOpen && dirResults.length > 0 && (
-          <div style={{
-            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 300,
-            marginTop: 6, borderRadius: 16, overflow: "hidden",
-            background: "rgba(8,8,8,0.94)",
-            border: "0.5px solid rgba(255,255,255,0.14)",
-            borderTop: "0.5px solid rgba(255,255,255,0.22)",
-            backdropFilter: "blur(48px) saturate(2.2)",
-            WebkitBackdropFilter: "blur(48px) saturate(2.2)",
-            boxShadow: "0 0.5px 0 rgba(255,255,255,0.14) inset, 0 16px 48px rgba(0,0,0,0.7)",
-          }}>
-            {dirResults.map((u) => (
-              <button
-                key={u.id}
-                onClick={() => {
-                  if (u.extension) {
-                    setNumber(String(u.extension));
-                    setDirQuery("");
-                    setDirOpen(false);
-                  } else if (u.did) {
-                    setNumber(u.did);
-                    setDirQuery("");
-                    setDirOpen(false);
-                  } else {
-                    toast({ title: `${u.name} has no extension assigned`, variant: "destructive" });
-                    setDirOpen(false);
-                  }
-                }}
-                style={{
-                  width: "100%", display: "flex", alignItems: "center",
-                  justifyContent: "space-between", padding: "10px 14px",
-                  background: "none", border: "none",
-                  borderBottom: "1px solid rgba(255,255,255,0.06)",
-                  cursor: "pointer", textAlign: "left",
-                }}
-              >
-                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.88)" }}>{u.name}</span>
-                  {u.extension && (
-                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>Ext {u.extension}</span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Number display */}
       <div style={{

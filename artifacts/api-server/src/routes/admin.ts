@@ -2376,6 +2376,65 @@ router.post("/admin/gateway-reregister", requireAdmin, async (_req, res) => {
   });
 });
 
+// ── PSTN Gateway Test Call ─────────────────────────────────────────────────────
+//
+// POST /api/admin/gateway-test-call
+//
+// Originates a short outbound call through the BizVoIP PSTN gateway to verify
+// end-to-end SIP connectivity without ringing a real person.  Uses &echo() so
+// the call connects to an echo server for ~3 s then hangs up cleanly.
+//
+// Optional body: { "to": "27XXXXXXXXX" }
+//   Defaults to the gateway's own username (loops back via carrier SIP test).
+//
+// Returns: { ok, dest, gatewayName, cause, result, testedAt }
+
+router.post("/admin/gateway-test-call", requireAdmin, async (req, res) => {
+  const esl         = eslStatus();
+  const gatewayName = process.env.PSTN_GATEWAY_NAME?.trim() ?? null;
+
+  if (!gatewayName) {
+    res.status(400).json({ ok: false, error: "PSTN_GATEWAY_NAME is not configured" });
+    return;
+  }
+  if (!esl.connected) {
+    res.status(503).json({ ok: false, error: "FreeSWITCH ESL is not connected" });
+    return;
+  }
+
+  // Resolve destination — default to the gateway's own registration number
+  let dest = ((req.body?.to ?? "") as string).trim();
+  if (!dest) dest = process.env.PSTN_GATEWAY_USERNAME?.trim() ?? "270000000000";
+  dest = dest.replace(/^\+/, "");
+  if (/^0[0-9]{9}$/.test(dest)) dest = `27${dest.slice(1)}`;
+
+  // Originate: call via gateway, play 3 s of silence then hang up
+  // originate_timeout=15 — wait at most 15 s for an answer before giving up
+  const origCmd = [
+    `originate`,
+    `{call_timeout=15,originate_timeout=15,`,
+    `effective_caller_id_number=${process.env.PSTN_GATEWAY_USERNAME ?? dest},`,
+    `hangup_after_bridge=false}`,
+    `sofia/gateway/${gatewayName}/${dest}`,
+    ` &playback(silence_stream://3000)`,
+  ].join("");
+
+  const result = await sendEslBgapiAwait(origCmd, 22_000);
+  const ok     = result.startsWith("+OK");
+  const cause  = ok
+    ? "NORMAL_CLEARING"
+    : result.replace(/^-ERR\s*/i, "").trim() || "UNKNOWN";
+
+  res.json({
+    ok,
+    dest,
+    gatewayName,
+    result:   result.trim(),
+    cause,
+    testedAt: new Date().toISOString(),
+  });
+});
+
 // ── Audit Logs ─────────────────────────────────────────────────────────────────
 
 router.get("/admin/audit-logs", requireAdmin, async (req, res) => {

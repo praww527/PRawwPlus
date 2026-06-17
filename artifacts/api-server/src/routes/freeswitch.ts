@@ -147,6 +147,70 @@ router.get("/freeswitch/did-route", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/freeswitch/inbound?did=<number>
+ *
+ * Simplified inbound DID routing for the FreeSWITCH dialplan (prawwplus.xml).
+ * Returns plain text that the dialplan uses directly as a transfer target:
+ *   • "1001"                            — single agent extension
+ *   • "user/1001@domain,user/1002@domain" — ring-group simultaneous ring
+ *   • "queue:salesQueue"                — call-centre queue
+ *   • "unrouted"                        — no route configured (falls to invalid_number)
+ *
+ * Falls back to the first admin extension (then any extension) when no DID
+ * route is configured, so inbound calls always reach someone.
+ * NO authentication — localhost only (called by FreeSWITCH mod_curl).
+ */
+router.get("/freeswitch/inbound", async (req: Request, res: Response) => {
+  const remoteIp = req.socket?.remoteAddress ?? req.ip ?? "";
+  const isLocalhost =
+    remoteIp === "127.0.0.1" || remoteIp === "::1" || remoteIp === "::ffff:127.0.0.1";
+  if (!isLocalhost) { res.status(403).send("forbidden"); return; }
+
+  const rawDid = ((req.query.did ?? req.query.number ?? "") as string).trim();
+  if (!rawDid || rawDid.length < 7) { res.send("unrouted"); return; }
+
+  res.setHeader("Content-Type", "text/plain");
+
+  try {
+    await connectDB();
+    const route = await resolveDIDRoute(rawDid);
+
+    switch (route.type) {
+      case "agent":
+        res.send(String(route.extension));
+        return;
+      case "ring_group": {
+        const domain = process.env.FREESWITCH_DOMAIN ?? "158.180.29.84";
+        const uris = route.extensions!.map((e) => `user/${e}@${domain}`);
+        res.send(uris.join(","));
+        return;
+      }
+      case "queue":
+        res.send(`queue:${route.queueName}`);
+        return;
+      default:
+        break;
+    }
+  } catch { /* fall through to extension fallback */ }
+
+  // No DID route — fall back to first admin extension, then any registered extension
+  try {
+    const { UserModel } = await import("@workspace/db");
+    const admin = await (UserModel as any)
+      .findOne({ isAdmin: true, extension: { $exists: true, $ne: null } })
+      .lean() as any;
+    if (admin?.extension) { res.send(String(admin.extension)); return; }
+
+    const anyUser = await (UserModel as any)
+      .findOne({ extension: { $exists: true, $ne: null } })
+      .lean() as any;
+    if (anyUser?.extension) { res.send(String(anyUser.extension)); return; }
+  } catch { /* ignore */ }
+
+  res.send("unrouted");
+});
+
 /** GET /api/freeswitch/admin-status — ESL connection + config state (admin only) */
 router.get("/freeswitch/admin-status", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
