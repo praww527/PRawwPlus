@@ -79,6 +79,31 @@ function bareHost(raw: string): string {
 const RECONNECT_BASE_MS = parseInt(process.env.ESL_RECONNECT_BASE_MS ?? "2000", 10);
 const RECONNECT_MAX_MS  = parseInt(process.env.ESL_RECONNECT_MAX_MS  ?? "15000", 10);
 
+/**
+ * Returns true when the FreeSWITCH hangup cause indicates the callee was
+ * offline / unreachable in a way that may be transient and recoverable via the
+ * hold-window retry path.
+ *
+ * Exported so it can be unit-tested independently of the ESL event loop.
+ *
+ * Causes covered:
+ *   UNREGISTERED             — SIP/Q.850 cause 20: extension not registered
+ *   USER_NOT_REGISTERED      — FreeSWITCH alias for the same condition
+ *   SUBSCRIBER_ABSENT        — SIP 480 Temporarily Unavailable
+ *   DESTINATION_OUT_OF_ORDER — SIP 502 Bad Gateway; endpoint reachable but
+ *                              destination reports it is out of service.
+ *                              Also seen when a Verto/SIP session exists on
+ *                              paper but the underlying transport is gone.
+ */
+export function isHangupCauseOffline(cause: string): boolean {
+  return (
+    cause === "UNREGISTERED"             ||
+    cause === "USER_NOT_REGISTERED"      ||
+    cause === "SUBSCRIBER_ABSENT"        ||
+    cause === "DESTINATION_OUT_OF_ORDER"
+  );
+}
+
 // ── Auto-recovery debounce for USER_NOT_REGISTERED ───────────────────────────
 // Limits how often the expensive operations fire across all concurrent calls.
 const AUTO_RESCAN_DEBOUNCE_MS   = 60_000;        // sofia rescan — at most once/min
@@ -1508,12 +1533,7 @@ class FreeSwitchESL {
           // ~30 s before the unavailable announcement, giving this logic room to
           // bridge a reconnected callee without the caller hearing silence.
           const MAX_HOLD_RETRIES = 4;
-          const isOfflineCause = (
-            hangupCause === "UNREGISTERED"             ||
-            hangupCause === "USER_NOT_REGISTERED"      ||
-            hangupCause === "SUBSCRIBER_ABSENT"        ||
-            hangupCause === "DESTINATION_OUT_OF_ORDER"
-          );
+          const isOfflineCause = isHangupCauseOffline(hangupCause);
           // holdWindowActive = true means: this B-leg failed with an offline cause,
           // the A-leg is still alive, and we have retries left.
           // Guard: exclude events where THIS channel is the A-leg (wasHoldWindowALeg).

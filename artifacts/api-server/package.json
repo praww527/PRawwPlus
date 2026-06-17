@@ -9,7 +9,7 @@
     "build": "tsx ./build.ts",
     "typecheck": "pnpm --filter @workspace/db run build && tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "tsx --test src/lib/callStateMachine.test.ts src/lib/callLimits.test.ts",
+    "test": "tsx --test src/lib/callStateMachine.test.ts src/lib/callLimits.test.ts src/lib/freeswitchESL.test.ts",
     "test:esl": "tsx scripts/test-esl.ts"
   },
   "dependencies": {

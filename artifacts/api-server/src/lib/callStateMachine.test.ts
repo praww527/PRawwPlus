@@ -40,3 +40,23 @@ test("ATTENDED_TRANSFER maps to voicemail", () => {
 test("causeToLabel returns sensible default for empty cause", () => {
   assert.ok(causeToLabel("").length > 0);
 });
+
+test("DESTINATION_OUT_OF_ORDER maps to failed status", () => {
+  assert.equal(causeToStatus("DESTINATION_OUT_OF_ORDER"), "failed");
+});
+
+test("DESTINATION_OUT_OF_ORDER maps to Destination unavailable label", () => {
+  assert.equal(causeToLabel("DESTINATION_OUT_OF_ORDER"), "Destination unavailable");
+});
+
+test("UNREGISTERED maps to failed status", () => {
+  assert.equal(causeToStatus("UNREGISTERED"), "failed");
+});
+
+test("USER_NOT_REGISTERED maps to failed status", () => {
+  assert.equal(causeToStatus("USER_NOT_REGISTERED"), "failed");
+});
+
+test("SUBSCRIBER_ABSENT maps to failed status", () => {
+  assert.equal(causeToStatus("SUBSCRIBER_ABSENT"), "failed");
+});
