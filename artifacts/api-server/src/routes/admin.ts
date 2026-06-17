@@ -2160,51 +2160,6 @@ router.get("/admin/session/all-sip", requireAdmin, async (req, res) => {
   });
 });
 
-// ── Tenants ────────────────────────────────────────────────────────────────────
-// Groups all users by tenantId. Users with no tenantId are shown under
-// a synthetic "__personal__" bucket.
-
-router.get("/admin/tenants", requireAdmin, async (_req, res) => {
-  await connectDB();
-  const users = await UserModel
-    .find({})
-    .select("_id email name tenantId isAdmin role locked createdAt")
-    .sort({ createdAt: 1 })
-    .lean();
-
-  const map = new Map<string, {
-    tenantId: string;
-    createdAt: string;
-    members: { id: string; email?: string; name?: string; isAdmin: boolean; role: string; locked: boolean }[];
-  }>();
-
-  for (const u of users) {
-    const key = (u as any).tenantId || "__personal__";
-    if (!map.has(key)) {
-      map.set(key, {
-        tenantId: key,
-        createdAt: (u as any).createdAt?.toISOString?.() ?? new Date().toISOString(),
-        members: [],
-      });
-    }
-    map.get(key)!.members.push({
-      id:      String((u as any)._id),
-      email:   (u as any).email,
-      name:    (u as any).name,
-      isAdmin: Boolean((u as any).isAdmin),
-      role:    (u as any).role ?? "user",
-      locked:  Boolean((u as any).locked),
-    });
-  }
-
-  const tenants = Array.from(map.values()).map((t) => ({
-    ...t,
-    memberCount: t.members.length,
-  }));
-
-  res.json({ tenants, total: tenants.length });
-});
-
 // ── Audit Logs ─────────────────────────────────────────────────────────────────
 
 router.get("/admin/audit-logs", requireAdmin, async (req, res) => {

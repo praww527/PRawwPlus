@@ -51,7 +51,7 @@ export function useAuth(): AuthState {
   }, [tick]);
 
   const logout = useCallback(() => {
-    window.location.href = "/api/logout";
+    window.location.href = "/api/auth/logout";
   }, []);
 
   const refetch = useCallback(() => {

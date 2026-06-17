@@ -423,7 +423,7 @@ router.post("/calls", userRateLimit(40, 60_000), async (req, res) => {
                 UserModel.updateOne(
                   { _id: (calleeUser as any)._id },
                   { $unset: { webPushSubscription: 1 } },
-                ).catch(() => {});
+                ).catch((err) => logger.warn({ err }, "[calls] Failed to clear expired web-push subscription"));
               }
             }),
           );
@@ -1049,7 +1049,7 @@ router.post("/calls/test-ring/:extension", async (req, res) => {
         String(t._id),
       ).then((result) => {
         if (result.error === "expired") {
-          UserModel.updateOne({ _id: t._id }, { $unset: { webPushSubscription: 1 } }).catch(() => {});
+          UserModel.updateOne({ _id: t._id }, { $unset: { webPushSubscription: 1 } }).catch((err) => logger.warn({ err }, "[calls] Failed to clear expired web-push subscription"));
           throw new Error("web-push subscription expired — cleared");
         }
       }),

@@ -608,12 +608,14 @@ router.post("/auth/phone/verify-otp", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/logout", async (req: Request, res: Response) => {
+// GET /auth/logout — browser redirect (used by <a href="/api/auth/logout"> links)
+router.get("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   await clearSession(res, sid);
   res.redirect("/");
 });
 
+// POST /auth/logout — JSON response for API / mobile clients
 router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   await clearSession(res, sid);

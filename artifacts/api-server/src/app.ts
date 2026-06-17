@@ -65,10 +65,19 @@ const isProduction = process.env.NODE_ENV === "production";
 const allowedOrigins: string[] = [];
 if (process.env.ALLOWED_ORIGINS) {
   // Explicit override — use exactly what was provided (comma-separated list).
-  allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()));
-} else if (isProduction && appUrlRaw) {
-  // Production only: restrict CORS to the configured APP_URL domain.
+  allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean));
+} else if (appUrlRaw) {
   allowedOrigins.push(appUrlRaw);
+}
+
+if (isProduction && allowedOrigins.length === 0) {
+  // Fail loudly in production: if neither ALLOWED_ORIGINS nor APP_URL is set,
+  // log a critical warning. Do NOT fall back to allow-all in production —
+  // that would expose the API to cross-origin requests from any domain.
+  logger.error(
+    "CORS misconfiguration: neither APP_URL nor ALLOWED_ORIGINS is set in production. " +
+    "All cross-origin requests will be blocked. Set APP_URL=https://your-domain.com to fix this."
+  );
 }
 // In development (NODE_ENV !== "production"), allowedOrigins stays empty —
 // the CORS handler below treats an empty list as "allow all origins".
@@ -207,6 +216,7 @@ app.use(csrfMiddleware);
 
 app.use("/api/auth/login", rateLimit(10, 60_000));
 app.use("/api/auth/signup", rateLimit(5, 60_000));
+app.use("/api/auth/logout", rateLimit(20, 60_000));
 app.use("/api/auth/forgot-password", rateLimit(5, 60_000));
 app.use("/api/auth/reset-password", rateLimit(5, 60_000));
 app.use("/api/auth/resend-verification", rateLimit(3, 60_000));

@@ -296,17 +296,6 @@ router.get("/admin/tls-info", requireAdmin, async (_req, res) => {
   }
 });
 
-// ESL event trace for a specific call UUID
-router.get("/admin/call-trace/:uuid", requireAdmin, (req: Request, res: Response) => {
-  const uuid = Array.isArray(req.params.uuid) ? req.params.uuid[0] : req.params.uuid;
-  if (!uuid || uuid.length < 4) {
-    res.status(400).json({ error: "Invalid UUID" });
-    return;
-  }
-  const trace = getEslTrace(uuid);
-  res.json({ uuid, events: trace, count: trace.length, asOf: new Date().toISOString() });
-});
-
 // Push delivery statistics
 router.get("/admin/push-stats", requireAdmin, (_req, res) => {
   const totalSent   = metrics.pushFcmSent + metrics.pushWebSent + metrics.pushExpoSent;
