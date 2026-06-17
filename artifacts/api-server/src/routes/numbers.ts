@@ -334,6 +334,149 @@ router.delete("/numbers/:id", async (req, res) => {
   res.json({ message: "Number removed successfully" });
 });
 
+/* ── PUT /numbers/:id/route — assign DID routing (admin only) ── */
+router.put("/numbers/:id/route", async (req, res) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = (req as any).user;
+  if (!user?.isAdmin) { res.status(403).json({ error: "Admin access required" }); return; }
+
+  await connectDB();
+  const { id } = req.params;
+  const { routeType, routeTarget } = req.body;
+
+  const validRouteTypes = ["agent", "ring_group", "queue"];
+  if (!routeType || !validRouteTypes.includes(routeType)) {
+    res.status(400).json({ error: `routeType must be one of: ${validRouteTypes.join(", ")}` });
+    return;
+  }
+  if (!routeTarget || typeof routeTarget !== "string") {
+    res.status(400).json({ error: "routeTarget is required (userId, ringGroupId, or queueId)" });
+    return;
+  }
+
+  const number = await PhoneNumberModel.findById(id);
+  if (!number) { res.status(404).json({ error: "Number not found" }); return; }
+
+  await PhoneNumberModel.updateOne(
+    { _id: id },
+    { $set: { routeType, routeTarget } },
+  );
+
+  logger.info({ numberId: id, routeType, routeTarget }, "[numbers/route] DID route updated");
+  res.json({ ok: true, number: number.number, routeType, routeTarget });
+});
+
+/* ── GET /numbers/admin — list all numbers with route info (admin only) ── */
+router.get("/numbers/admin", async (req, res) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const user = (req as any).user;
+  if (!user?.isAdmin) { res.status(403).json({ error: "Admin access required" }); return; }
+
+  await connectDB();
+  const numbers = await PhoneNumberModel.find({}).sort({ number: 1 }).lean();
+
+  const userIds = numbers.map((n: any) => n.userId).filter(Boolean);
+  const users = userIds.length
+    ? await UserModel.find({ _id: { $in: userIds } }).select("_id name username extension").lean()
+    : [];
+  const userMap = Object.fromEntries(users.map((u: any) => [String(u._id), u]));
+
+  res.json({
+    numbers: numbers.map((n: any) => ({
+      id: n._id,
+      number: n.number,
+      userId: n.userId,
+      user: n.userId ? (userMap[n.userId] ?? null) : null,
+      routeType: n.routeType ?? "agent",
+      routeTarget: n.routeTarget ?? n.userId,
+      assignedAt: n.assignedAt,
+      lockedUntil: getLockedUntil(n.assignedAt),
+      locked: isLocked(n.assignedAt),
+      country: n.country,
+      region: n.region,
+      source: n.source,
+      providerRef: n.providerRef,
+    })),
+  });
+});
+
+/* ── POST /numbers/admin/provision — admin provision a DID directly (no plan limits) ── */
+router.post("/numbers/admin/provision", async (req, res) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const adminUser = (req as any).user;
+  if (!adminUser?.isAdmin) { res.status(403).json({ error: "Admin access required" }); return; }
+
+  await connectDB();
+  const { phone_number, provider_ref, routeType, routeTarget } = req.body;
+  if (!phone_number) { res.status(400).json({ error: "phone_number is required" }); return; }
+
+  const now = new Date();
+
+  if (hasDidProvider()) {
+    try {
+      const provider = getActiveDidProvider();
+      const sipTrunkHost = process.env.BIZVOIP_SIP_TRUNK_HOST ?? process.env.SIP_TRUNK_HOST ?? "";
+      const provisioned = await provider.provision({
+        phoneNumber:   phone_number,
+        providerRef:   provider_ref ?? phone_number,
+        sipTrunkHost,
+      });
+      const existing = await PhoneNumberModel.findOne({ number: phone_number });
+      if (existing) {
+        await PhoneNumberModel.updateOne({ _id: existing._id }, {
+          assignedAt: now,
+          providerRef: provisioned.providerRef,
+          source: "provider",
+          routeType: routeType ?? "agent",
+          routeTarget: routeTarget ?? null,
+        });
+      } else {
+        await PhoneNumberModel.create({
+          _id: randomUUID(),
+          number: phone_number,
+          userId: routeType === "agent" ? routeTarget : null,
+          assignedAt: now,
+          providerRef: provisioned.providerRef,
+          source: "provider",
+          routeType: routeType ?? "agent",
+          routeTarget: routeTarget ?? null,
+        });
+      }
+      logger.info({ phoneNumber: phone_number, provider: provider.name, routeType }, "[numbers/admin/provision] DID provisioned");
+      res.json({ message: "Number provisioned successfully", number: phone_number, routeType, routeTarget });
+      return;
+    } catch (err: any) {
+      logger.error({ err: err?.message, phoneNumber: phone_number }, "[numbers/admin/provision] Provider error");
+      res.status(502).json({ error: "provider_error", message: err?.message ?? "Provisioning failed." });
+      return;
+    }
+  }
+
+  // Local pool fallback
+  const existing = await PhoneNumberModel.findOne({ number: phone_number });
+  if (existing) {
+    await PhoneNumberModel.updateOne({ _id: existing._id }, {
+      assignedAt: now,
+      userId: routeType === "agent" ? routeTarget : null,
+      routeType: routeType ?? "agent",
+      routeTarget: routeTarget ?? null,
+    });
+  } else {
+    await PhoneNumberModel.create({
+      _id: randomUUID(),
+      number: phone_number,
+      userId: routeType === "agent" ? routeTarget : null,
+      assignedAt: now,
+      source: "local",
+      routeType: routeType ?? "agent",
+      routeTarget: routeTarget ?? null,
+    });
+  }
+
+  logger.info({ phoneNumber: phone_number, routeType }, "[numbers/admin/provision] DID created in local pool");
+  res.json({ message: "Number provisioned successfully", number: phone_number, routeType, routeTarget });
+});
+
 /* ── POST /numbers/change — initiate number change (R100 via PayFast) ── */
 router.post("/numbers/change", async (req, res) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }

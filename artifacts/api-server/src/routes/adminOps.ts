@@ -19,7 +19,7 @@ import { promisify } from "util";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { metrics } from "../lib/metrics";
 import { getAllSessions, getAllSipSessions } from "../lib/callSession";
-import { eslStatus, getEslTrace } from "../lib/freeswitchESL";
+import { eslStatus } from "../lib/freeswitchESL";
 import { getReconciliationStats } from "../lib/reconciliationWorker";
 import { getHealthHistory } from "../lib/healthRingBuffer";
 import { connectDB, UserModel } from "@workspace/db";

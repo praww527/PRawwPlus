@@ -721,38 +721,86 @@ export function sipProfileXml(fsIp: string, _appUrl: string): string {
  * by this catch-all which handles any DID.
  */
 export function publicDidDialplanXml(apiPort: number): string {
-  const lookupUrl = `http://127.0.0.1:${apiPort}/api/freeswitch/lookup`;
+  const didRouteUrl = `http://127.0.0.1:${apiPort}/api/freeswitch/did-route`;
   return `<include>
   <!--
-    PRawwPlus — Inbound PSTN / DID routing
+    PRawwPlus — Inbound PSTN / DID routing (DID-based, extensions hidden)
     Written by freeswitchSSH.ts; do not edit manually.
 
     Strategy:
-      1. Query the PRaww+ API to find which user (extension) owns the DID.
-      2. If found → transfer into the "prawwplus" context on that extension.
-      3. If not found → play a polite announcement and hang up.
+      1. Query /api/freeswitch/did-route to resolve the DID to its route.
+         Response: "agent:<ext>", "ring_group:<ext1>,<ext2>|<strategy>",
+                   "queue:<name>", or "unrouted".
+      2. Parse the route type and execute the correct dialplan action.
+      3. Extensions are NEVER exposed to the external caller — only used
+         internally as routing keys.
 
-    The lookup URL hits 127.0.0.1 (loopback) so it works even when the
+    The did-route URL hits 127.0.0.1 (loopback) so it works even when the
     public API domain is not yet resolving (e.g. during initial VPS setup).
   -->
-  <extension name="inbound_did_lookup" continue="true">
+
+  <!-- Step 1: resolve DID → route directive -->
+  <extension name="inbound_did_resolve" continue="true">
     <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$" break="never">
-      <action application="curl" data="${lookupUrl}?number=$1"/>
-      <action application="set" data="target_ext=\${curl_response_data}"/>
-      <action application="log" data="INFO [DID] \${destination_number} → ext=\${target_ext} (http \${curl_response_code})"/>
-    </condition>
-    <!-- Transfer to resolved extension in prawwplus context -->
-    <condition field="\${target_ext}" expression="^([1-9][0-9]{3})$" break="on-true">
-      <action application="set" data="domain_name=\${domain}"/>
-      <action application="transfer" data="\${target_ext} XML prawwplus"/>
+      <action application="curl" data="${didRouteUrl}?number=$1"/>
+      <action application="set" data="did_route=\${curl_response_data}"/>
+      <action application="set" data="did_http_code=\${curl_response_code}"/>
+      <action application="log" data="INFO [DID] \${destination_number} → route=\${did_route} (http \${did_http_code})"/>
     </condition>
   </extension>
 
-  <!-- DID not provisioned in PRaww+ — polite reject -->
+  <!-- Step 2a: agent route — transfer to single extension -->
+  <extension name="did_route_agent" continue="true">
+    <condition field="\${did_route}" expression="^agent:([1-9][0-9]{3})$" break="on-true">
+      <action application="set" data="target_ext=$1"/>
+      <action application="log" data="INFO [DID] Routing to agent ext=$1"/>
+      <action application="transfer" data="$1 XML prawwplus"/>
+    </condition>
+  </extension>
+
+  <!-- Step 2b: ring_group route — ring all members simultaneously -->
+  <extension name="did_route_ring_group_all" continue="true">
+    <condition field="\${did_route}" expression="^ring_group:([0-9,]+)\\|ring-all$" break="on-true">
+      <action application="set" data="rg_members=$1"/>
+      <action application="set" data="call_timeout=30"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="set" data="continue_on_fail=true"/>
+      <action application="set" data="ringback=\${us-ring}"/>
+      <action application="log" data="INFO [DID] Ring-all group: members=$1"/>
+      <!--
+        Build comma-separated bridge string: each member gets both Verto and SIP endpoints.
+        FreeSWITCH dials all comma-separated legs simultaneously; first to answer wins.
+        We use loopback/ into the prawwplus context so each extension goes through
+        the normal internal routing (DND, forwarding, etc.).
+      -->
+      <action application="bridge" data="\${sofia_contact(*/\${rg_members}@\${domain_name})}"/>
+    </condition>
+  </extension>
+
+  <!-- Step 2c: ring_group route — round-robin (sequential transfer) -->
+  <extension name="did_route_ring_group_rr" continue="true">
+    <condition field="\${did_route}" expression="^ring_group:([0-9]+)[,0-9]*\\|round-robin$" break="on-true">
+      <action application="set" data="rg_first_ext=$1"/>
+      <action application="log" data="INFO [DID] Round-robin group: first ext=$1"/>
+      <action application="transfer" data="$1 XML prawwplus"/>
+    </condition>
+  </extension>
+
+  <!-- Step 2d: queue route — send to callcenter queue -->
+  <extension name="did_route_queue" continue="true">
+    <condition field="\${did_route}" expression="^queue:(.+)$" break="on-true">
+      <action application="set" data="queue_name=$1"/>
+      <action application="log" data="INFO [DID] Routing to queue: $1"/>
+      <action application="answer"/>
+      <action application="callcenter" data="$1@default"/>
+    </condition>
+  </extension>
+
+  <!-- Step 3: DID not provisioned / unrouted — polite reject -->
   <extension name="unprovisioned_did">
     <condition field="destination_number" expression="^(\\+?[0-9]{7,15})$">
       <action application="answer"/>
-      <action application="speak" data="flite|kal|The number you have dialed is not currently in service."/>
+      <action application="speak" data="flite|kal|The number you have dialed is not currently in service. Please try again later."/>
       <action application="sleep" data="300"/>
       <action application="hangup" data="UNALLOCATED_NUMBER"/>
     </condition>

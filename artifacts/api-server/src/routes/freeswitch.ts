@@ -1,7 +1,9 @@
 /**
- * FreeSWITCH admin routes — status, config push, diagnostics.
+ * FreeSWITCH admin routes — status, config push, diagnostics, and DID routing.
+ *
  * Admin routes require the requesting user to be an admin.
- * The /lookup route is unauthenticated and intended for FreeSWITCH mod_curl.
+ * The /lookup and /did-route routes are unauthenticated and intended for
+ * FreeSWITCH mod_curl — only reachable from localhost (127.0.0.1).
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -9,7 +11,7 @@ import { eslStatus } from "../lib/freeswitchESL";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { getAppUrl } from "../lib/appUrl";
 import { connectDB } from "@workspace/db";
-import { resolvePhoneToExtension } from "../lib/phoneResolver";
+import { resolvePhoneToExtension, resolveDIDRoute } from "../lib/phoneResolver";
 
 const router: IRouter = Router();
 
@@ -21,17 +23,21 @@ function requireAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 /**
  * GET /api/freeswitch/lookup?number=0XXXXXXXXX
  *
- * Called internally by FreeSWITCH mod_curl during dialplan execution.
- * Receives a South African local-format phone number (0-prefixed, 10 digits)
- * and returns the registered user's extension as plain text, or an empty
- * body with 404 when no matching user is found.
- *
- * NO authentication — this endpoint is only reachable from localhost
- * (FreeSWITCH binds ESL / mod_curl to 127.0.0.1) and must not require a
- * session cookie or API key that FreeSWITCH cannot supply.
+ * Legacy endpoint: resolves a phone number to an extension (for internal
+ * phone-number-to-extension lookup from the dialplan).
+ * NO authentication — only reachable from localhost.
  */
 router.get("/freeswitch/lookup", async (req: Request, res: Response) => {
   const { number } = req.query as { number?: string };
@@ -49,8 +55,54 @@ router.get("/freeswitch/lookup", async (req: Request, res: Response) => {
     }
     res.setHeader("Content-Type", "text/plain");
     res.send(String(extension));
-  } catch (err) {
+  } catch {
     res.status(500).send("");
+  }
+});
+
+/**
+ * GET /api/freeswitch/did-route?number=+27...
+ *
+ * Called by FreeSWITCH mod_curl when an inbound DID call arrives.
+ * Resolves the DID to its configured route (agent extension, ring group, or queue)
+ * and returns plain-text directives that the dialplan uses to execute the call.
+ *
+ * Response format (plain text):
+ *   agent:<extension>
+ *   ring_group:<ext1>,<ext2>,...|<strategy>
+ *   queue:<queueName>
+ *   unrouted
+ *
+ * NO authentication — only reachable from localhost (FreeSWITCH loopback).
+ */
+router.get("/freeswitch/did-route", async (req: Request, res: Response) => {
+  const { number } = req.query as { number?: string };
+  if (!number || typeof number !== "string" || number.trim().length < 7) {
+    res.status(400).send("unrouted");
+    return;
+  }
+
+  try {
+    await connectDB();
+    const route = await resolveDIDRoute(number.trim());
+
+    res.setHeader("Content-Type", "text/plain");
+
+    switch (route.type) {
+      case "agent":
+        res.send(`agent:${route.extension}`);
+        break;
+      case "ring_group":
+        res.send(`ring_group:${route.extensions!.join(",")}|${route.strategy}`);
+        break;
+      case "queue":
+        res.send(`queue:${xmlEscape(route.queueName!)}`);
+        break;
+      default:
+        res.status(404).send("unrouted");
+    }
+  } catch {
+    res.status(500).send("unrouted");
   }
 });
 
@@ -69,6 +121,7 @@ router.get("/freeswitch/admin-status", (req: Request, res: Response) => {
       appUrl,
       directoryUrl: appUrl ? `${appUrl}/api/freeswitch/directory` : null,
       webhookUrl:   appUrl ? `${appUrl}/api/calls/webhook/freeswitch` : null,
+      didRouteUrl:  appUrl ? `${appUrl}/api/freeswitch/did-route` : null,
       sshKeySet:    Boolean(process.env.FREESWITCH_SSH_KEY),
     },
   });

@@ -353,6 +353,10 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
     )
     .lean();
 
+  // Import here to avoid circular dependency at module level
+  const { getUserPrimaryDid } = await import("../lib/phoneResolver");
+  const primaryDid = dbUser ? await getUserPrimaryDid(String(dbUser._id)) : null;
+
   if (!dbUser || !dbUser.fsPassword) {
     res.status(200).send(
       `<?xml version="1.0" encoding="UTF-8"?>
@@ -380,12 +384,11 @@ async function handleFreeSwitchDirectory(req: Request, res: Response): Promise<v
   const safePassword = xmlEscape(dbUser.fsPassword!);
   const dndValue     = dbUser.dnd ? "true" : "false";
 
-  // Use the user's mobile number as caller ID so other users see their phone
-  // number instead of the internal extension.  We use phone even when
-  // phoneVerified is false — caller-ID is display-only and does not require
-  // verification.  Fall back to extension only when no phone is stored at all.
-  const callerIdNumber = dbUser.phone
-    ? xmlEscape(dbUser.phone)
+  // Use the agent's assigned DID as caller ID so callers see the business
+  // number rather than a personal mobile or internal extension.
+  // Priority: primary DID → extension only (never expose mobile phone).
+  const callerIdNumber = primaryDid
+    ? xmlEscape(primaryDid)
     : String(extensionNum);
   const callForwardAlwaysEnabled = dbUser.callForwardAlwaysEnabled ? "true" : "false";
   const callForwardAlwaysTo = xmlEscape(dbUser.callForwardAlwaysTo ?? "");

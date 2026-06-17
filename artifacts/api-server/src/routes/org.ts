@@ -285,7 +285,7 @@ router.post("/org/topup", requireOrgOwnerOrAdmin, async (req, res) => {
   const COIN_VALUE = 0.9;
   const coinsAdded = Math.floor(amount / COIN_VALUE);
 
-  const { randomUUID: uuid } = await import("crypto");
+  await import("crypto");
   const { PaymentModel } = await import("@workspace/db");
   const { getBaseUrl } = await import("../lib/appUrl");
 

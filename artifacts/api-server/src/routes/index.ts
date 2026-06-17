@@ -37,6 +37,7 @@ import portRequestsRouter from "./portRequests";
 import resellerCommissionsRouter from "./resellerCommissions";
 import callerIdProfilesRouter from "./callerIdProfiles";
 import orgRouter from "./org";
+import ringGroupsRouter from "./ringGroups";
 
 const router: IRouter = Router();
 
@@ -78,5 +79,6 @@ router.use(portRequestsRouter);
 router.use(resellerCommissionsRouter);
 router.use(callerIdProfilesRouter);
 router.use(orgRouter);
+router.use(ringGroupsRouter);
 
 export default router;
