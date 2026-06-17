@@ -74,9 +74,12 @@ export function Layout({ children }: LayoutProps) {
           borderRadius: 999,
           display: "flex",
           alignItems: "center",
-          background: "transparent",
-          backdropFilter: "blur(32px) saturate(1.6)",
-          WebkitBackdropFilter: "blur(32px) saturate(1.6)",
+          background: "var(--nav-bg)",
+          backdropFilter: "blur(48px) saturate(2.2)",
+          WebkitBackdropFilter: "blur(48px) saturate(2.2)",
+          border: "0.5px solid var(--nav-border)",
+          borderTop: "0.5px solid var(--nav-border-top)",
+          boxShadow: "0 0.5px 0 var(--glass-highlight) inset, 0 0 0 0.5px rgba(0,0,0,0.6), 0 8px 32px rgba(0,0,0,0.55), 0 -2px 16px rgba(0,0,0,0.3)",
         }}
       >
         {/* Sliding pill indicator — hidden when no tab active */}
@@ -85,12 +88,14 @@ export function Layout({ children }: LayoutProps) {
             aria-hidden
             style={{
               position: "absolute",
-              top: 4,
-              height: NAV_H - 8,
+              top: 5,
+              height: NAV_H - 10,
               left: pillRect.left,
               width: pillRect.width,
               borderRadius: 999,
               background: "var(--nav-pill-bg)",
+              border: "0.5px solid var(--nav-pill-border)",
+              boxShadow: "0 0.5px 0 rgba(255,255,255,0.18) inset, 0 2px 12px var(--nav-pill-shadow)",
               transition: "left 0.38s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.38s cubic-bezier(0.34, 1.56, 0.64, 1)",
               pointerEvents: "none",
             }}

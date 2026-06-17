@@ -58,8 +58,12 @@ export default function LoginPage() {
   };
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", padding: "14px 16px", borderRadius: 12,
-    background: "var(--surface-2)", border: "1px solid var(--sep)",
+    width: "100%", padding: "14px 16px", borderRadius: 14,
+    background: "rgba(255,255,255,0.05)",
+    border: "0.5px solid rgba(255,255,255,0.12)",
+    backdropFilter: "blur(32px) saturate(2)",
+    WebkitBackdropFilter: "blur(32px) saturate(2)",
+    boxShadow: "0 0.5px 0 rgba(255,255,255,0.12) inset",
     color: "var(--text-1)", fontSize: 16, outline: "none",
     fontFamily: "inherit",
   };
@@ -145,7 +149,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div style={{ margin: "12px 20px 0", padding: "12px 14px", borderRadius: 10, background: "rgba(255,69,58,0.10)", border: "1px solid rgba(255,69,58,0.20)" }}>
+              <div style={{ margin: "12px 20px 0", padding: "12px 14px", borderRadius: 12, background: "rgba(255,69,58,0.08)", border: "0.5px solid rgba(255,69,58,0.25)" }}>
                 <p style={{ fontSize: 13, color: "#ff453a" }}>{error}</p>
               </div>
             )}

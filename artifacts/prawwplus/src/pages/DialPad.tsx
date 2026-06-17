@@ -235,8 +235,12 @@ export default function DialPad() {
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "7px 16px", borderRadius: 30,
-          background: primaryDid ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.06)",
-          border: `1px solid ${primaryDid ? "rgba(59,130,246,0.25)" : "rgba(255,255,255,0.10)"}`,
+          background: primaryDid ? "rgba(59,130,246,0.1)" : "rgba(255,255,255,0.045)",
+          border: `0.5px solid ${primaryDid ? "rgba(96,165,250,0.28)" : "rgba(255,255,255,0.12)"}`,
+          borderTop: `0.5px solid ${primaryDid ? "rgba(96,165,250,0.38)" : "rgba(255,255,255,0.22)"}`,
+          backdropFilter: "blur(48px) saturate(2.2)",
+          WebkitBackdropFilter: "blur(48px) saturate(2.2)",
+          boxShadow: "0 0.5px 0 rgba(255,255,255,0.18) inset, 0 4px 20px rgba(0,0,0,0.5)",
         }}>
           <Phone style={{
             width: 13, height: 13,
@@ -298,13 +302,14 @@ export default function DialPad() {
           onClick={() => setLocation("/profile")}
           style={{
             width: 36, height: 36, borderRadius: "50%",
-            background: "var(--glass-bg)",
-            border: "1px solid var(--glass-border)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
+            background: "rgba(255,255,255,0.07)",
+            border: "0.5px solid rgba(255,255,255,0.18)",
+            backdropFilter: "blur(48px) saturate(2.2)",
+            WebkitBackdropFilter: "blur(48px) saturate(2.2)",
+            boxShadow: "0 0.5px 0 rgba(255,255,255,0.28) inset, 0 4px 16px rgba(0,0,0,0.5)",
             display: "flex", alignItems: "center", justifyContent: "center",
             cursor: "pointer",
-            fontSize: 13, fontWeight: 700, color: "var(--text-1)",
+            fontSize: 13, fontWeight: 600, color: "var(--text-1)",
           }}
         >
           {user?.name || user?.email
@@ -411,8 +416,13 @@ export default function DialPad() {
           onFocus={() => dirResults.length > 0 && setDirOpen(true)}
           style={{
             width: "100%", boxSizing: "border-box",
-            padding: "9px 14px", borderRadius: 12,
-            background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.13)",
+            padding: "10px 14px", borderRadius: 14,
+            background: "rgba(255,255,255,0.05)",
+            border: "0.5px solid rgba(255,255,255,0.12)",
+            borderTop: "0.5px solid rgba(255,255,255,0.20)",
+            backdropFilter: "blur(48px) saturate(2.2)",
+            WebkitBackdropFilter: "blur(48px) saturate(2.2)",
+            boxShadow: "0 0.5px 0 rgba(255,255,255,0.18) inset, 0 4px 20px rgba(0,0,0,0.4)",
             color: "rgba(255,255,255,0.85)", fontSize: 14, outline: "none",
           }}
         />
@@ -424,9 +434,13 @@ export default function DialPad() {
         {dirOpen && dirResults.length > 0 && (
           <div style={{
             position: "absolute", top: "100%", left: 0, right: 0, zIndex: 300,
-            marginTop: 4, borderRadius: 12, overflow: "hidden",
-            background: "rgba(28,28,38,0.98)", border: "1px solid rgba(255,255,255,0.13)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.55)",
+            marginTop: 6, borderRadius: 16, overflow: "hidden",
+            background: "rgba(8,8,8,0.94)",
+            border: "0.5px solid rgba(255,255,255,0.14)",
+            borderTop: "0.5px solid rgba(255,255,255,0.22)",
+            backdropFilter: "blur(48px) saturate(2.2)",
+            WebkitBackdropFilter: "blur(48px) saturate(2.2)",
+            boxShadow: "0 0.5px 0 rgba(255,255,255,0.14) inset, 0 16px 48px rgba(0,0,0,0.7)",
           }}>
             {dirResults.map((u) => (
               <button
@@ -482,12 +496,12 @@ export default function DialPad() {
           flex: 1,
           textAlign: "center",
           fontSize: numFontSize,
-          fontWeight: 300,
-          letterSpacing: "0.04em",
-          color: number ? (isExtension ? "#93c5fd" : "var(--text-1)") : "rgba(255,255,255,0.2)",
+          fontWeight: 200,
+          letterSpacing: "0.06em",
+          color: number ? (isExtension ? "#60a5fa" : "var(--text-1)") : "rgba(255,255,255,0.18)",
           userSelect: "none",
           lineHeight: 1.1,
-          fontFamily: "var(--font-sans)",
+          fontFamily: "var(--font-display)",
           transition: "font-size 0.1s, color 0.15s",
         }}>
           {number || "Ext or number"}
@@ -554,15 +568,17 @@ export default function DialPad() {
               width: BTN + 6, height: BTN + 6,
               borderRadius: "50%",
               background: isVerificationGated
-                ? "rgba(255,69,58,0.30)"
-                : "linear-gradient(145deg, #3ddb6a, #28a84e)",
-              border: "none",
+                ? "rgba(255,69,58,0.25)"
+                : "radial-gradient(circle at 38% 32%, rgba(255,255,255,0.30) 0%, rgba(52,211,105,0.95) 42%, rgba(22,163,74,1) 100%)",
+              border: isVerificationGated ? "0.5px solid rgba(255,69,58,0.4)" : "0.5px solid rgba(255,255,255,0.22)",
               display: "flex", alignItems: "center", justifyContent: "center",
               cursor: isVerificationGated ? "default" : "pointer",
-              opacity: isVerificationGated ? 0.8 : number.length >= minLength ? 1 : 0.45,
+              opacity: isVerificationGated ? 0.8 : number.length >= minLength ? 1 : 0.4,
               transition: "opacity 0.2s, transform 0.1s",
               flexShrink: 0,
-              boxShadow: isVerificationGated ? "none" : "0 4px 20px rgba(48,209,88,0.35)",
+              boxShadow: isVerificationGated
+                ? "none"
+                : "0 0 0 10px rgba(34,197,94,0.08), 0 0 0 20px rgba(34,197,94,0.04), 0 12px 40px rgba(34,197,94,0.45), 0 0.5px 0 rgba(255,255,255,0.45) inset",
             }}
             onPointerDown={(e) => { e.currentTarget.style.transform = "scale(0.93)"; }}
             onPointerUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
@@ -614,37 +630,40 @@ function DialButton({ primary, secondary, isZero, size, onPress, onZeroDown, onZ
       style={{
         width: size, height: size,
         borderRadius: "50%",
-        background: pressed ? "rgba(255,255,255,0.18)" : "var(--dial-btn-bg)",
-        border: "1px solid var(--dial-btn-border)",
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
+        background: pressed ? "var(--dial-btn-pressed)" : "var(--dial-btn-bg)",
+        border: "0.5px solid var(--dial-btn-border)",
+        backdropFilter: "blur(48px) saturate(2.2)",
+        WebkitBackdropFilter: "blur(48px) saturate(2.2)",
+        boxShadow: pressed
+          ? "0 0.5px 0 rgba(255,255,255,0.1) inset, 0 2px 8px rgba(0,0,0,0.4)"
+          : "0 0.5px 0 rgba(255,255,255,0.22) inset, 0 0 0 0.5px rgba(0,0,0,0.5), 0 6px 24px rgba(0,0,0,0.5)",
         display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center",
         cursor: "pointer",
         userSelect: "none",
         WebkitUserSelect: "none",
-        transition: "background 0.08s, transform 0.08s",
-        transform: pressed ? "scale(0.93)" : "scale(1)",
+        transition: "background 0.08s, transform 0.08s, box-shadow 0.08s",
+        transform: pressed ? "scale(0.92)" : "scale(1)",
         padding: 0,
         gap: 0,
       }}
     >
       <span style={{
-        fontSize: 30,
-        fontWeight: 700,
+        fontSize: 28,
+        fontWeight: 300,
         color: "var(--text-1)",
         lineHeight: 1,
-        fontFamily: "var(--font-sans)",
-        letterSpacing: "-0.01em",
+        fontFamily: "var(--font-display)",
+        letterSpacing: "-0.02em",
       }}>
         {primary}
       </span>
       {secondary && (
         <span style={{
-          fontSize: 9,
+          fontSize: 8.5,
           fontWeight: 600,
           letterSpacing: "0.16em",
-          color: "var(--text-2)",
+          color: "var(--text-3)",
           lineHeight: 1,
           marginTop: 3,
           fontFamily: "var(--font-sans)",

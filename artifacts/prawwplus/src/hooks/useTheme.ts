@@ -8,7 +8,7 @@ function getStored(): ThemePreference {
     const v = localStorage.getItem("theme");
     if (v === "dark" || v === "light" || v === "system") return v;
   } catch {}
-  return "system";
+  return "dark";
 }
 
 function getResolved(pref: ThemePreference): ResolvedTheme {
@@ -24,7 +24,7 @@ function getResolved(pref: ThemePreference): ResolvedTheme {
 export function initTheme() {
   try {
     const stored = localStorage.getItem("theme");
-    const pref = (stored === "dark" || stored === "light" || stored === "system" ? stored : "system") as ThemePreference;
+    const pref = (stored === "dark" || stored === "light" || stored === "system" ? stored : "dark") as ThemePreference;
     const resolved = getResolved(pref);
     document.documentElement.setAttribute("data-theme", resolved);
   } catch {}

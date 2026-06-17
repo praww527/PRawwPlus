@@ -93,11 +93,7 @@
   --ring: 211 100% 55%;
   --radius: 0.75rem;
 
-  /* Surfaces */
-  --surface-0: #000000;
-  --surface-1: rgba(14, 14, 14, 0.90);
-  --surface-2: rgba(22, 22, 22, 0.88);
-  --surface-3: rgba(32, 32, 32, 0.84);
+  /* Surfaces — defined in glass block below */
 
   /* Animated background gradient — pure black in dark mode */
   --bg-grad-a: #000000;
@@ -106,49 +102,57 @@
   --bg-grad-d: #000000;
   --bg-grad-e: #000000;
 
-  /* Glass — pure frosted on black */
-  --glass-bg: rgba(255, 255, 255, 0.082);
-  --glass-bg-strong: rgba(255, 255, 255, 0.14);
-  --glass-border: transparent;
-  --glass-highlight: rgba(255, 255, 255, 0.12);
-  --glass-shadow: rgba(0, 0, 0, 0.50);
-  --glass-blur: 28px;
+  /* Glass — Pure Liquid crystal glass */
+  --glass-bg: rgba(255, 255, 255, 0.045);
+  --glass-bg-strong: rgba(255, 255, 255, 0.09);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-top: rgba(255, 255, 255, 0.22);
+  --glass-highlight: rgba(255, 255, 255, 0.22);
+  --glass-shadow: rgba(0, 0, 0, 0.70);
+  --glass-blur: 48px;
 
   /* Separators */
-  --sep: rgba(255, 255, 255, 0.07);
-  --sep-strong: rgba(255, 255, 255, 0.14);
+  --sep: rgba(255, 255, 255, 0.06);
+  --sep-strong: rgba(255, 255, 255, 0.12);
 
   /* Text */
   --text-1: rgba(255, 255, 255, 1.0);
-  --text-2: rgba(255, 255, 255, 0.55);
-  --text-3: rgba(255, 255, 255, 0.30);
+  --text-2: rgba(255, 255, 255, 0.52);
+  --text-3: rgba(255, 255, 255, 0.28);
 
-  /* Nav */
-  --nav-bg: rgba(18, 18, 20, 0.92);
-  --nav-border: transparent;
-  --nav-active: #3b82f6;
-  --nav-inactive: rgba(255, 255, 255, 0.30);
-  --nav-active-circle: rgba(59, 130, 246, 0.18);
-  --nav-active-circle-border: rgba(59, 130, 246, 0.30);
-  --nav-pill-bg: rgba(59, 130, 246, 0.16);
-  --nav-pill-border: rgba(59, 130, 246, 0.28);
-  --nav-pill-shadow: rgba(59, 130, 246, 0.18);
+  /* Nav — liquid glass capsule */
+  --nav-bg: rgba(255, 255, 255, 0.055);
+  --nav-border: rgba(255, 255, 255, 0.12);
+  --nav-border-top: rgba(255, 255, 255, 0.22);
+  --nav-active: #60a5fa;
+  --nav-inactive: rgba(255, 255, 255, 0.28);
+  --nav-active-circle: rgba(96, 165, 250, 0.15);
+  --nav-active-circle-border: rgba(96, 165, 250, 0.28);
+  --nav-pill-bg: rgba(59, 130, 246, 0.18);
+  --nav-pill-border: rgba(96, 165, 250, 0.32);
+  --nav-pill-shadow: rgba(59, 130, 246, 0.20);
 
   /* Modal / overlay */
-  --modal-bg: rgba(16, 16, 16, 0.97);
-  --modal-border: transparent;
-  --overlay-bg: rgba(0, 0, 0, 0.72);
+  --modal-bg: rgba(8, 8, 8, 0.96);
+  --modal-border: rgba(255, 255, 255, 0.10);
+  --overlay-bg: rgba(0, 0, 0, 0.75);
 
-  /* Dial buttons */
-  --dial-btn-bg: rgba(255, 255, 255, 0.09);
-  --dial-btn-border: rgba(255, 255, 255, 0.11);
-  --dial-btn-pressed: rgba(255, 255, 255, 0.22);
+  /* Dial buttons — crystal spheres */
+  --dial-btn-bg: rgba(255, 255, 255, 0.055);
+  --dial-btn-border: rgba(255, 255, 255, 0.13);
+  --dial-btn-pressed: rgba(255, 255, 255, 0.14);
 
   /* Filter chips */
-  --chip-bg: rgba(255, 255, 255, 0.08);
-  --chip-border: rgba(255, 255, 255, 0.13);
+  --chip-bg: rgba(255, 255, 255, 0.05);
+  --chip-border: rgba(255, 255, 255, 0.12);
   --chip-active-bg: hsl(var(--primary));
   --chip-active-text: #fff;
+
+  /* Surfaces — thin glass layers */
+  --surface-0: #000000;
+  --surface-1: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.08);
 }
 
 /* ── Light mode ─────────────────────────────────────────────────────── */
@@ -258,39 +262,41 @@
   --input: 0 0% 14%;
   --ring: 211 100% 55%;
   --surface-0: #000000;
-  --surface-1: rgba(14, 14, 14, 0.90);
-  --surface-2: rgba(22, 22, 22, 0.88);
-  --surface-3: rgba(32, 32, 32, 0.84);
+  --surface-1: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.08);
   --bg-grad-a: #000000; --bg-grad-b: #000000; --bg-grad-c: #000000;
   --bg-grad-d: #000000; --bg-grad-e: #000000;
-  --glass-bg: rgba(255, 255, 255, 0.082);
-  --glass-bg-strong: rgba(255, 255, 255, 0.14);
-  --glass-border: transparent;
-  --glass-highlight: rgba(255, 255, 255, 0.12);
-  --glass-shadow: rgba(0, 0, 0, 0.50);
-  --glass-blur: 28px;
-  --sep: rgba(255, 255, 255, 0.07);
-  --sep-strong: rgba(255, 255, 255, 0.14);
+  --glass-bg: rgba(255, 255, 255, 0.045);
+  --glass-bg-strong: rgba(255, 255, 255, 0.09);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-top: rgba(255, 255, 255, 0.22);
+  --glass-highlight: rgba(255, 255, 255, 0.22);
+  --glass-shadow: rgba(0, 0, 0, 0.70);
+  --glass-blur: 48px;
+  --sep: rgba(255, 255, 255, 0.06);
+  --sep-strong: rgba(255, 255, 255, 0.12);
   --text-1: rgba(255, 255, 255, 1.0);
-  --text-2: rgba(255, 255, 255, 0.55);
-  --text-3: rgba(255, 255, 255, 0.30);
-  --nav-bg: rgba(18, 18, 20, 0.92);
-  --nav-border: transparent;
-  --nav-active: #3b82f6;
-  --nav-inactive: rgba(255, 255, 255, 0.30);
-  --nav-active-circle: rgba(59, 130, 246, 0.18);
-  --nav-active-circle-border: rgba(59, 130, 246, 0.30);
-  --nav-pill-bg: rgba(59, 130, 246, 0.16);
-  --nav-pill-border: rgba(59, 130, 246, 0.28);
-  --nav-pill-shadow: rgba(59, 130, 246, 0.18);
-  --modal-bg: rgba(16, 16, 16, 0.97);
-  --modal-border: transparent;
-  --overlay-bg: rgba(0, 0, 0, 0.72);
-  --dial-btn-bg: rgba(255, 255, 255, 0.09);
-  --dial-btn-border: rgba(255, 255, 255, 0.11);
-  --dial-btn-pressed: rgba(255, 255, 255, 0.22);
-  --chip-bg: rgba(255, 255, 255, 0.08);
-  --chip-border: rgba(255, 255, 255, 0.13);
+  --text-2: rgba(255, 255, 255, 0.52);
+  --text-3: rgba(255, 255, 255, 0.28);
+  --nav-bg: rgba(255, 255, 255, 0.055);
+  --nav-border: rgba(255, 255, 255, 0.12);
+  --nav-border-top: rgba(255, 255, 255, 0.22);
+  --nav-active: #60a5fa;
+  --nav-inactive: rgba(255, 255, 255, 0.28);
+  --nav-active-circle: rgba(96, 165, 250, 0.15);
+  --nav-active-circle-border: rgba(96, 165, 250, 0.28);
+  --nav-pill-bg: rgba(59, 130, 246, 0.18);
+  --nav-pill-border: rgba(96, 165, 250, 0.32);
+  --nav-pill-shadow: rgba(59, 130, 246, 0.20);
+  --modal-bg: rgba(8, 8, 8, 0.96);
+  --modal-border: rgba(255, 255, 255, 0.10);
+  --overlay-bg: rgba(0, 0, 0, 0.75);
+  --dial-btn-bg: rgba(255, 255, 255, 0.055);
+  --dial-btn-border: rgba(255, 255, 255, 0.13);
+  --dial-btn-pressed: rgba(255, 255, 255, 0.14);
+  --chip-bg: rgba(255, 255, 255, 0.05);
+  --chip-border: rgba(255, 255, 255, 0.12);
   --chip-active-bg: hsl(var(--primary));
   --chip-active-text: #fff;
 }
@@ -415,32 +421,37 @@
 }
 
 @layer utilities {
-  /* ── Liquid Glass surface ─────────────────────────────────────────── */
+  /* ── Pure Liquid Glass surface ────────────────────────────────────── */
   .surface {
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+    backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    border: 0.5px solid var(--glass-border);
+    box-shadow: 0 0.5px 0 var(--glass-highlight) inset, 0 8px 40px var(--glass-shadow);
   }
 
   .surface-2 {
     background: var(--surface-2);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(32px) saturate(2);
+    -webkit-backdrop-filter: blur(32px) saturate(2);
+    border: 0.5px solid var(--glass-border);
   }
 
   .glass {
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+    backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
   }
 
-  /* Grouped section card — flat, borderless, WhatsApp-style */
+  /* Grouped section card — Pure Liquid style */
   .section-card {
     background: var(--glass-bg);
-    border-radius: 16px;
+    border-radius: 20px;
     overflow: hidden;
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+    backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    border: 0.5px solid var(--glass-border);
+    box-shadow: 0 0.5px 0 var(--glass-highlight) inset, 0 0 0 0.5px rgba(0,0,0,0.5), 0 8px 40px var(--glass-shadow);
   }
 
   .section-row {
@@ -479,7 +490,8 @@
 
   .modal-surface {
     background: var(--modal-bg);
-    box-shadow: 0 -8px 48px rgba(0, 0, 0, 0.30);
+    border-top: 0.5px solid var(--glass-border);
+    box-shadow: 0 0.5px 0 var(--glass-highlight) inset, 0 -8px 60px rgba(0, 0, 0, 0.60);
   }
 
   /* Section label */
@@ -513,16 +525,16 @@
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
-    border: 1px solid var(--chip-border);
+    border: 0.5px solid var(--chip-border);
     background: var(--chip-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(32px) saturate(2.2);
+    -webkit-backdrop-filter: blur(32px) saturate(2.2);
     color: var(--text-2);
     transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
-    box-shadow: 0 1px 0 var(--glass-highlight) inset;
+    box-shadow: 0 0.5px 0 var(--glass-highlight) inset, 0 4px 16px rgba(0,0,0,0.4);
   }
   .chip:active {
     transform: scale(0.93);
@@ -584,13 +596,13 @@
     justify-content: center;
     border-radius: 12px;
     background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    border: 0.5px solid var(--glass-border);
+    backdrop-filter: blur(32px) saturate(2.2);
+    -webkit-backdrop-filter: blur(32px) saturate(2.2);
     cursor: pointer;
     transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.12s, background 0.15s;
     -webkit-tap-highlight-color: transparent;
-    box-shadow: 0 1px 0 var(--glass-highlight) inset;
+    box-shadow: 0 0.5px 0 var(--glass-highlight) inset, 0 4px 16px var(--glass-shadow);
   }
   .btn-icon-glass:active {
     transform: scale(0.88);
@@ -657,11 +669,11 @@
   /* Glass transaction row */
   .tx-card {
     background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    border-radius: 14px;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 2px 12px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset;
+    border: 0.5px solid var(--glass-border);
+    border-radius: 16px;
+    backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(2.2);
+    box-shadow: 0 0.5px 0 var(--glass-highlight) inset, 0 8px 32px var(--glass-shadow);
   }
 
   .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
