@@ -82,8 +82,25 @@ function pstnGatewayXml(): string {
   const username = (process.env.PSTN_GATEWAY_USERNAME ?? "").trim();
   const password = process.env.PSTN_GATEWAY_PASSWORD ?? "";
   const proxy = (process.env.PSTN_GATEWAY_PROXY ?? "").trim();
-  const realm = (process.env.PSTN_GATEWAY_REALM ?? proxy).trim();
-  const fromDomain = (process.env.PSTN_GATEWAY_FROM_DOMAIN ?? realm).trim();
+  //
+  // realm: intentionally NOT included in the generated XML.
+  //
+  // SIP auth fix: including a <param name="realm"> forces FreeSWITCH to match
+  // credentials only when the carrier's WWW-Authenticate challenge realm exactly
+  // equals this value.  BizVoIP (and many other carriers) advertise a realm like
+  // "sip-25.BizVoIP" that differs from the proxy/registrar hostname.  When the
+  // realm param is present and mismatches the challenge, FreeSWITCH cannot select
+  // the correct credentials and sends the re-REGISTER without an Authorization
+  // header → carrier returns 404/403.
+  //
+  // Without the param FreeSWITCH automatically uses the gateway's username and
+  // password to satisfy any 401/407 challenge on this gateway, regardless of
+  // what realm string the carrier advertises.
+  //
+  // from-domain: defaults to proxy (NOT realm) so the REGISTER To header reads
+  // sip:username@proxy-host — any other value causes the carrier to return 404
+  // ("user not found at that domain").
+  const fromDomain = (process.env.PSTN_GATEWAY_FROM_DOMAIN ?? proxy).trim();
   const register = (process.env.PSTN_GATEWAY_REGISTER ?? "true").trim();
 
   // Guard against literal "placeholder" values left in env files — any field
@@ -96,15 +113,12 @@ function pstnGatewayXml(): string {
       <param name="username" value="${xmlEscape(username)}"/>
       <param name="password" value="${xmlEscape(password)}"/>
       <param name="proxy" value="${xmlEscape(proxy)}"/>
-      <param name="realm" value="${xmlEscape(realm)}"/>
       <param name="from-domain" value="${xmlEscape(fromDomain)}"/>
       <param name="register" value="${xmlEscape(register)}"/>
       <param name="expire-seconds" value="300"/>
       <param name="retry-seconds" value="30"/>
-      <!-- Carrier requires G729 only — no PCMU/PCMA fallback on this trunk -->
-      <!-- G729 transcoding requires freeswitch-mod-com-g729 on the FreeSWITCH server -->
-      <param name="codec-prefs" value="G729"/>
-      <!-- Carrier requires RFC2833 for DTMF — inband and SIP INFO are not supported -->
+      <param name="register-transport" value="udp"/>
+      <param name="codec-prefs" value="G729,PCMU,PCMA"/>
       <param name="dtmf-type" value="rfc2833"/>
     </gateway>
   `;
@@ -122,9 +136,19 @@ export function vertoConf(fsIp: string): string {
       TLS is terminated by the reverse proxy in front of the API server —
       browsers connect via wss://rtc.PRaww.co.za/api/verto/ws and the proxy
       forwards to ws://fs:8081.
+
+      secure-combined: must be explicitly set to the wss.pem even for plain-WS-only
+      deployments.  mod_verto always calls verto_ssl_create() during profile init;
+      without this param it looks for the cert at a default path that may not
+      resolve, printing "SSL ERR: SUPPLIED CERT FILE NOT FOUND" and then failing
+      to bind errno=98 on the next attempt, causing "No Listeners!" during reloads.
+      Setting it to the pre-existing self-signed cert satisfies the SSL context
+      initialisation without actually exposing a WSS port (we do not set
+      wss-binding, so no second TLS listener is created).
     -->
     <profile name="default-v4">
       <param name="bind-local" value="0.0.0.0:8081"/>
+      <param name="secure-combined" value="/usr/local/freeswitch/certs/wss.pem"/>
 
       <!--
         RTP bind address: 0.0.0.0 ensures FreeSWITCH binds its RTP sockets on
