@@ -31,7 +31,7 @@ self.addEventListener("push", (event) => {
   let vibrate = [150];
 
   if (data.type === "incoming_call" || data.type === "incoming_call_wakeup" || data.type === "call_wakeup") {
-    const caller = data.fromPhone || "Unknown caller";
+    const caller = data.callerNumber || data.fromPhone || "Unknown caller";
     title  = data.title  || "📞 Incoming Call";
     body   = data.body   || `${caller} is calling you`;
     tag    = "incoming-call";
@@ -42,11 +42,23 @@ self.addEventListener("push", (event) => {
       { action: "decline", title: "❌ Decline" },
     ];
   } else if (data.type === "missed_call") {
-    const caller = data.fromPhone || "Unknown caller";
+    const caller = data.callerName || data.callerNumber || data.fromPhone || "Unknown caller";
     title = data.title || "📵 Missed Call";
     body  = data.body  || `You missed a call from ${caller}`;
     tag   = "missed-call";
     vibrate = [200, 100, 200];
+    actions = [
+      { action: "callback", title: "📞 Call Back" },
+    ];
+  } else if (data.type === "missed_call_digest") {
+    const count = data.count || "multiple";
+    title = data.title || `📵 ${count} Missed Calls`;
+    body  = data.body  || `You have ${count} missed calls`;
+    tag   = "missed-call-digest";
+    vibrate = [200, 100, 200];
+    actions = [
+      { action: "open", title: "View Calls" },
+    ];
   } else if (
     data.type === "call_failed_unavailable" ||
     data.type === "call_failed_declined"    ||
@@ -80,21 +92,24 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const notifData = event.notification.data ?? {};
-  const action    = event.action;
-  const callUuid  = notifData.callUuid ?? "";
+  const notifData   = event.notification.data ?? {};
+  const action      = event.action;
+  const callUuid    = notifData.callUuid  ?? "";
+  const callerNumber = notifData.callerNumber ?? notifData.fromPhone ?? "";
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      // Find any existing app window we can message and focus
       const existing = clientList.find((c) => c.url && "focus" in c);
 
       if (existing) {
-        // App is already open — post the action and bring window to front
         if (action === "answer") {
           existing.postMessage({ type: "SW_ANSWER_CALL", callUuid });
         } else if (action === "decline") {
           existing.postMessage({ type: "SW_DECLINE_CALL", callUuid });
+        } else if (action === "callbook" || action === "callback") {
+          // Post the number to the open app — CallContext listens for this and
+          // opens the dialler pre-filled with the caller's number.
+          existing.postMessage({ type: "SW_CALL_BACK", callerNumber });
         } else {
           existing.postMessage({ type: "SW_FOCUS" });
         }
@@ -110,6 +125,11 @@ self.addEventListener("notificationclick", (event) => {
         targetUrl = "/?" + params.toString();
       } else if (action === "decline") {
         targetUrl = "/?sw_action=decline";
+      } else if (action === "callback") {
+        // Open app with the dialler pre-filled
+        const params = new URLSearchParams({ sw_action: "callout" });
+        if (callerNumber) params.set("sw_number", callerNumber);
+        targetUrl = "/?" + params.toString();
       }
 
       return clients.openWindow(targetUrl);

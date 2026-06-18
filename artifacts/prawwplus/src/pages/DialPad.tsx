@@ -41,7 +41,14 @@ export default function DialPad() {
   const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const { toast } = useToast();
 
-  const [number, setNumber] = useState("");
+  // Pre-fill number from ?dial= URL param (set when user taps "Call Back" on
+  // a missed-call push notification while the app was closed).
+  const [searchStr] = useLocation();
+  const dialParam = new URLSearchParams(
+    typeof searchStr === "string" ? searchStr.split("?")[1] ?? "" : "",
+  ).get("dial") ?? "";
+
+  const [number, setNumber] = useState(dialParam);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
   const zeroHandled    = useRef(false);

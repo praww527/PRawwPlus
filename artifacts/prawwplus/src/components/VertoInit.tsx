@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useLocation } from "wouter";
 import { useGetVertoConfig } from "@workspace/api-client-react";
 import { useCall } from "@/context/CallContext";
 import { phoneAudio } from "@/lib/phoneAudio";
@@ -26,6 +27,7 @@ import { usePushSubscription } from "@/hooks/usePushSubscription";
  *    once the Verto socket delivers the incoming-call invitation.
  */
 export function VertoInit() {
+  const [, navigate]  = useLocation();
   const { data } = useGetVertoConfig();
   const { setVertoConfig, callState, acceptCall, declineCall } = useCall();
   const { refreshIfGranted } = usePushSubscription();
@@ -47,9 +49,11 @@ export function VertoInit() {
   const callStateRef  = useRef(callState);
   const acceptRef     = useRef(acceptCall);
   const declineRef    = useRef(declineCall);
+  const navigateRef   = useRef(navigate);
   callStateRef.current = callState;
   acceptRef.current    = acceptCall;
   declineRef.current   = declineCall;
+  navigateRef.current  = navigate;
 
   // "answer as soon as the incoming call arrives" flag.
   const pendingAnswerRef  = useRef(false);
@@ -90,6 +94,15 @@ export function VertoInit() {
           declineRef.current();
         } else {
           pendingDeclineRef.current = true;
+        }
+      } else if (msgType === "SW_CALL_BACK") {
+        // User tapped "Call Back" on a missed-call notification while the app
+        // was already open — navigate to the dialler pre-filled with the number.
+        const num = (event.data?.callerNumber as string | undefined) ?? "";
+        if (num) {
+          navigateRef.current("/dashboard?dial=" + encodeURIComponent(num));
+        } else {
+          navigateRef.current("/dashboard");
         }
       }
     };
@@ -158,6 +171,14 @@ export function VertoInit() {
         document.title,
         window.location.pathname + (cleanSearch ? "?" + cleanSearch : ""),
       );
+    } else if (swAction === "callout") {
+      // User tapped "Call Back" on a missed-call notification while the app
+      // was closed — navigate to the dialler pre-filled with the caller's number.
+      const swNumber = params.get("sw_number") ?? "";
+      params.delete("sw_action");
+      params.delete("sw_number");
+      const dialParam = swNumber ? "?dial=" + encodeURIComponent(swNumber) : "";
+      navigate("/dashboard" + dialParam);
     }
 
     // ── Refresh push subscription if permission is already granted ──────────
