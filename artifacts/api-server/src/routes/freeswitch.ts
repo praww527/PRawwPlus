@@ -161,7 +161,11 @@ router.get("/freeswitch/inbound", async (req: Request, res: Response) => {
 /** GET /api/freeswitch/admin-status — ESL connection + config state (admin only) */
 router.get("/freeswitch/admin-status", requireAdmin, (_req: Request, res: Response) => {
   const esl = eslStatus();
-  const appUrl = getAppUrl();
+  const rawUrl = getAppUrl();
+  // Normalize: ensure appUrl always carries https:// (APP_URL may be stored without protocol)
+  const appUrl = rawUrl
+    ? rawUrl.replace(/\/$/, "").replace(/^(?!https?:\/\/)/, "https://")
+    : rawUrl;
 
   res.json({
     esl,
