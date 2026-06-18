@@ -97,9 +97,19 @@ function pstnGatewayXml(): string {
   // password to satisfy any 401/407 challenge on this gateway, regardless of
   // what realm string the carrier advertises.
   //
-  // from-domain: defaults to proxy (NOT realm) so the REGISTER To header reads
-  // sip:username@proxy-host — any other value causes the carrier to return 404
-  // ("user not found at that domain").
+  // from-domain: MUST match the proxy hostname exactly.
+  //
+  // The SIP REGISTER "To:" header is built as sip:username@from-domain.
+  // BizVoIP's portasip server performs a lookup of username@from-domain in its
+  // subscriber database.  If from-domain != portasip.bizvoip.co.za the carrier
+  // returns 404 Not Found immediately — WITHOUT issuing a 401/407 challenge —
+  // so FreeSWITCH never gets a chance to authenticate and stays in FAIL_WAIT.
+  //
+  // Correct: PSTN_GATEWAY_FROM_DOMAIN=portasip.bizvoip.co.za  (= proxy host)
+  // Wrong:   PSTN_GATEWAY_FROM_DOMAIN=bizvoip.co.za           (= bare realm)
+  //
+  // Defaults to the proxy value when PSTN_GATEWAY_FROM_DOMAIN is unset — this
+  // is always correct and should be the fallback for any carrier.
   const fromDomain = (process.env.PSTN_GATEWAY_FROM_DOMAIN ?? proxy).trim();
   const register = (process.env.PSTN_GATEWAY_REGISTER ?? "true").trim();
 

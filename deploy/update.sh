@@ -110,7 +110,20 @@ sleep 12
 # to FreeSWITCH via SSH, and writes all XML config files + issues a reload.
 # Failures here are non-fatal: the admin can re-trigger from the admin panel.
 if command -v pnpm >/dev/null 2>&1; then
-  set -a; [ -f "$DEPLOY_DIR/.env" ] && source "$DEPLOY_DIR/.env"; set +a
+  # Safe .env export: split on first '=' only so values containing spaces
+  # (e.g. SMTP_PASS="word1 word2") are not mis-interpreted as shell commands.
+  # Plain `source .env` with `set -a` treats space-separated words after '='
+  # as extra tokens — the second word becomes a command, causing "command not
+  # found" and (with set -e) an early exit that skips the FS push entirely.
+  if [ -f "$DEPLOY_DIR/.env" ]; then
+    while IFS= read -r _envline || [[ -n "$_envline" ]]; do
+      [[ "$_envline" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${_envline// }" ]] && continue
+      _envkey="${_envline%%=*}"
+      _envval="${_envline#*=}"
+      [[ -n "$_envkey" && "$_envkey" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && export "$_envkey=$_envval"
+    done < "$DEPLOY_DIR/.env"
+  fi
   cd "$DEPLOY_DIR"
   pnpm tsx artifacts/api-server/fs_push_script.ts 2>&1 \
     && echo "  FreeSWITCH config pushed successfully" \
