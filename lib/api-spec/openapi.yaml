@@ -655,7 +655,14 @@ components:
           type: string
         isAdmin:
           type: boolean
-      required: [id, username, isAdmin]
+        role:
+          type: string
+          enum: [admin, reseller, user]
+        approved:
+          type: boolean
+        locked:
+          type: boolean
+      required: [id, username, isAdmin, role, approved, locked]
 
     UserProfile:
       type: object
@@ -701,6 +708,25 @@ components:
           type: integer
           nullable: true
           description: User's FreeSWITCH extension number (e.g. 1000)
+        role:
+          type: string
+          enum: [admin, reseller, user]
+        approved:
+          type: boolean
+        locked:
+          type: boolean
+        verificationStatus:
+          type: string
+          enum: [none, pending, approved, rejected]
+        phone:
+          type: string
+          nullable: true
+        phoneVerified:
+          type: boolean
+        primaryDid:
+          type: string
+          nullable: true
+          description: User's primary assigned DID phone number
         createdAt:
           type: string
           format: date-time

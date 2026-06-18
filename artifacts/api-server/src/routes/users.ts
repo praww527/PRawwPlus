@@ -17,7 +17,9 @@ router.get("/users/me", async (req: Request, res: Response) => {
     return;
   }
   const { fsPassword: _fsPassword, extension: _extension, phoneOtp: _phoneOtp, phoneOtpExpiry: _phoneOtpExpiry, ...safeUser } = user as any;
-  res.json({ ...safeUser, id: user._id });
+  const { getUserPrimaryDid } = await import("../lib/phoneResolver");
+  const primaryDid = await getUserPrimaryDid(String(user._id));
+  res.json({ ...safeUser, id: user._id, primaryDid: primaryDid ?? null });
 });
 
 router.patch("/users/me/profile-image", async (req: Request, res: Response) => {

@@ -5,8 +5,10 @@
  * PRaww+ Telecom API
  * OpenAPI spec version: 0.4.0
  */
+import type { UserProfileRole } from "./userProfileRole";
 import type { UserProfileSubscriptionPlan } from "./userProfileSubscriptionPlan";
 import type { UserProfileSubscriptionStatus } from "./userProfileSubscriptionStatus";
+import type { UserProfileVerificationStatus } from "./userProfileVerificationStatus";
 
 export interface UserProfile {
   id: string;
@@ -26,5 +28,13 @@ export interface UserProfile {
   isAdmin: boolean;
   /** User's FreeSWITCH extension number (e.g. 1000) */
   extension?: number | null;
+  role?: UserProfileRole;
+  approved?: boolean;
+  locked?: boolean;
+  verificationStatus?: UserProfileVerificationStatus;
+  phone?: string | null;
+  phoneVerified?: boolean;
+  /** User's primary assigned DID phone number */
+  primaryDid?: string | null;
   createdAt: Date;
 }

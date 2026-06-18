@@ -6,8 +6,11 @@
  * OpenAPI spec version: 0.4.0
  */
 
-export interface OwnedNumber {
-  id: string;
-  number: string;
-  status?: string;
-}
+export type CallRoute =
+  | {
+      type: "internal";
+      extension: number;
+    }
+  | {
+      type: "external";
+    };

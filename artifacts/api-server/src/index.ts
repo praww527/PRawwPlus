@@ -103,5 +103,7 @@ server.listen(port, host, async () => {
   startProcessMetrics();
 
   // Load persisted IP block list from MongoDB into memory.
-  ipReputation.loadFromDb().catch(() => {});
+  ipReputation.loadFromDb().catch((err) => {
+    logger.warn({ err }, "[IpReputation] Failed to load persisted blocks from DB — starting with empty block list");
+  });
 });

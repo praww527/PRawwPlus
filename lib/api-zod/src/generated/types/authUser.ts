@@ -5,6 +5,7 @@
  * PRaww+ Telecom API
  * OpenAPI spec version: 0.4.0
  */
+import type { AuthUserRole } from "./authUserRole";
 
 export interface AuthUser {
   id: string;
@@ -12,4 +13,7 @@ export interface AuthUser {
   name?: string;
   profileImage?: string;
   isAdmin: boolean;
+  role: AuthUserRole;
+  approved: boolean;
+  locked: boolean;
 }

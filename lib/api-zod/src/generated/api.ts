@@ -23,6 +23,9 @@ export const GetAuthUserResponse = zod.object({
   name: zod.string().optional(),
   profileImage: zod.string().optional(),
   isAdmin: zod.boolean(),
+  role: zod.enum(["admin", "reseller", "user"]),
+  approved: zod.boolean(),
+  locked: zod.boolean(),
 });
 
 /**
@@ -47,6 +50,18 @@ export const GetMeResponse = zod.object({
     .number()
     .nullish()
     .describe("User's FreeSWITCH extension number (e.g. 1000)"),
+  role: zod.enum(["admin", "reseller", "user"]).optional(),
+  approved: zod.boolean().optional(),
+  locked: zod.boolean().optional(),
+  verificationStatus: zod
+    .enum(["none", "pending", "approved", "rejected"])
+    .optional(),
+  phone: zod.string().nullish(),
+  phoneVerified: zod.boolean().optional(),
+  primaryDid: zod
+    .string()
+    .nullish()
+    .describe("User's primary assigned DID phone number"),
   createdAt: zod.date(),
 });
 
@@ -130,6 +145,19 @@ export const GetVertoConfigResponse = zod.object({
   configured: zod
     .boolean()
     .describe("Whether FreeSWITCH is configured on the server"),
+  iceServers: zod
+    .array(
+      zod.object({
+        urls: zod
+          .union([zod.string(), zod.array(zod.string())])
+          .optional()
+          .describe("STUN\/TURN URL(s)"),
+        username: zod.string().optional(),
+        credential: zod.string().optional(),
+      }),
+    )
+    .optional()
+    .describe("Optional ICE servers (STUN\/TURN) for WebRTC"),
   settings: zod
     .object({
       ringtone: zod
@@ -222,44 +250,56 @@ export const MakeCallBody = zod.object({
   fsCallId: zod.string().optional(),
 });
 
-export const MakeCallResponse = zod.object({
-  id: zod.string(),
-  userId: zod.string(),
-  callerNumber: zod.string().optional(),
-  recipientNumber: zod.string(),
-  callType: zod.enum(["internal", "external"]),
-  status: zod.enum([
-    "initiated",
-    "ringing",
-    "answered",
-    "in-progress",
-    "completed",
-    "failed",
-    "missed",
-    "cancelled",
-    "busy",
-    "no-answer",
-  ]),
-  duration: zod.number(),
-  cost: zod.number().describe("Coins used (only for external calls)"),
-  fsCallId: zod.string().nullish(),
-  notes: zod.string().nullish(),
-  failReason: zod
-    .string()
-    .nullish()
-    .describe(
-      "Human-readable reason for non-completed calls (set by ESL orchestrator)",
-    ),
-  hangupCause: zod
-    .string()
-    .nullish()
-    .describe(
-      "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
-    ),
-  startedAt: zod.date().nullish(),
-  endedAt: zod.date().nullish(),
-  createdAt: zod.date(),
-});
+export const MakeCallResponse = zod
+  .object({
+    id: zod.string(),
+    userId: zod.string(),
+    callerNumber: zod.string().optional(),
+    recipientNumber: zod.string(),
+    callType: zod.enum(["internal", "external"]),
+    status: zod.enum([
+      "initiated",
+      "ringing",
+      "answered",
+      "in-progress",
+      "completed",
+      "failed",
+      "missed",
+      "cancelled",
+      "busy",
+      "no-answer",
+    ]),
+    duration: zod.number(),
+    cost: zod.number().describe("Coins used (only for external calls)"),
+    fsCallId: zod.string().nullish(),
+    notes: zod.string().nullish(),
+    failReason: zod
+      .string()
+      .nullish()
+      .describe(
+        "Human-readable reason for non-completed calls (set by ESL orchestrator)",
+      ),
+    hangupCause: zod
+      .string()
+      .nullish()
+      .describe(
+        "Raw FreeSWITCH hangup cause (e.g. ATTENDED_TRANSFER, ALLOTTED_TIMEOUT)",
+      ),
+    startedAt: zod.date().nullish(),
+    endedAt: zod.date().nullish(),
+    createdAt: zod.date(),
+  })
+  .and(
+    zod.union([
+      zod.object({
+        type: zod.literal("internal"),
+        extension: zod.number(),
+      }),
+      zod.object({
+        type: zod.literal("external"),
+      }),
+    ]),
+  );
 
 /**
  * @summary Get a specific call record
@@ -590,6 +630,18 @@ export const AdminAdjustCreditResponse = zod.object({
     .number()
     .nullish()
     .describe("User's FreeSWITCH extension number (e.g. 1000)"),
+  role: zod.enum(["admin", "reseller", "user"]).optional(),
+  approved: zod.boolean().optional(),
+  locked: zod.boolean().optional(),
+  verificationStatus: zod
+    .enum(["none", "pending", "approved", "rejected"])
+    .optional(),
+  phone: zod.string().nullish(),
+  phoneVerified: zod.boolean().optional(),
+  primaryDid: zod
+    .string()
+    .nullish()
+    .describe("User's primary assigned DID phone number"),
   createdAt: zod.date(),
 });
 

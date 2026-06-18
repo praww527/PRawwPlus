@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Phone, UserCircle2, Delete, ChevronRight, Shield, AlertTriangle, Loader2 } from "lucide-react";
 import { useAuth } from "@workspace/auth-web";
-import { useInitiateCall } from "@workspace/api-client-react";
+import { useMakeCall, useGetMe } from "@workspace/api-client-react";
 import { useCall } from "@/context/CallContext";
 import { useToast } from "@/hooks/use-toast";
 import { useEslOfflineRetry } from "@/hooks/useEslOfflineRetry";
@@ -33,11 +33,12 @@ const NAV_H = 83;
 export default function DialPad() {
   const [, setLocation] = useLocation();
   const { user }         = useAuth();
+  const { data: profile } = useGetMe();
   const {
     startOutgoing, connectCall, endCall, callPhase, updateCallId, updateCallType,
     vertoConfig, isVertoConnected, vertoError, makeVertoCall,
   } = useCall();
-  const { mutateAsync: initiateCall, isPending } = useInitiateCall();
+  const { mutateAsync: initiateCall, isPending } = useMakeCall();
   const { toast } = useToast();
 
   const [number, setNumber] = useState("");
@@ -45,7 +46,7 @@ export default function DialPad() {
   const longPressFired = useRef(false);
   const zeroHandled    = useRef(false);
 
-  const primaryDid = (user as any)?.primaryDid as string | undefined;
+  const primaryDid = profile?.primaryDid ?? undefined;
 
   const {
     eslOfflinePending,
@@ -82,8 +83,8 @@ export default function DialPad() {
 
   const del = () => setNumber((n) => n.slice(0, -1));
 
-  const coins = user?.coins ?? 0;
-  const verificationStatus = (user as any)?.verificationStatus as string | undefined;
+  const coins = profile?.coins ?? 0;
+  const verificationStatus = profile?.verificationStatus;
   const isVerificationGated = !verificationStatus || verificationStatus === "none" || verificationStatus === "rejected";
   const isVerificationPending = verificationStatus === "pending";
 

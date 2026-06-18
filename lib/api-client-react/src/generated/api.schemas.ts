@@ -14,12 +14,23 @@ export interface ErrorResponse {
   message?: string;
 }
 
+export type AuthUserRole = (typeof AuthUserRole)[keyof typeof AuthUserRole];
+
+export const AuthUserRole = {
+  admin: "admin",
+  reseller: "reseller",
+  user: "user",
+} as const;
+
 export interface AuthUser {
   id: string;
   username: string;
   name?: string;
   profileImage?: string;
   isAdmin: boolean;
+  role: AuthUserRole;
+  approved: boolean;
+  locked: boolean;
 }
 
 export type UserProfileSubscriptionStatus =
@@ -37,6 +48,25 @@ export type UserProfileSubscriptionPlan =
 export const UserProfileSubscriptionPlan = {
   basic: "basic",
   pro: "pro",
+} as const;
+
+export type UserProfileRole =
+  (typeof UserProfileRole)[keyof typeof UserProfileRole];
+
+export const UserProfileRole = {
+  admin: "admin",
+  reseller: "reseller",
+  user: "user",
+} as const;
+
+export type UserProfileVerificationStatus =
+  (typeof UserProfileVerificationStatus)[keyof typeof UserProfileVerificationStatus];
+
+export const UserProfileVerificationStatus = {
+  none: "none",
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
 } as const;
 
 export interface UserProfile {
@@ -57,8 +87,23 @@ export interface UserProfile {
   isAdmin: boolean;
   /** User's FreeSWITCH extension number (e.g. 1000) */
   extension?: number | null;
+  role?: UserProfileRole;
+  approved?: boolean;
+  locked?: boolean;
+  verificationStatus?: UserProfileVerificationStatus;
+  phone?: string | null;
+  phoneVerified?: boolean;
+  /** User's primary assigned DID phone number */
+  primaryDid?: string | null;
   createdAt: string;
 }
+
+export type VertoConfigIceServersItem = {
+  /** STUN/TURN URL(s) */
+  urls?: string | string[];
+  username?: string;
+  credential?: string;
+};
 
 /**
  * Ringtone sound for incoming calls
@@ -112,12 +157,7 @@ export interface VertoConfig {
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
   /** Optional ICE servers (STUN/TURN) for WebRTC */
-  iceServers?: {
-    /** STUN/TURN URL(s) */
-    urls: string | string[];
-    username?: string;
-    credential?: string;
-  }[];
+  iceServers?: VertoConfigIceServersItem[];
   settings?: UserSettings;
 }
 
@@ -125,9 +165,6 @@ export interface OwnedNumber {
   id: string;
   number: string;
   status?: string;
-  assignedAt?: string | null;
-  lockedUntil?: string | null;
-  locked?: boolean;
 }
 
 export interface MyNumbersResponse {
@@ -225,8 +262,13 @@ export interface MakeCallRequest {
 }
 
 export type CallRoute =
-  | { type: "internal"; extension: number }
-  | { type: "external" };
+  | {
+      type: "internal";
+      extension: number;
+    }
+  | {
+      type: "external";
+    };
 
 export type MakeCallResponse = CallRecord & CallRoute;
 

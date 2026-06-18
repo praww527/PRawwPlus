@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.4.0
  */
 import type { UserSettings } from "./userSettings";
+import type { VertoConfigIceServersItem } from "./vertoConfigIceServersItem";
 
 export interface VertoConfig {
   /** FreeSWITCH Verto WebSocket URL (wss://...) */
@@ -23,6 +24,6 @@ export interface VertoConfig {
   /** Whether FreeSWITCH is configured on the server */
   configured: boolean;
   /** Optional ICE servers (STUN/TURN) for WebRTC */
-  iceServers?: unknown[];
+  iceServers?: VertoConfigIceServersItem[];
   settings?: UserSettings;
 }
