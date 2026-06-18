@@ -12,6 +12,7 @@ import { LoadingScreen } from "@/components/ui/spinner";
 import { CallProvider, useCall } from "@/context/CallContext";
 import { VertoInit } from "@/components/VertoInit";
 import { SipInit } from "@/components/SipInit";
+import { PushPermissionPrompt } from "@/components/PushPermissionPrompt";
 
 // ── Lazy-loaded pages — each route becomes its own JS chunk ────────────────
 const Home             = lazy(() => import("@/pages/Home"));
@@ -199,6 +200,7 @@ function CallConnector() {
     <>
       <VertoInit />
       <SipInit />
+      <PushPermissionPrompt />
     </>
   );
 }

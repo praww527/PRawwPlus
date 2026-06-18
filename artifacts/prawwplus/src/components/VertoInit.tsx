@@ -3,7 +3,7 @@ import { useGetVertoConfig } from "@workspace/api-client-react";
 import { useCall } from "@/context/CallContext";
 import { phoneAudio } from "@/lib/phoneAudio";
 import { useVisibilityReconnect } from "@/hooks/useConnectionStatus";
-import { apiFetch } from "@/lib/apiFetch";
+import { usePushSubscription } from "@/hooks/usePushSubscription";
 
 /**
  * Initialises the Verto WebSocket client once the user's config is loaded.
@@ -28,6 +28,7 @@ import { apiFetch } from "@/lib/apiFetch";
 export function VertoInit() {
   const { data } = useGetVertoConfig();
   const { setVertoConfig, callState, acceptCall, declineCall } = useCall();
+  const { refreshIfGranted } = usePushSubscription();
 
   // Re-trigger Verto config (which reconnects the WebSocket) when the tab
   // becomes visible again and the connection is already lost.
@@ -159,92 +160,13 @@ export function VertoInit() {
       );
     }
 
-    // ── Request notification permission + web-push subscription ─────────────
+    // ── Refresh push subscription if permission is already granted ──────────
     //
-    // iOS Safari 16.4+ supports Web Push but ONLY:
-    //   1. When the site is added to the Home Screen (standalone PWA mode)
-    //   2. When Notification.requestPermission() is called inside a user-gesture
-    //      handler (calling it outside a gesture is silently blocked on iOS)
-    //
-    // Strategy:
-    //   - Non-iOS browsers: subscribe immediately (Chrome/Firefox/Edge allow
-    //     permission prompts outside gesture handlers).
-    //   - iOS Safari: defer the permission request to the first user interaction
-    //     so it runs inside the gesture-handling stack required by iOS.
-
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as { MSStream?: unknown }).MSStream;
-
-    const setupPushSubscription = async () => {
-      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
-
-      let permission = Notification.permission;
-      if (permission === "default") {
-        permission = await Notification.requestPermission().catch(() => "denied" as NotificationPermission);
-      }
-      if (permission !== "granted") return;
-
-      try {
-        const keyResp = await fetch("/api/users/vapid-public-key");
-        if (!keyResp.ok) return;
-        const { key } = (await keyResp.json()) as { key?: string };
-        if (!key) return;
-
-        const registration = await navigator.serviceWorker.ready;
-        let sub = await registration.pushManager.getSubscription();
-
-        const appServerKey = Uint8Array.from(
-          atob(key.replace(/-/g, "+").replace(/_/g, "/")),
-          (c) => c.charCodeAt(0),
-        );
-
-        // If a subscription exists, verify its key matches the current VAPID public key.
-        // If the key changed (e.g. env var was rotated), the old subscription will always
-        // return 403/410 from the push service — force a re-subscription.
-        if (sub) {
-          const existingKey = sub.options.applicationServerKey;
-          const keysMatch = existingKey && (() => {
-            const a = new Uint8Array(existingKey as ArrayBuffer);
-            const b = appServerKey;
-            if (a.length !== b.length) return false;
-            for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-            return true;
-          })();
-          if (!keysMatch) {
-            await sub.unsubscribe();
-            sub = null;
-          }
-        }
-
-        if (!sub) {
-          sub = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: appServerKey,
-          });
-        }
-
-        await apiFetch("/api/users/web-push-subscription", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ subscription: sub.toJSON() }),
-        });
-      } catch (err) {
-        console.warn("[Push] Web push subscription error:", err);
-      }
-    };
-
-    if (isIOS) {
-      // Defer to the user-gesture unlock handler — required by iOS Safari.
-      const iosUnlock = () => {
-        setupPushSubscription().catch(() => {});
-        document.removeEventListener("click",      iosUnlock, true);
-        document.removeEventListener("touchstart", iosUnlock, true);
-      };
-      document.addEventListener("click",      iosUnlock, { capture: true, once: true });
-      document.addEventListener("touchstart", iosUnlock, { capture: true, once: true });
-    } else {
-      setupPushSubscription().catch(() => {});
-    }
+    // First-time permission requests are now handled by PushPermissionPrompt
+    // (which fires inside a user gesture — required by iOS Safari, preferred
+    // by all browsers).  Here we only need to silently refresh the
+    // subscription token for returning users who already granted permission.
+    refreshIfGranted().catch(() => {});
 
     return () => {
       document.removeEventListener("click",      unlock, true);
