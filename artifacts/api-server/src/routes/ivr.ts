@@ -3,22 +3,15 @@
  * CRUD for IVR flows + config push to FreeSWITCH
  */
 
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { connectDB } from "@workspace/db";
 import { IvrFlowModel } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { pushFreeSwitchConfig } from "../lib/freeswitchSSH";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.() || !(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  next();
-}
 
 router.get("/ivr/flows", requireAdmin, async (req, res) => {
   await connectDB();

@@ -3,22 +3,15 @@
  * CRUD for call queues + live stats + agent management
  */
 
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { connectDB, UserModel } from "@workspace/db";
 import { CallQueueModel } from "@workspace/db";
 import { getAllQueueStats, getQueueDepth } from "../lib/callQueue";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.() || !(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  next();
-}
 
 router.get("/queues", requireAdmin, async (req, res) => {
   await connectDB();

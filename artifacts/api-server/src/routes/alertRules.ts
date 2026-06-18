@@ -13,14 +13,9 @@ import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { connectDB, AlertRuleModel, AlertEventModel } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: any, res: any, next: any) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!req.user?.isAdmin) { res.status(403).json({ error: "Forbidden" }); return; }
-  next();
-}
 
 // ── List rules ────────────────────────────────────────────────────────────
 

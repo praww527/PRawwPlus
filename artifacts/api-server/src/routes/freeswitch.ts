@@ -1,8 +1,9 @@
 /**
  * FreeSWITCH admin routes — status, config push, diagnostics, and DID routing.
  *
- * Admin routes require the requesting user to be an admin.
- * The /lookup and /did-route routes are unauthenticated and intended for
+ * Admin routes (admin-status, configure, test-ssh, gateway-status) require an
+ * authenticated admin session or a valid ADMIN_API_KEY bearer token.
+ * The /did-route and /inbound routes are unauthenticated and intended for
  * FreeSWITCH mod_curl — only reachable from localhost (127.0.0.1).
  */
 
@@ -11,65 +12,11 @@ import { eslStatus, sendEslBgapiAwait } from "../lib/freeswitchESL";
 import { pushFreeSwitchConfig, testSSHConnection } from "../lib/freeswitchSSH";
 import { getAppUrl } from "../lib/appUrl";
 import { connectDB } from "@workspace/db";
-import { resolvePhoneToExtension, resolveDIDRoute } from "../lib/phoneResolver";
+import { resolveDIDRoute } from "../lib/phoneResolver";
+import { xmlEscape } from "../lib/freeswitchConfig";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: Request, res: Response): boolean {
-  if (!req.isAuthenticated() || !(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Admin access required" });
-    return false;
-  }
-  return true;
-}
-
-function xmlEscape(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-/**
- * GET /api/freeswitch/lookup?number=0XXXXXXXXX
- *
- * Legacy endpoint: resolves a phone number to an extension (for internal
- * phone-number-to-extension lookup from the dialplan).
- * NO authentication — only reachable from localhost.
- */
-router.get("/freeswitch/lookup", async (req: Request, res: Response) => {
-  // Loopback-only — called by FreeSWITCH mod_curl from the same host
-  const remoteIp = req.socket?.remoteAddress ?? req.ip ?? "";
-  const isLocalhost =
-    remoteIp === "127.0.0.1" ||
-    remoteIp === "::1" ||
-    remoteIp === "::ffff:127.0.0.1";
-  if (!isLocalhost) {
-    res.status(403).send("");
-    return;
-  }
-
-  const { number } = req.query as { number?: string };
-  if (!number || typeof number !== "string" || number.trim().length < 9) {
-    res.status(400).send("");
-    return;
-  }
-
-  try {
-    await connectDB();
-    const extension = await resolvePhoneToExtension(number.trim());
-    if (!extension) {
-      res.status(404).send("");
-      return;
-    }
-    res.setHeader("Content-Type", "text/plain");
-    res.send(String(extension));
-  } catch {
-    res.status(500).send("");
-  }
-});
 
 /**
  * GET /api/freeswitch/did-route?number=+27...
@@ -212,9 +159,7 @@ router.get("/freeswitch/inbound", async (req: Request, res: Response) => {
 });
 
 /** GET /api/freeswitch/admin-status — ESL connection + config state (admin only) */
-router.get("/freeswitch/admin-status", (req: Request, res: Response) => {
-  if (!requireAdmin(req, res)) return;
-
+router.get("/freeswitch/admin-status", requireAdmin, (_req: Request, res: Response) => {
   const esl = eslStatus();
   const appUrl = getAppUrl();
 
@@ -233,17 +178,13 @@ router.get("/freeswitch/admin-status", (req: Request, res: Response) => {
 });
 
 /** POST /api/freeswitch/configure — push XML config to FreeSWITCH via SSH */
-router.post("/freeswitch/configure", async (req: Request, res: Response) => {
-  if (!requireAdmin(req, res)) return;
-
+router.post("/freeswitch/configure", requireAdmin, async (_req: Request, res: Response) => {
   const result = await pushFreeSwitchConfig();
   res.status(result.success ? 200 : 500).json(result);
 });
 
 /** POST /api/freeswitch/test-ssh — verify SSH connectivity to the FreeSWITCH server */
-router.post("/freeswitch/test-ssh", async (req: Request, res: Response) => {
-  if (!requireAdmin(req, res)) return;
-
+router.post("/freeswitch/test-ssh", requireAdmin, async (_req: Request, res: Response) => {
   const result = await testSSHConnection();
   res.status(result.ok ? 200 : 500).json(result);
 });

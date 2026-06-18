@@ -10,14 +10,9 @@
 import { Router, type IRouter } from "express";
 import { ipReputation } from "../lib/ipReputation";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: any, res: any, next: any) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!req.user?.isAdmin) { res.status(403).json({ error: "Forbidden" }); return; }
-  next();
-}
 
 // ── Event rate counters — must be before :ip route ────────────────────────
 
@@ -52,7 +47,7 @@ router.post("/admin/ip-blocks", requireAdmin, (req, res) => {
 // ── Unblock an IP ─────────────────────────────────────────────────────────
 
 router.delete("/admin/ip-blocks/:ip", requireAdmin, (req, res) => {
-  const ip = decodeURIComponent(req.params.ip);
+  const ip = decodeURIComponent(req.params.ip as string);
   const removed = ipReputation.unblock(ip);
   logger.info({ ip, admin: (req as any).user?.id, removed }, "[IpBlocks] IP unblocked");
   res.json({ ok: true, ip, removed });

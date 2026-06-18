@@ -39,20 +39,9 @@ import {
   getExtensionSessionDiagnostics,
   waitForRegistration,
 } from "../lib/bLegManager";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: any, res: any, next: any) {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (!req.user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden", message: "Admin access required" });
-    return;
-  }
-  next();
-}
 
 function generateReferralCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -166,7 +155,7 @@ router.get("/admin/users", requireAdmin, async (req, res) => {
 
 router.get("/admin/users/:userId", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId).lean();
   if (!user) {
     res.status(404).json({ error: "User not found" });
@@ -188,7 +177,7 @@ router.get("/admin/users/:userId", requireAdmin, async (req, res) => {
 // Force-terminate all active sessions for a user (admin action)
 router.delete("/admin/users/:userId/sessions", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
@@ -219,7 +208,7 @@ router.delete("/admin/users/:userId/sessions", requireAdmin, async (req, res) =>
 
 router.post("/admin/users/:userId/approve", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.approved = true;
@@ -236,7 +225,7 @@ router.post("/admin/users/:userId/approve", requireAdmin, async (req, res) => {
 
 router.post("/admin/users/:userId/reject", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.approved = false;
@@ -253,7 +242,7 @@ router.post("/admin/users/:userId/reject", requireAdmin, async (req, res) => {
 
 router.post("/admin/users/:userId/lock", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.locked = true;
@@ -264,7 +253,7 @@ router.post("/admin/users/:userId/lock", requireAdmin, async (req, res) => {
 
 router.post("/admin/users/:userId/unlock", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.locked = false;
@@ -275,7 +264,7 @@ router.post("/admin/users/:userId/unlock", requireAdmin, async (req, res) => {
 
 router.post("/admin/users/:userId/unlock-otp", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.phoneOtpLockedUntil = undefined;
@@ -288,7 +277,7 @@ router.post("/admin/users/:userId/unlock-otp", requireAdmin, async (req, res) =>
 
 router.post("/admin/users/:userId/set-role", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const { role } = req.body;
   if (!["admin", "reseller", "user"].includes(role)) {
     res.status(400).json({ error: "Invalid role. Must be admin, reseller, or user." });
@@ -329,7 +318,7 @@ router.post("/admin/users/:userId/set-role", requireAdmin, async (req, res) => {
 
 router.post("/admin/users/:userId/verify-email", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.emailVerified = true;
@@ -342,7 +331,7 @@ router.post("/admin/users/:userId/verify-email", requireAdmin, async (req, res) 
 
 router.post("/admin/users/:userId/verify-phone", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   if (!user.phone) {
@@ -361,7 +350,7 @@ router.post("/admin/users/:userId/verify-phone", requireAdmin, async (req, res) 
 
 router.post("/admin/users/:userId/grant-badge", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.verified = true;
@@ -373,7 +362,7 @@ router.post("/admin/users/:userId/grant-badge", requireAdmin, async (req, res) =
 
 router.post("/admin/users/:userId/reject-badge", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const user = await UserModel.findById(userId);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   user.verified = false;
@@ -385,7 +374,7 @@ router.post("/admin/users/:userId/reject-badge", requireAdmin, async (req, res) 
 
 router.post("/admin/users/:userId/adjust-credit", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const { amount } = req.body;
   if (amount === undefined || amount === null) {
     res.status(400).json({ error: "amount is required" });
@@ -1576,7 +1565,7 @@ router.get("/admin/failed-calls", requireAdmin, async (req, res) => {
 
 router.post("/admin/calls/:callId/dismiss", requireAdmin, async (req, res) => {
   await connectDB();
-  const { callId } = req.params;
+  const callId = req.params.callId as string;
   const result = await CallModel.updateOne({ _id: callId }, { $set: { adminDismissed: true } });
   if (result.matchedCount === 0) {
     res.status(404).json({ error: "Call not found" });
@@ -1734,7 +1723,7 @@ router.post("/admin/diagnostics/esl-sync", requireAdmin, async (req, res) => {
  * either the FS UUID or the internal call record _id.
  */
 router.get("/admin/call-trace/:fsCallId", requireAdmin, async (req, res) => {
-  const { fsCallId } = req.params;
+  const fsCallId = req.params.fsCallId as string;
   if (!fsCallId || fsCallId.trim().length < 8) {
     res.status(400).json({ error: "Invalid fsCallId" });
     return;
@@ -1807,7 +1796,7 @@ router.get("/admin/call-trace/:fsCallId", requireAdmin, async (req, res) => {
  * Same as above but accepts a MongoDB callId directly.
  */
 router.get("/admin/call-trace/by-callid/:callId", requireAdmin, async (req, res) => {
-  const { callId } = req.params;
+  const callId = req.params.callId as string;
   await connectDB();
 
   const callDoc = await CallModel.findById(callId)
@@ -1879,7 +1868,7 @@ router.get("/admin/metrics/sessions", requireAdmin, async (_req, res) => {
  * originate confirmation timestamp, and current live session status.
  */
 router.get("/admin/calls/:callId/bleg", requireAdmin, async (req, res) => {
-  const { callId } = req.params;
+  const callId = req.params.callId as string;
 
   const diag = getBLegDiagnostics(callId);
   if (!diag) {
@@ -1912,7 +1901,7 @@ router.get("/admin/calls/bleg/all", requireAdmin, (_req, res) => {
  */
 router.get("/admin/users/:userId/session-status", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
 
   const user = await UserModel.findById(userId)
     .select("extension fcmToken expoPushToken webPushSubscription dnd notificationPrefs")
@@ -1961,7 +1950,7 @@ router.get("/admin/users/:userId/session-status", requireAdmin, async (req, res)
  */
 router.post("/admin/users/:userId/force-register", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
   const { wait = true } = req.body;
 
   const user = await UserModel.findById(userId)
@@ -2039,7 +2028,7 @@ router.post("/admin/users/:userId/force-register", requireAdmin, async (req, res
  */
 router.post("/admin/users/:userId/kick-session", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
 
   const user = await UserModel.findById(userId).select("extension").lean();
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
@@ -2071,7 +2060,7 @@ router.post("/admin/users/:userId/kick-session", requireAdmin, async (req, res) 
  */
 router.post("/admin/users/:userId/wakeup-push", requireAdmin, async (req, res) => {
   await connectDB();
-  const { userId } = req.params;
+  const userId = req.params.userId as string;
 
   const user = await UserModel.findById(userId)
     .select("extension fcmToken expoPushToken webPushSubscription")

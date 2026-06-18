@@ -3,7 +3,7 @@
  * Aggregated CDR analytics for the admin dashboard
  */
 
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request } from "express";
 import {
   getAnalyticsSummary,
   getHourlyBuckets,
@@ -11,16 +11,9 @@ import {
   getTopCallers,
   getDestinationStats,
 } from "../lib/analyticsAggregator";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.() || !(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  next();
-}
 
 function parseDateRange(req: Request): { fromMs: number; toMs: number } {
   const now   = Date.now();

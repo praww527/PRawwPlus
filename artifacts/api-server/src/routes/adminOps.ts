@@ -31,22 +31,11 @@ import {
   removeSseClient,
   getSseClientCount,
 } from "../lib/adminBroadcast";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const execAsync = promisify(exec);
 
 const router: IRouter = Router();
-
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (!(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  next();
-}
 
 // ── Concurrent call history (ring buffer, 1 sample/min, last 60) ─────────────
 

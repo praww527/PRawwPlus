@@ -488,7 +488,7 @@ export default function AdminDashboard() {
           <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: 0 }}>
             Live test:{" "}
             <code style={{ fontSize: 11, background: "rgba(255,255,255,0.07)", padding: "2px 6px", borderRadius: 4 }}>
-              GET /api/freeswitch/lookup?number=0763155369
+              GET /api/freeswitch/inbound?did=+27763155369
             </code>
           </p>
 

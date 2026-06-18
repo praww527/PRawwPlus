@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { connectDB, RatePlanModel, InvoiceModel, CdrModel, UserModel, PlanChangeLogModel } from "@workspace/db";
 import { parsePageLimit } from "../lib/pagination";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 // ── Plan definitions ──────────────────────────────────────────────────────────
 export const PLAN_DEFS: Record<string, { name: string; monthlyFee: number; includedMinutes: number; ratePerMinute: number }> = {
@@ -12,18 +13,6 @@ export const PLAN_DEFS: Record<string, { name: string; monthlyFee: number; inclu
 };
 
 const router: IRouter = Router();
-
-function requireAdmin(req: any, res: any, next: any) {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (!req.user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden", message: "Admin access required" });
-    return;
-  }
-  next();
-}
 
 router.get("/admin/rate-plans", requireAdmin, async (req, res) => {
   await connectDB();

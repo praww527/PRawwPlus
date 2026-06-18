@@ -7,20 +7,13 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { connectDB, UserModel, CallModel, CdrModel, BillingLedgerModel, AuditLogModel } from "@workspace/db";
 import { generateTotpSecret, generateOtpAuthUrl, verifyTotp } from "../lib/totp";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
 
 function requireAuth(req: Request, res: Response, next: () => void): void {
   if (!(req as any).isAuthenticated?.()) {
     res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
-
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.() || !(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
     return;
   }
   next();

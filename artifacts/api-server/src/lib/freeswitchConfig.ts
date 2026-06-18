@@ -64,7 +64,7 @@ export function voicemailConf(): string {
 </configuration>`;
 }
 
-function xmlEscape(value: string): string {
+export function xmlEscape(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

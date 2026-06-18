@@ -9,14 +9,9 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
 import { metrics } from "../lib/metrics";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
-
-function requireAdmin(req: any, res: any, next: any) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  if (!req.user?.isAdmin) { res.status(403).json({ error: "Forbidden" }); return; }
-  next();
-}
 
 const VALID_LEVELS = ["trace", "debug", "info", "warn", "error", "fatal", "silent"] as const;
 type LogLevel = typeof VALID_LEVELS[number];

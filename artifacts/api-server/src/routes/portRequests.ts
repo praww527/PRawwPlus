@@ -9,20 +9,13 @@ import { connectDB } from "@workspace/db";
 import { PortRequestModel } from "@workspace/db";
 import { parsePageLimit } from "../lib/pagination";
 import { logger } from "../lib/logger";
+import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
 
 function requireAuth(req: Request, res: Response, next: () => void): void {
   if (!(req as any).isAuthenticated?.()) {
     res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
-
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!(req as any).isAuthenticated?.() || !(req as any).user?.isAdmin) {
-    res.status(403).json({ error: "Forbidden" });
     return;
   }
   next();
