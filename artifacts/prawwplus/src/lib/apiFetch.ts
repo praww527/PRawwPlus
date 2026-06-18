@@ -42,5 +42,5 @@ export function apiFetch(
     if (token) headers.set("X-CSRF-Token", token);
   }
 
-  return fetch(input, { ...init, headers });
+  return fetch(input, { credentials: "include", ...init, headers });
 }

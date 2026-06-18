@@ -179,8 +179,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useWakeLock(callState === "active");
   // T007: background keepalive ping — keeps TCP warm during active calls
   useKeepalive(callState === "active");
-  // T008: geo-aware ICE — probe TURN servers and rank by latency
-  const { servers: rankedServers } = useTurnHealth();
+  // T008: geo-aware ICE — probe TURN servers and rank by latency.
+  // Pass ICE servers from vertoConfig so probing only starts once the user is
+  // authenticated and the config has been fetched (avoids a pre-auth 401).
+  const { servers: rankedServers } = useTurnHealth(vertoConfig?.iceServers ?? []);
 
   const setVertoConfig = useCallback((cfg: VertoConfig) => {
     setVertoConfigState((prev) => {
