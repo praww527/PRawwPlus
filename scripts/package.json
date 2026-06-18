@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "deploy-vps": "tsx deploy-vps.ts",
     "make-admin": "tsx make-admin.ts",
+    "telecom-audit": "tsx telecom-audit.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
