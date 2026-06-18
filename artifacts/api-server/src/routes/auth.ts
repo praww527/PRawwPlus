@@ -153,11 +153,28 @@ router.post("/auth/signup", async (req: Request, res: Response) => {
 
     if (!autoVerify && smtpReady && verificationToken) {
       const baseUrl = getBaseUrl(req);
-      await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
-      res.status(201).json({
-        message: "Account created. Please check your email to verify your account.",
-      });
-    } else {
+      let emailSent = false;
+      try {
+        await sendVerificationEmail(email.toLowerCase(), verificationToken, baseUrl);
+        emailSent = true;
+      } catch (emailErr: any) {
+        logger.warn({ err: emailErr, email: email.toLowerCase() },
+          "[Auth/signup] Verification email failed — falling back to auto-verify so user can log in");
+        // Patch the user to auto-verified so they are not orphaned
+        await UserModel.findByIdAndUpdate(user._id, {
+          $set: { emailVerified: true },
+          $unset: { verificationToken: "", verificationTokenExpiry: "" },
+        });
+      }
+      if (emailSent) {
+        res.status(201).json({
+          message: "Account created. Please check your email to verify your account.",
+        });
+        return;
+      }
+      // Email failed — fall through to auto-login below
+    }
+    {
       // Auto-verified (no SMTP, or reseller referral) — log in immediately
       await assignExtensionIfNeeded(user._id as string);
       const sessionData: SessionData = {

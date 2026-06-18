@@ -609,8 +609,19 @@ router.post("/admin/payouts/:payoutId/mark-paid", requireAdmin, async (req, res)
  * GET /api/admin/calls/live
  * Returns all non-terminal calls (initiated | ringing | answered) with joined
  * user info so the frontend can render per-extension FSM traces in real time.
+ *
+ * Auth: authenticated admin session  OR  Authorization: Bearer <ADMIN_API_KEY>.
  */
-router.get("/admin/calls/live", requireAdmin, async (_req, res) => {
+router.get("/admin/calls/live", async (req: any, res: any) => {
+  const adminKey = process.env.ADMIN_API_KEY;
+  const authHdr  = (req.headers["authorization"] ?? req.headers["x-admin-key"] ?? "").toString();
+  const token    = authHdr.replace(/^Bearer\s+/i, "").trim();
+  const bearerOk = adminKey && token === adminKey;
+  const sessionOk = req.isAuthenticated?.() && req.user?.isAdmin;
+  if (!bearerOk && !sessionOk) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
   await connectDB();
 
   const activeCalls = await CallModel.find({
