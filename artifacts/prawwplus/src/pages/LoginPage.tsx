@@ -6,6 +6,20 @@ import { useAuth } from "@workspace/auth-web";
 
 const EMAIL_LINK_TTL = 180;
 
+const iosInput: React.CSSProperties = {
+  width: "100%",
+  padding: "13px 16px",
+  borderRadius: 10,
+  background: "rgba(118,118,128,0.24)",
+  border: "none",
+  color: "#FFFFFF",
+  fontSize: 17,
+  outline: "none",
+  fontFamily: "-apple-system, 'SF Pro Text', 'Inter', sans-serif",
+  WebkitAppearance: "none",
+  appearance: "none",
+};
+
 export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { refetch } = useAuth();
@@ -28,7 +42,12 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true); setError(""); setUnverified(false);
     try {
-      const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(form) });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(form),
+      });
       const data = await res.json();
       if (!res.ok) {
         if (data.error === "email_not_verified") { setUnverified(true); }
@@ -42,8 +61,7 @@ export default function LoginPage() {
   };
 
   const resendVerification = async () => {
-    setResendLoading(true);
-    setResendDone(false);
+    setResendLoading(true); setResendDone(false);
     try {
       await fetch("/api/auth/resend-verification", {
         method: "POST",
@@ -52,129 +70,233 @@ export default function LoginPage() {
       });
       setResendDone(true);
       setResendCountdown(EMAIL_LINK_TTL);
-    } finally {
-      setResendLoading(false);
-    }
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%", padding: "14px 16px", borderRadius: 14,
-    background: "rgba(255,255,255,0.05)",
-    border: "0.5px solid rgba(255,255,255,0.12)",
-    backdropFilter: "blur(32px) saturate(2)",
-    WebkitBackdropFilter: "blur(32px) saturate(2)",
-    boxShadow: "0 0.5px 0 rgba(255,255,255,0.12) inset",
-    color: "var(--text-1)", fontSize: 16, outline: "none",
-    fontFamily: "inherit",
+    } finally { setResendLoading(false); }
   };
 
   return (
-    <div style={{ minHeight: "100dvh", background: "var(--surface-0)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
-      <div style={{ width: "100%", maxWidth: 400 }}>
+    <div style={{
+      minHeight: "100dvh",
+      background: "#000000",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "24px 16px",
+      fontFamily: "-apple-system, 'SF Pro Text', 'Inter', sans-serif",
+    }}>
+      <div style={{ width: "100%", maxWidth: 390 }}>
 
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ margin: "0 auto 12px", width: 72, height: 72 }}>
-            <img src={logoImg} alt="PRaww+ logo" style={{ width: 72, height: 72, objectFit: "contain" }} />
+        {/* Logo + Title */}
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <div style={{
+            width: 80, height: 80, borderRadius: 20,
+            background: "rgba(118,118,128,0.24)",
+            margin: "0 auto 16px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden",
+          }}>
+            <img src={logoImg} alt="PRaww+" style={{ width: 64, height: 64, objectFit: "contain" }} />
           </div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0 }}>PRaww+</h1>
-          <p style={{ fontSize: 15, color: "var(--text-2)", marginTop: 4 }}>Sign in to your account</p>
+          <h1 style={{
+            fontSize: 34, fontWeight: 700, color: "#FFFFFF",
+            margin: 0, letterSpacing: "-0.4px",
+            fontFamily: "-apple-system, 'SF Pro Display', sans-serif",
+          }}>
+            PRaww+
+          </h1>
+          <p style={{ fontSize: 15, color: "rgba(235,235,245,0.6)", marginTop: 4 }}>
+            Business VoIP · South Africa
+          </p>
         </div>
 
-        {/* Card */}
-        <div className="section-card" style={{ padding: "0 0 4px" }}>
-          {unverified && (
-            <div style={{ margin: "0 0 2px", padding: "14px 20px", background: "rgba(255,214,10,0.08)", borderBottom: "1px solid var(--sep)" }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: "#ffd60a", marginBottom: 4 }}>Email not verified</p>
-              <p style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 8 }}>Please verify your email before logging in.</p>
-              {resendDone && resendCountdown !== null && (
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "6px 10px", borderRadius: 8, marginBottom: 8,
-                  background: resendCountdown === 0 ? "rgba(255,69,58,0.10)" : resendCountdown <= 30 ? "rgba(255,149,0,0.10)" : "rgba(48,209,88,0.10)",
-                  border: `1px solid ${resendCountdown === 0 ? "rgba(255,69,58,0.25)" : resendCountdown <= 30 ? "rgba(255,149,0,0.25)" : "rgba(48,209,88,0.25)"}`,
-                }}>
-                  {resendCountdown === 0 ? (
-                    <p style={{ fontSize: 12, color: "#ff453a", fontWeight: 600 }}>Link expired — resend a new one</p>
-                  ) : (
-                    <>
-                      <p style={{ fontSize: 12, color: resendCountdown <= 30 ? "#ff9500" : "#30d158" }}>Link sent! Expires in</p>
-                      <p style={{ fontSize: 13, fontWeight: 700, fontFamily: "monospace", color: resendCountdown <= 30 ? "#ff453a" : "#30d158" }}>
-                        {Math.floor(resendCountdown / 60)}:{String(resendCountdown % 60).padStart(2, "0")}
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-              <button
-                onClick={resendVerification}
-                disabled={resendLoading}
-                style={{ fontSize: 13, color: "hsl(var(--primary))", fontWeight: 600, background: "none", border: "none", cursor: resendLoading ? "default" : "pointer", padding: 0, opacity: resendLoading ? 0.6 : 1 }}
-              >
-                {resendLoading ? "Sending…" : resendDone ? "Resend again" : "Resend verification email"}
-              </button>
-            </div>
-          )}
+        {/* Email unverified banner */}
+        {unverified && (
+          <div style={{
+            marginBottom: 16, padding: "14px 16px",
+            borderRadius: 12, background: "rgba(255,214,10,0.12)",
+            border: "1px solid rgba(255,214,10,0.3)",
+          }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#FFD60A", marginBottom: 4 }}>Email not verified</p>
+            <p style={{ fontSize: 13, color: "rgba(235,235,245,0.65)", marginBottom: 8 }}>
+              Please verify your email before logging in.
+            </p>
+            {resendDone && resendCountdown !== null && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 10px", borderRadius: 8, marginBottom: 8,
+                background: resendCountdown === 0
+                  ? "rgba(255,69,58,0.12)"
+                  : resendCountdown <= 30
+                    ? "rgba(255,149,0,0.12)"
+                    : "rgba(48,209,88,0.12)",
+              }}>
+                {resendCountdown === 0 ? (
+                  <p style={{ fontSize: 12, color: "#FF453A", fontWeight: 600 }}>Link expired — resend a new one</p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 12, color: resendCountdown <= 30 ? "#FF9500" : "#30D158" }}>Link sent! Expires in</p>
+                    <p style={{
+                      fontSize: 13, fontWeight: 700, fontFamily: "monospace",
+                      color: resendCountdown <= 30 ? "#FF453A" : "#30D158",
+                    }}>
+                      {Math.floor(resendCountdown / 60)}:{String(resendCountdown % 60).padStart(2, "0")}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+            <button
+              onClick={resendVerification}
+              disabled={resendLoading}
+              style={{
+                fontSize: 13, color: "#007AFF", fontWeight: 600,
+                background: "none", border: "none", cursor: resendLoading ? "default" : "pointer",
+                padding: 0, opacity: resendLoading ? 0.6 : 1,
+              }}
+            >
+              {resendLoading ? "Sending…" : resendDone ? "Resend again" : "Resend verification email"}
+            </button>
+          </div>
+        )}
 
+        {/* Form card */}
+        <div style={{
+          background: "rgba(28,28,30,1)",
+          borderRadius: 16,
+          overflow: "hidden",
+          marginBottom: 16,
+        }}>
           <form onSubmit={handleSubmit}>
-            {/* Email */}
-            <div style={{ padding: "16px 20px 0" }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Email</label>
+            {/* Email field */}
+            <div style={{ padding: "14px 16px 0" }}>
+              <label style={{
+                display: "block", fontSize: 12, fontWeight: 600,
+                color: "rgba(235,235,245,0.6)", textTransform: "uppercase",
+                letterSpacing: "0.05em", marginBottom: 6,
+              }}>
+                Email
+              </label>
               <input
-                type="email" placeholder="you@example.com"
-                value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                required style={inputStyle}
+                type="email"
+                placeholder="you@example.com"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                required
+                style={iosInput}
               />
             </div>
 
-            {/* Password */}
-            <div style={{ padding: "14px 20px 0" }}>
+            {/* Separator */}
+            <div style={{ height: "0.5px", background: "rgba(84,84,88,0.65)", margin: "14px 16px 0" }} />
+
+            {/* Password field */}
+            <div style={{ padding: "14px 16px 0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Password</label>
-                <button type="button" onClick={() => setLocation("/forgot-password")} style={{ fontSize: 13, color: "hsl(var(--primary))", fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+                <label style={{
+                  fontSize: 12, fontWeight: 600,
+                  color: "rgba(235,235,245,0.6)", textTransform: "uppercase", letterSpacing: "0.05em",
+                }}>
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setLocation("/forgot-password")}
+                  style={{
+                    fontSize: 13, color: "#007AFF", fontWeight: 500,
+                    background: "none", border: "none", cursor: "pointer",
+                  }}
+                >
                   Forgot?
                 </button>
               </div>
               <div style={{ position: "relative" }}>
                 <input
-                  type={showPassword ? "text" : "password"} placeholder="Your password"
-                  value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  required style={{ ...inputStyle, paddingRight: 48 }}
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Your password"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  required
+                  style={{ ...iosInput, paddingRight: 48 }}
                 />
-                <button type="button" onClick={() => setShowPassword((v) => !v)}
-                  style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer" }}>
-                  {showPassword ? <EyeOff style={{ width: 18, height: 18, color: "var(--text-3)" }} /> : <Eye style={{ width: 18, height: 18, color: "var(--text-3)" }} />}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  style={{
+                    position: "absolute", right: 14, top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center",
+                  }}
+                >
+                  {showPassword
+                    ? <EyeOff style={{ width: 18, height: 18, color: "rgba(235,235,245,0.4)" }} />
+                    : <Eye style={{ width: 18, height: 18, color: "rgba(235,235,245,0.4)" }} />
+                  }
                 </button>
               </div>
             </div>
 
+            {/* Error */}
             {error && (
-              <div style={{ margin: "12px 20px 0", padding: "12px 14px", borderRadius: 12, background: "rgba(255,69,58,0.08)", border: "0.5px solid rgba(255,69,58,0.25)" }}>
-                <p style={{ fontSize: 13, color: "#ff453a" }}>{error}</p>
+              <div style={{
+                margin: "12px 16px 0",
+                padding: "11px 14px", borderRadius: 10,
+                background: "rgba(255,69,58,0.12)",
+                border: "0.5px solid rgba(255,69,58,0.3)",
+              }}>
+                <p style={{ fontSize: 13, color: "#FF453A", margin: 0 }}>{error}</p>
               </div>
             )}
 
-            <div style={{ padding: "20px 20px 16px" }}>
-              <button type="submit" disabled={loading} style={{
-                width: "100%", padding: "14px 0", borderRadius: 12,
-                background: "hsl(var(--primary))", border: "none",
-                color: "#fff", fontSize: 16, fontWeight: 600,
-                cursor: loading ? "default" : "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                opacity: loading ? 0.8 : 1,
-              }}>
-                {loading ? <><Loader2 style={{ width: 18, height: 18 }} className="animate-spin" /> Signing in…</> : "Sign In"}
+            {/* Sign In button */}
+            <div style={{ padding: "20px 16px 16px" }}>
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "15px 0",
+                  borderRadius: 12,
+                  background: "#007AFF",
+                  border: "none",
+                  color: "#FFFFFF",
+                  fontSize: 17,
+                  fontWeight: 600,
+                  cursor: loading ? "default" : "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  opacity: loading ? 0.75 : 1,
+                  fontFamily: "inherit",
+                  transition: "opacity 0.2s",
+                  boxShadow: "0 2px 20px rgba(0,122,255,0.4)",
+                }}
+                onPointerDown={(e) => { if (!loading) e.currentTarget.style.opacity = "0.8"; }}
+                onPointerUp={(e) => { e.currentTarget.style.opacity = "1"; }}
+                onPointerLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+              >
+                {loading
+                  ? <><Loader2 style={{ width: 18, height: 18 }} className="animate-spin" /> Signing in…</>
+                  : "Sign In"
+                }
               </button>
             </div>
           </form>
         </div>
 
-        <p style={{ textAlign: "center", fontSize: 14, color: "var(--text-2)", marginTop: 20 }}>
+        {/* Sign up link */}
+        <p style={{ textAlign: "center", fontSize: 15, color: "rgba(235,235,245,0.55)" }}>
           Don't have an account?{" "}
-          <button onClick={() => setLocation("/signup")} style={{ color: "hsl(var(--primary))", fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}>
+          <button
+            onClick={() => setLocation("/signup")}
+            style={{
+              color: "#007AFF", fontWeight: 600,
+              background: "none", border: "none", cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
             Sign up free
           </button>
         </p>
+
       </div>
     </div>
   );

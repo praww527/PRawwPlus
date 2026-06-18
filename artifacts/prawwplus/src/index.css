@@ -2,8 +2,8 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: 'Inter', sans-serif;
-  --font-display: 'Outfit', sans-serif;
+  --font-sans: -apple-system, 'SF Pro Text', 'Inter', ui-sans-serif, sans-serif;
+  --font-display: -apple-system, 'SF Pro Display', 'Outfit', ui-sans-serif, sans-serif;
 
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -58,6 +58,11 @@
   to   { opacity: 1; }
 }
 
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(44px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -78,7 +83,7 @@
   --card-foreground: 0 0% 96%;
   --popover: 0 0% 9%;
   --popover-foreground: 0 0% 96%;
-  --primary: 211 100% 55%;
+  --primary: 211 100% 50%;
   --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 14%;
   --secondary-foreground: 0 0% 96%;
@@ -90,7 +95,7 @@
   --destructive-foreground: 0 0% 100%;
   --border: 0 0% 100% / 0.07;
   --input: 0 0% 14%;
-  --ring: 211 100% 55%;
+  --ring: 211 100% 50%;
   --radius: 0.75rem;
 
   /* Surfaces — defined in glass block below */
@@ -124,7 +129,7 @@
   --nav-bg: rgba(255, 255, 255, 0.055);
   --nav-border: rgba(255, 255, 255, 0.12);
   --nav-border-top: rgba(255, 255, 255, 0.22);
-  --nav-active: #60a5fa;
+  --nav-active: #007AFF;
   --nav-inactive: rgba(255, 255, 255, 0.28);
   --nav-active-circle: rgba(96, 165, 250, 0.15);
   --nav-active-circle-border: rgba(96, 165, 250, 0.28);
@@ -138,9 +143,9 @@
   --overlay-bg: rgba(0, 0, 0, 0.75);
 
   /* Dial buttons — crystal spheres */
-  --dial-btn-bg: rgba(255, 255, 255, 0.055);
+  --dial-btn-bg: rgba(255, 255, 255, 0.11);
   --dial-btn-border: rgba(255, 255, 255, 0.13);
-  --dial-btn-pressed: rgba(255, 255, 255, 0.14);
+  --dial-btn-pressed: rgba(255, 255, 255, 0.24);
 
   /* Filter chips */
   --chip-bg: rgba(255, 255, 255, 0.05);
@@ -248,7 +253,7 @@
   --card-foreground: 0 0% 96%;
   --popover: 0 0% 9%;
   --popover-foreground: 0 0% 96%;
-  --primary: 211 100% 55%;
+  --primary: 211 100% 50%;
   --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 14%;
   --secondary-foreground: 0 0% 96%;
@@ -260,7 +265,7 @@
   --destructive-foreground: 0 0% 100%;
   --border: 0 0% 100% / 0.07;
   --input: 0 0% 14%;
-  --ring: 211 100% 55%;
+  --ring: 211 100% 50%;
   --surface-0: #000000;
   --surface-1: rgba(255, 255, 255, 0.04);
   --surface-2: rgba(255, 255, 255, 0.06);
@@ -282,19 +287,19 @@
   --nav-bg: rgba(255, 255, 255, 0.055);
   --nav-border: rgba(255, 255, 255, 0.12);
   --nav-border-top: rgba(255, 255, 255, 0.22);
-  --nav-active: #60a5fa;
+  --nav-active: #007AFF;
   --nav-inactive: rgba(255, 255, 255, 0.28);
-  --nav-active-circle: rgba(96, 165, 250, 0.15);
-  --nav-active-circle-border: rgba(96, 165, 250, 0.28);
-  --nav-pill-bg: rgba(59, 130, 246, 0.18);
-  --nav-pill-border: rgba(96, 165, 250, 0.32);
-  --nav-pill-shadow: rgba(59, 130, 246, 0.20);
+  --nav-active-circle: rgba(0, 122, 255, 0.15);
+  --nav-active-circle-border: rgba(0, 122, 255, 0.28);
+  --nav-pill-bg: rgba(0, 122, 255, 0.18);
+  --nav-pill-border: rgba(0, 122, 255, 0.32);
+  --nav-pill-shadow: rgba(0, 122, 255, 0.20);
   --modal-bg: rgba(8, 8, 8, 0.96);
   --modal-border: rgba(255, 255, 255, 0.10);
   --overlay-bg: rgba(0, 0, 0, 0.75);
-  --dial-btn-bg: rgba(255, 255, 255, 0.055);
+  --dial-btn-bg: rgba(255, 255, 255, 0.11);
   --dial-btn-border: rgba(255, 255, 255, 0.13);
-  --dial-btn-pressed: rgba(255, 255, 255, 0.14);
+  --dial-btn-pressed: rgba(255, 255, 255, 0.24);
   --chip-bg: rgba(255, 255, 255, 0.05);
   --chip-border: rgba(255, 255, 255, 0.12);
   --chip-active-bg: hsl(var(--primary));

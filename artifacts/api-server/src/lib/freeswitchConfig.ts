@@ -247,11 +247,41 @@ export function dialplanXml(fsDomain: string): string {
   // FS_VAR is used to produce literal "${" in the generated XML so FreeSWITCH
   // evaluates channel/global variables at call-time rather than at generation-time.
   const FS_VAR = "${";
-  // Port the API server listens on — FreeSWITCH calls this from localhost.
-  const apiPort = (process.env.PORT ?? "8080").toString().trim();
-  const lookupUrl = `http://127.0.0.1:${apiPort}/api/freeswitch/lookup`;
-
   const gateway = pstnGatewayName();
+
+  // Star-prefix external routing — dial * + digits to force PSTN, bypassing
+  // all internal extension lookup.  Only injected when a gateway is configured.
+  const starPrefixRoute = gateway
+    ? `
+    <!--
+      Star-prefix external routing.
+
+      Dialling * followed by any digits forces external/PSTN routing and
+      bypasses the internal extension handler entirely.  Use this to reach:
+        - Extensions on partner / external PBX networks  (e.g. *1001)
+        - SA numbers without 0-prefix ambiguity          (e.g. *0831234567)
+        - International numbers                          (e.g. *27831234567)
+
+      The leading * is stripped; the remaining digits go to the PSTN gateway.
+      Outbound caller ID is the user's assigned DID number — no personal mobile.
+    -->
+    <extension name="star_prefix_external" continue="false">
+      <condition field="destination_number" expression="^\\*([0-9][0-9]*)$">
+        <action application="set" data="effective_caller_id_number=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_number)},${FS_VAR}caller_id_number})}"/>
+        <action application="set" data="effective_caller_id_name=${FS_VAR}default(${FS_VAR}user_data(${FS_VAR}caller_id_number}@${fsDomain} var effective_caller_id_name)},${FS_VAR}caller_id_name})}"/>
+        <action application="set" data="effective_caller_id_number=${FS_VAR}default(${FS_VAR}regex(${FS_VAR}effective_caller_id_number}|^\\+(.+)$|$1)},${FS_VAR}effective_caller_id_number})}"/>
+        <action application="set" data="call_timeout=45"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="log" data="INFO [STAR-EXT] Forcing PSTN for *$1 via ${xmlEscape(gateway)}"/>
+        <action application="answer"/>
+        <action application="speak" data="flite|kal|Please note. You are calling a number outside the PRaww app. This call will be billed to your account."/>
+        <action application="sleep" data="500"/>
+        <action application="bridge" data="sofia/gateway/${xmlEscape(gateway)}/$1"/>
+      </condition>
+    </extension>
+`
+    : "";
+
   const externalRoute = gateway
     ? `
     <extension name="external_pstn_numbers" continue="false">
@@ -620,40 +650,7 @@ export function dialplanXml(fsDomain: string): string {
       </condition>
     </extension>
 
-    <!--
-      Phone-number-to-extension lookup.
-
-      When the caller dials a South African mobile number in local format
-      (0XXXXXXXXX), this extension queries the PRaww+ API to check whether
-      the destination number belongs to a registered user.  If it does, the
-      call is transparently redirected to that user's internal extension so
-      it travels over WebRTC/SIP and is billed as an internal call.
-
-      If the lookup returns nothing (user not found or API unreachable), this
-      extension continues and the call falls through to the PSTN route below.
-
-      continue="true"  — always falls through when the lookup yields no match.
-      break="never"    — first condition (number match + curl) always runs.
-      break="on-true"  — second condition transfers only when a valid extension
-                         was returned; otherwise execution continues.
-    -->
-    <extension name="phone_number_lookup" continue="true">
-      <condition field="destination_number" expression="^(0[0-9]{9})$" break="never">
-        <!--
-          Call the lookup API.  mod_curl sets curl_response_data to the
-          response body (the extension number as plain text) and
-          curl_response_code to the HTTP status.
-        -->
-        <action application="curl" data="${lookupUrl}?number=$1"/>
-        <action application="set" data="target_ext=${FS_VAR}curl_response_data}"/>
-        <action application="log" data="INFO [LOOKUP] ${FS_VAR}destination_number} → target_ext=${FS_VAR}target_ext} (http ${FS_VAR}curl_response_code})"/>
-      </condition>
-      <!-- Transfer to the resolved internal extension when the lookup succeeded. -->
-      <condition field="${FS_VAR}target_ext}" expression="^([1-9][0-9]{3})$" break="on-true">
-        <action application="transfer" data="${FS_VAR}target_ext} XML prawwplus"/>
-      </condition>
-    </extension>
-
+${starPrefixRoute}
 ${externalRoute}
 
     <!--

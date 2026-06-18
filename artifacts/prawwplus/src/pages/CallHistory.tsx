@@ -27,32 +27,32 @@ function resolveCallDisplay(call: any) {
 
   if (status === "completed") {
     if (hangupCause === "ATTENDED_TRANSFER") {
-      return { color: "#636366", bg: "rgba(99,99,102,0.14)", label: "Voicemail",   Icon: Voicemail };
+      return { color: "#8E8E93", bg: "rgba(142,142,147,0.14)", label: "Voicemail",    Icon: Voicemail };
     }
     if (hangupCause === "ALLOTTED_TIMEOUT") {
-      return { color: "#ff9f0a", bg: "rgba(255,159,10,0.14)", label: "Low balance", Icon: PhoneOff };
+      return { color: "#FF9500", bg: "rgba(255,149,0,0.14)", label: "Low balance",    Icon: PhoneOff };
     }
     if (direction === "inbound") {
-      return { color: "#30d158", bg: "rgba(48,209,88,0.14)", label: "Answered",    Icon: PhoneIncoming };
+      return { color: "#30D158", bg: "rgba(48,209,88,0.14)", label: "Answered",       Icon: PhoneIncoming };
     }
-    return { color: "#30d158", bg: "rgba(48,209,88,0.14)", label: "Completed",     Icon: PhoneOutgoing };
+    return { color: "#30D158", bg: "rgba(48,209,88,0.14)", label: "Completed",        Icon: PhoneOutgoing };
   }
-  if (status === "missed")    return { color: "#ffd60a", bg: "rgba(255,214,10,0.14)", label: "Missed",     Icon: PhoneMissed };
-  if (status === "cancelled") return { color: "#ff9f0a", bg: "rgba(255,159,10,0.14)", label: "Cancelled",  Icon: PhoneOff };
+  if (status === "missed")    return { color: "#FFD60A", bg: "rgba(255,214,10,0.14)", label: "Missed",     Icon: PhoneMissed };
+  if (status === "cancelled") return { color: "#FF9500", bg: "rgba(255,149,0,0.14)", label: "Cancelled",   Icon: PhoneOff };
   if (status === "failed") {
     if (hangupCause === "UNREGISTERED" || hangupCause === "USER_NOT_REGISTERED" ||
         hangupCause === "SUBSCRIBER_ABSENT" || hangupCause === "DESTINATION_OUT_OF_ORDER") {
-      return { color: "#ff453a", bg: "rgba(255,69,58,0.14)", label: "Unavailable",         Icon: WifiOff };
+      return { color: "#FF453A", bg: "rgba(255,69,58,0.14)", label: "Unavailable",    Icon: WifiOff };
     }
     if (hangupCause === "NO_ROUTE_DESTINATION" || hangupCause === "UNALLOCATED_NUMBER") {
-      return { color: "#ff453a", bg: "rgba(255,69,58,0.14)", label: "Doesn't exist",        Icon: WifiOff };
+      return { color: "#FF453A", bg: "rgba(255,69,58,0.14)", label: "Doesn't exist",  Icon: WifiOff };
     }
     if (hangupCause === "USER_BUSY") {
-      return { color: "#ff9f0a", bg: "rgba(255,159,10,0.14)", label: "Busy",                Icon: PhoneCall };
+      return { color: "#FF9500", bg: "rgba(255,149,0,0.14)",  label: "Busy",          Icon: PhoneCall };
     }
-    return { color: "#ff453a", bg: "rgba(255,69,58,0.14)", label: "Failed",                 Icon: PhoneOff };
+    return { color: "#FF453A", bg: "rgba(255,69,58,0.14)", label: "Failed",           Icon: PhoneOff };
   }
-  return { color: "#ffd60a", bg: "rgba(255,214,10,0.14)", label: "Missed", Icon: PhoneMissed };
+  return { color: "#FFD60A", bg: "rgba(255,214,10,0.14)", label: "Missed",            Icon: PhoneMissed };
 }
 
 function formatCallDate(dateStr: string | Date) {
@@ -72,8 +72,7 @@ export default function CallHistory() {
   const { mutateAsync: initiateCall } = useMakeCall();
   const { toast } = useToast();
   const { startOutgoing, updateCallId, updateCallType, makeVertoCall, endCall, isVertoConnected } = useCall();
-  const { eslOfflinePending, eslRetryNumberRef, handleEslOfflineError, stopEslRetry } =
-    useEslOfflineRetry();
+  const { eslOfflinePending, eslRetryNumberRef, handleEslOfflineError, stopEslRetry } = useEslOfflineRetry();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -83,9 +82,7 @@ export default function CallHistory() {
       const res = await fetch(`/api/calls/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() }); },
   });
 
   const handleCallBack = async (number: string) => {
@@ -93,7 +90,6 @@ export default function CallHistory() {
       toast({ title: "Not connected", description: "VoIP connection is not ready.", variant: "destructive" });
       return;
     }
-
     const fsCallId = crypto.randomUUID();
     startOutgoing({ number });
     try {
@@ -102,7 +98,6 @@ export default function CallHistory() {
       if (record?.id) updateCallId(record.id);
       if (record?.type) updateCallType(record.type);
       const dialTarget = record?.type === "internal" ? String(record.extension) : number;
-      // Internal call: give the callee's Verto connection time to wake up.
       if (record?.type === "internal" && (record as any).calleeNotified) {
         await new Promise<void>((resolve) => setTimeout(resolve, 2500));
       }
@@ -142,44 +137,66 @@ export default function CallHistory() {
   const skeletonRows = [...Array(6)];
 
   return (
-    <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div
+      className="page-in"
+      style={{
+        display: "flex", flexDirection: "column", gap: 14,
+        fontFamily: "-apple-system, 'SF Pro Text', 'Inter', sans-serif",
+      }}
+    >
       {/* ESL offline auto-retry banner */}
       {eslOfflinePending && (
         <EslOfflineBanner number={eslRetryNumberRef.current} onCancel={stopEslRetry} />
       )}
 
-      {/* Page title */}
+      {/* iOS 17 large title */}
       <div style={{ paddingTop: 4 }}>
-        <h1 style={{ fontSize: 30, fontWeight: 700, color: "var(--text-1)", fontFamily: "var(--font-display)", margin: 0, letterSpacing: "-0.02em" }}>
+        <h1 style={{
+          fontSize: 34, fontWeight: 700,
+          color: "var(--text-1)", margin: 0, letterSpacing: "-0.5px",
+          fontFamily: "-apple-system, 'SF Pro Display', sans-serif",
+        }}>
           Recents
         </h1>
-        <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 3 }}>
+        <p style={{ fontSize: 13, color: "var(--text-3)", marginTop: 2 }}>
           {data?.total ? `${data.total} calls` : "Your recent calls"}
         </p>
       </div>
 
-      {/* Search input */}
+      {/* iOS-style search bar */}
       <div style={{ position: "relative" }}>
-        <Search style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 14, height: 14, color: "var(--text-3)", pointerEvents: "none" }} />
+        <Search style={{
+          position: "absolute", left: 12, top: "50%",
+          transform: "translateY(-50%)",
+          width: 14, height: 14, color: "rgba(235,235,245,0.45)",
+          pointerEvents: "none",
+        }} />
         <input
           type="text"
           placeholder="Search by number…"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           style={{
-            width: "100%", padding: "9px 36px 9px 34px", borderRadius: 12,
-            background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-            fontSize: 14, color: "var(--text-1)", outline: "none",
-            backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-            boxSizing: "border-box",
+            width: "100%",
+            padding: "9px 36px 9px 34px",
+            borderRadius: 12,
+            background: "rgba(118,118,128,0.24)",
+            border: "none",
+            fontSize: 15, color: "var(--text-1)", outline: "none",
+            fontFamily: "inherit", boxSizing: "border-box",
           }}
         />
         {search && (
           <button
             onClick={() => { setSearch(""); setPage(1); }}
-            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center" }}
+            style={{
+              position: "absolute", right: 10, top: "50%",
+              transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer",
+              padding: 2, display: "flex", alignItems: "center",
+            }}
           >
-            <X style={{ width: 14, height: 14, color: "var(--text-3)" }} />
+            <X style={{ width: 14, height: 14, color: "rgba(235,235,245,0.45)" }} />
           </button>
         )}
       </div>
@@ -218,15 +235,14 @@ export default function CallHistory() {
         <div style={{ padding: "60px 0", textAlign: "center" }}>
           <div className="float-card" style={{
             width: 72, height: 72, borderRadius: 24,
-            background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-            backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+            background: "rgba(118,118,128,0.18)",
+            border: "0.5px solid rgba(84,84,88,0.65)",
             display: "flex", alignItems: "center", justifyContent: "center",
             margin: "0 auto 16px",
-            boxShadow: "0 4px 24px var(--glass-shadow), 0 1px 0 var(--glass-highlight) inset",
           }}>
-            <PhoneMissed style={{ width: 30, height: 30, color: "var(--text-3)" }} />
+            <PhoneMissed style={{ width: 30, height: 30, color: "rgba(235,235,245,0.35)" }} />
           </div>
-          <p style={{ color: "var(--text-2)", fontSize: 15, marginBottom: 6 }}>
+          <p style={{ color: "var(--text-2)", fontSize: 15, marginBottom: 4 }}>
             {filter === "all" ? "No recent calls" : `No ${filter} calls`}
           </p>
           <p style={{ color: "var(--text-3)", fontSize: 13 }}>
@@ -239,9 +255,6 @@ export default function CallHistory() {
             const isExpanded = expandedId === c.id;
             const { color, bg, label, Icon } = resolveCallDisplay(c);
             const dateStr = c.startedAt ?? c.createdAt ?? c.date;
-            // Show the OTHER party: for inbound calls that's the caller, for
-            // outbound it's the recipient. Showing recipientNumber on an inbound
-            // call wrongly displays the user's own number.
             const isInboundCall = (c.direction ?? "").toLowerCase().includes("in");
             const rawNum = isInboundCall
               ? (c.callerNumber ?? c.recipientNumber ?? c.number)
@@ -251,25 +264,29 @@ export default function CallHistory() {
             return (
               <div key={c.id} className="stagger-item">
                 <div
-                  style={{ padding: "11px 16px", cursor: "pointer", transition: "background 0.15s" }}
+                  style={{ padding: "12px 16px", cursor: "pointer", transition: "background 0.12s" }}
                   onClick={() => setExpandedId(isExpanded ? null : c.id)}
                   onPointerDown={(e) => { e.currentTarget.style.background = "var(--glass-bg-strong)"; }}
-                  onPointerUp={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  onPointerUp={(e)   => { e.currentTarget.style.background = "transparent"; }}
                   onPointerLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    {/* Avatar circle */}
+                    {/* Call icon circle */}
                     <div style={{
                       width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
-                      background: bg, border: `1.5px solid ${color}44`,
+                      background: bg,
+                      border: `1.5px solid ${color}44`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>
-                      <Icon className="h-4 w-4" style={{ color }} />
+                      <Icon style={{ width: 16, height: 16, color }} />
                     </div>
 
                     {/* Info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <p style={{
+                        fontSize: 16, fontWeight: 600, color: "var(--text-1)",
+                        margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
                         {displayNum}
                       </p>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
@@ -294,7 +311,7 @@ export default function CallHistory() {
                         {label}
                       </span>
                       {isExpanded
-                        ? <ChevronUp  style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />
+                        ? <ChevronUp   style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />
                         : <ChevronDown style={{ width: 14, height: 14, color: "var(--text-3)", flexShrink: 0 }} />
                       }
                     </div>
@@ -302,16 +319,21 @@ export default function CallHistory() {
 
                   {/* Expanded actions */}
                   {isExpanded && (
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--sep)" }}>
+                    <div style={{
+                      marginTop: 12, paddingTop: 12,
+                      borderTop: "0.5px solid rgba(84,84,88,0.65)",
+                    }}>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
                           className="btn-press"
                           onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
                           style={{
-                            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            flex: 1, display: "flex", alignItems: "center",
+                            justifyContent: "center", gap: 6,
                             padding: "10px 0", borderRadius: 12,
-                            background: "rgba(255,69,58,0.10)", border: "1px solid rgba(255,69,58,0.20)",
-                            color: "#ff453a", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                            background: "rgba(255,59,48,0.12)",
+                            border: "0.5px solid rgba(255,59,48,0.28)",
+                            color: "#FF3B30", fontSize: 13, fontWeight: 600, cursor: "pointer",
                           }}
                         >
                           <Trash2 style={{ width: 14, height: 14 }} /> Delete
@@ -320,10 +342,12 @@ export default function CallHistory() {
                           className="btn-press"
                           onClick={(e) => { e.stopPropagation(); handleCallBack(rawNum ?? ""); }}
                           style={{
-                            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            flex: 1, display: "flex", alignItems: "center",
+                            justifyContent: "center", gap: 6,
                             padding: "10px 0", borderRadius: 12,
-                            background: "rgba(48,209,88,0.10)", border: "1px solid rgba(48,209,88,0.20)",
-                            color: "#30d158", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                            background: "rgba(48,209,88,0.12)",
+                            border: "0.5px solid rgba(48,209,88,0.28)",
+                            color: "#30D158", fontSize: 13, fontWeight: 600, cursor: "pointer",
                           }}
                         >
                           <Phone style={{ width: 14, height: 14 }} /> Call Back
@@ -333,7 +357,13 @@ export default function CallHistory() {
                   )}
                 </div>
 
-                {i < arr.length - 1 && <div className="row-sep" />}
+                {i < arr.length - 1 && (
+                  <div style={{
+                    height: "0.5px",
+                    background: "rgba(84,84,88,0.65)",
+                    marginLeft: 72,
+                  }} />
+                )}
               </div>
             );
           })}
@@ -343,7 +373,9 @@ export default function CallHistory() {
       {/* Pagination */}
       {data && data.totalPages > 1 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
-          <p style={{ fontSize: 12, color: "var(--text-3)" }}>Page {data.page} of {data.totalPages}</p>
+          <p style={{ fontSize: 12, color: "var(--text-3)" }}>
+            Page {data.page} of {data.totalPages}
+          </p>
           <div style={{ display: "flex", gap: 8 }}>
             {[
               { icon: ChevronLeft,  disabled: page === 1,               onClick: () => setPage((p) => Math.max(1, p - 1)) },
@@ -356,10 +388,10 @@ export default function CallHistory() {
                 disabled={disabled}
                 style={{
                   width: 38, height: 38, borderRadius: 12,
-                  background: "var(--glass-bg)", border: "1px solid var(--glass-border)",
-                  backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                  background: "rgba(118,118,128,0.24)",
+                  border: "none",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  color: disabled ? "var(--text-3)" : "var(--text-1)",
+                  color: disabled ? "rgba(235,235,245,0.25)" : "var(--text-1)",
                   cursor: disabled ? "default" : "pointer",
                   opacity: disabled ? 0.35 : 1,
                 }}
