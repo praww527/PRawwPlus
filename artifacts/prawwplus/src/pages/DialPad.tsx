@@ -53,11 +53,11 @@ export default function DialPad() {
     eslRetryNumberRef,
     handleEslOfflineError,
     stopEslRetry,
-  } = useEslOfflineRetry(() => handleCall());
+  } = useEslOfflineRetry();
 
   // If another call starts (ESL push), stop any pending retry
   useEffect(() => {
-    if (callPhase === "incoming") stopEslRetry();
+    if ((callPhase as string) === "incoming") stopEslRetry();
   }, [callPhase, stopEslRetry]);
 
   const press = (key: string) => {
@@ -250,8 +250,8 @@ export default function DialPad() {
             color: "var(--text-1)", flexShrink: 0,
           }}
         >
-          {user?.name || user?.email
-            ? userInitials(user.name, user.email)
+          {user?.name || user?.username
+            ? userInitials(user.name, user?.username ?? "")
             : <UserCircle2 style={{ width: 18, height: 18, color: "rgba(235,235,245,0.4)" }} />
           }
         </button>

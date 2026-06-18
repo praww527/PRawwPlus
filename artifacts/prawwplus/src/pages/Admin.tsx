@@ -49,6 +49,7 @@ const TABS = [
   { id: "analytics",    label: "Analytics",     icon: LineChart    },
   { id: "commissions",  label: "Commissions",   icon: TrendingUp   },
   { id: "rate-plans",   label: "Rate Plans",    icon: Tag          },
+  { id: "plans",        label: "Plan Mgmt",     icon: CreditCard   },
   { id: "numbers",      label: "Numbers",       icon: Phone        },
 ] as const;
 
@@ -1117,6 +1118,202 @@ const EMPTY_RATE_PLAN: RatePlanForm = {
   isActive: true,
   rates: [],
 };
+
+const PLAN_LABELS: Record<string, string> = { payg: "Pay As You Go", unlimited: "Unlimited", custom: "Custom Plan" };
+const PLAN_FEES:   Record<string, number>  = { payg: 49, unlimited: 299, custom: 0 };
+const PLAN_MINS:   Record<string, number>  = { payg: 0, unlimited: 500, custom: 0 };
+
+function PlansTab() {
+  const { toast } = useToast();
+  const [users, setUsers]       = useState<any[]>([]);
+  const [logs,  setLogs]        = useState<any[]>([]);
+  const [loadingU, setLoadingU] = useState(true);
+  const [loadingL, setLoadingL] = useState(true);
+  const [search, setSearch]     = useState("");
+  const [planFilter, setPlanFilter] = useState("");
+  const [subView, setSubView]   = useState<"users" | "logs">("users");
+  const [assigning, setAssigning]   = useState<any>(null);
+  const [newPlan, setNewPlan]       = useState("payg");
+  const [notes, setNotes]           = useState("");
+  const [customFee, setCustomFee]   = useState("");
+  const [customMins, setCustomMins] = useState("");
+  const [customRate, setCustomRate] = useState("");
+  const [acting, setActing]         = useState(false);
+
+  async function loadUsers() {
+    setLoadingU(true);
+    try {
+      const q = new URLSearchParams({ limit: "50" });
+      if (search) q.set("search", search);
+      if (planFilter) q.set("plan", planFilter);
+      const d = await adminFetch(`/admin/plans/users?${q}`);
+      setUsers(d.users ?? []);
+    } finally { setLoadingU(false); }
+  }
+
+  async function loadLogs() {
+    setLoadingL(true);
+    try {
+      const d = await adminFetch("/admin/plans/logs?limit=50");
+      setLogs(d.logs ?? []);
+    } finally { setLoadingL(false); }
+  }
+
+  useEffect(() => { loadUsers(); }, [search, planFilter]);
+  useEffect(() => { loadLogs(); }, []);
+
+  async function assignPlan() {
+    if (!assigning) return;
+    setActing(true);
+    try {
+      const body: any = { userId: assigning.id, planId: newPlan, notes };
+      if (newPlan === "custom") {
+        if (customFee)  body.customMonthlyFee = parseFloat(customFee);
+        if (customMins) body.customMinutes    = parseInt(customMins, 10);
+        if (customRate) body.customRate       = parseFloat(customRate);
+      }
+      await adminFetch("/admin/plans/assign", { method: "POST", body: JSON.stringify(body) });
+      toast({ title: "Plan updated", description: `${assigning.email} moved to ${PLAN_LABELS[newPlan] ?? newPlan}` });
+      setAssigning(null);
+      loadUsers();
+      loadLogs();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setActing(false); }
+  }
+
+  const planColors: Record<string, string> = {
+    payg:      "text-green-400 bg-green-500/10 border-green-500/20",
+    unlimited: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+    custom:    "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <h2 className="text-lg font-bold text-white flex-1">Plan Management</h2>
+        <div className="flex gap-1 p-1 bg-white/5 rounded-xl">
+          {(["users","logs"] as const).map(v => (
+            <button key={v} onClick={() => setSubView(v)}
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${subView === v ? "bg-indigo-600 text-white" : "text-white/50 hover:text-white/80"}`}>
+              {v === "users" ? "Users" : "Change Log"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {subView === "users" && (
+        <>
+          <div className="flex gap-2">
+            <Input placeholder="Search by email or name…" value={search} onChange={e => setSearch(e.target.value)}
+              className="flex-1 h-8 text-sm bg-white/5 border-white/10" />
+            <select value={planFilter} onChange={e => setPlanFilter(e.target.value)}
+              className="h-8 text-xs bg-white/5 border border-white/10 rounded-lg px-2 text-white/80">
+              <option value="">All plans</option>
+              <option value="payg">Pay As You Go</option>
+              <option value="unlimited">Unlimited</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          {loadingU ? (
+            <div className="text-center py-12 text-white/30 text-sm">Loading…</div>
+          ) : (
+            <div className="space-y-1.5">
+              {users.map(u => (
+                <div key={u.id} className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white/90 truncate">{u.email ?? u.username}</p>
+                    <p className="text-xs text-white/40">
+                      Wallet: R{(u.walletBalance ?? 0).toFixed(2)} ·{" "}
+                      {u.planId === "unlimited" ? `${u.monthlyMinutesUsed ?? 0}/${PLAN_MINS[u.planId]} min used` : "—"}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${planColors[u.planId] ?? planColors.payg}`}>
+                    {PLAN_LABELS[u.planId] ?? u.planId}
+                  </span>
+                  <Button size="sm" variant="outline"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => { setAssigning(u); setNewPlan(u.planId ?? "payg"); setNotes(""); setCustomFee(""); setCustomMins(""); setCustomRate(""); }}>
+                    Change
+                  </Button>
+                </div>
+              ))}
+              {users.length === 0 && <p className="text-center text-white/30 text-sm py-8">No users found</p>}
+            </div>
+          )}
+        </>
+      )}
+
+      {subView === "logs" && (
+        loadingL ? (
+          <div className="text-center py-12 text-white/30 text-sm">Loading…</div>
+        ) : (
+          <div className="space-y-1.5">
+            {logs.map(l => (
+              <div key={l.id ?? l._id} className="rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2.5 space-y-1">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className={`px-1.5 py-0.5 rounded border font-medium ${planColors[l.newPlan] ?? planColors.payg}`}>{PLAN_LABELS[l.newPlan] ?? l.newPlan}</span>
+                  <span className="text-white/40">← {PLAN_LABELS[l.oldPlan] ?? l.oldPlan}</span>
+                  <span className="ml-auto text-white/25">{l.createdAt ? format(new Date(l.createdAt), "MMM d, yyyy · HH:mm") : "—"}</span>
+                </div>
+                <p className="text-xs text-white/50">Admin: {l.adminName ?? l.adminId} · User: {l.userId}</p>
+                {l.notes && <p className="text-xs text-white/40 italic">"{l.notes}"</p>}
+              </div>
+            ))}
+            {logs.length === 0 && <p className="text-center text-white/30 text-sm py-8">No plan changes logged yet</p>}
+          </div>
+        )
+      )}
+
+      {assigning && (
+        <Modal isOpen onClose={() => setAssigning(null)} title={`Assign Plan — ${assigning.email ?? assigning.username}`}>
+          <div className="space-y-4 p-4">
+            <div>
+              <label className="text-xs text-white/40 mb-1.5 block">New Plan</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["payg","unlimited","custom"] as const).map(p => (
+                  <button key={p} onClick={() => setNewPlan(p)}
+                    className={`text-sm py-2 rounded-xl border font-medium transition-colors ${newPlan === p ? "bg-indigo-600 border-indigo-500 text-white" : "bg-white/5 border-white/10 text-white/60 hover:text-white"}`}>
+                    {PLAN_LABELS[p]}<br />
+                    <span className="text-xs font-normal opacity-60">{p === "custom" ? "Custom" : `R${PLAN_FEES[p]}/mo`}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {newPlan === "custom" && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Monthly Fee (R)</label>
+                    <Input type="number" min="0" placeholder="0" value={customFee} onChange={e => setCustomFee(e.target.value)} className="h-8 text-sm bg-white/5 border-white/10" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Minutes</label>
+                    <Input type="number" min="0" placeholder="0" value={customMins} onChange={e => setCustomMins(e.target.value)} className="h-8 text-sm bg-white/5 border-white/10" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Rate (R/min)</label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.69" value={customRate} onChange={e => setCustomRate(e.target.value)} className="h-8 text-sm bg-white/5 border-white/10" />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="text-xs text-white/40 mb-1.5 block">Notes (optional)</label>
+              <Input placeholder="Reason for plan change…" value={notes} onChange={e => setNotes(e.target.value)} className="h-8 text-sm bg-white/5 border-white/10" />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setAssigning(null)}>Cancel</Button>
+              <Button size="sm" disabled={acting} onClick={assignPlan}>
+                {acting ? "Saving…" : "Assign Plan"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
 
 function RatePlansTab() {
   const { toast } = useToast();
@@ -4715,6 +4912,7 @@ export default function Admin() {
           {tab === "abuse"         && <CallsAbuseTab />}
           {tab === "announcements" && <AnnouncementsTab />}
           {tab === "rate-plans"    && <RatePlansTab />}
+          {tab === "plans"         && <PlansTab />}
           {tab === "audit"         && <AuditTab />}
           {tab === "alert-rules"   && <AlertRulesTab />}
           {tab === "ip-blocks"     && <IpBlocksTab />}

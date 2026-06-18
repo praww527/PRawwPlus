@@ -482,12 +482,26 @@ router.post("/auth/phone/send-otp", async (req: Request, res: Response) => {
     const otp = generateOtp();
     const otpExpiry = new Date(Date.now() + 3 * 60 * 1000);
 
-    // Do NOT reset phoneOtpAttempts — carry the counter forward so repeated
-    // send-otp requests cannot be used to clear a lockout.
+    // If the lockout period has expired (lockedUntil is set but in the past),
+    // reset the attempts counter so users get a clean slate after their lockout
+    // serves its TTL — without this they'd be permanently locked since every
+    // new wrong attempt immediately re-triggers the lock.
+    const lockoutExpired = !!(
+      userForLock?.phoneOtpLockedUntil &&
+      userForLock.phoneOtpLockedUntil <= new Date()
+    );
+    const updateSet: Record<string, unknown> = {
+      phone: normalized,
+      phoneVerified: false,
+      phoneOtp: otp,
+      phoneOtpExpiry: otpExpiry,
+    };
+    if (lockoutExpired) updateSet.phoneOtpAttempts = 0;
+
     await UserModel.updateOne(
       { _id: userId },
       {
-        $set: { phone: normalized, phoneVerified: false, phoneOtp: otp, phoneOtpExpiry: otpExpiry },
+        $set: updateSet,
         $unset: { phoneOtpLockedUntil: 1 },
       },
     );

@@ -10,8 +10,8 @@ import type { OwnedNumber, PaymentRecord } from "@workspace/api-client-react";
 import {
   ChevronRight, LogOut, Trash2, Phone, Receipt,
   Star, Zap, Bell, Mic, Hash, FileText, ShieldCheck,
-  HelpCircle, Mail, CreditCard, Loader2, CheckCircle2,
-  AlertCircle, Plus, X, Shuffle, Smartphone, Shield, TrendingUp,
+  HelpCircle, Mail, CreditCard, Loader2,
+  AlertCircle, Plus, X, Shuffle, Shield, TrendingUp,
   Moon, Sun, Monitor, Info, Coins, Camera, BadgeCheck,
   Upload, Clock, Check, Activity, FileDown, Users,
 } from "lucide-react";
@@ -193,8 +193,8 @@ export default function Profile() {
   const [phoneInput, setPhoneInput] = useState("");
   const [otpInput, setOtpInput] = useState("");
   const [otpStep, setOtpStep] = useState<"enter-phone" | "enter-otp">("enter-phone");
-  const [phoneLoading, setPhoneLoading] = useState(false);
-  const [phoneMsg, setPhoneMsg] = useState<string | null>(null);
+  const [_phoneLoading, setPhoneLoading] = useState(false);
+  const [_phoneMsg, setPhoneMsg] = useState<string | null>(null);
   const [otpCountdown, setOtpCountdown] = useState<number | null>(null);
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -376,7 +376,7 @@ export default function Profile() {
     } finally { setCdrExportLoading(false); }
   };
 
-  const openPhoneSheet = () => {
+  const _openPhoneSheet = () => {
     setPhoneInput(userPhone ?? "");
     setOtpInput("");
     setOtpStep(userPhone && !userPhoneVerified ? "enter-otp" : "enter-phone");
@@ -385,7 +385,7 @@ export default function Profile() {
     setSheet("phone");
   };
 
-  const handleSendOtp = async () => {
+  const _handleSendOtp = async () => {
     if (!phoneInput.trim()) { setPhoneMsg("Enter your mobile number"); return; }
     setPhoneLoading(true);
     setPhoneMsg(null);
@@ -412,7 +412,7 @@ export default function Profile() {
     }
   };
 
-  const handleVerifyOtp = async () => {
+  const _handleVerifyOtp = async () => {
     if (!otpInput.trim() || otpInput.trim().length !== 6) { setPhoneMsg("Enter the 6-digit code"); return; }
     setPhoneLoading(true);
     setPhoneMsg(null);
@@ -895,8 +895,9 @@ export default function Profile() {
           {myNumbers.length > 0 && (
             <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
               {myNumbers.map((n: OwnedNumber) => {
-                const locked = n.locked ?? false;
-                const lockedUntil = n.lockedUntil ? new Date(n.lockedUntil) : null;
+                const nAny = n as any;
+                const locked = nAny.locked ?? false;
+                const lockedUntil = nAny.lockedUntil ? new Date(nAny.lockedUntil) : null;
                 const daysLeft = lockedUntil ? Math.ceil((lockedUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
                 return (
                   <div key={n.id} className="tx-card" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 14px" }}>

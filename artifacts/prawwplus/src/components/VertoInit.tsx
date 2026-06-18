@@ -37,7 +37,8 @@ export function VertoInit() {
     if (!dataRef.current) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${proto}//${location.host}/api/verto/ws`;
-    setVertoConfig({ ...dataRef.current, wsUrl, configured: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setVertoConfig({ ...dataRef.current, wsUrl, configured: true } as any);
   });
 
   // Keep stable refs to the latest call handlers so the SW listener never
@@ -62,7 +63,8 @@ export function VertoInit() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${proto}//${location.host}/api/verto/ws`;
 
-    setVertoConfig({ ...data, wsUrl, configured: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setVertoConfig({ ...data, wsUrl, configured: true } as any);
   }, [data, setVertoConfig]);
 
   // ── Service-worker message bridge ────────────────────────────────────────

@@ -426,6 +426,87 @@ paths:
               schema:
                 $ref: "#/components/schemas/PayFastPaymentData"
 
+  /admin/plans/users:
+    get:
+      operationId: adminPlanListUsers
+      tags: [admin]
+      summary: Admin - list users with plan info
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: plan
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Users with plan info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminPlanUser"
+                  total: { type: integer }
+                required: [users, total]
+
+  /admin/plans/assign:
+    post:
+      operationId: adminAssignPlan
+      tags: [admin]
+      summary: Admin - assign a plan to a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAssignPlanRequest"
+      responses:
+        "200":
+          description: Plan assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
+  /admin/plans/logs:
+    get:
+      operationId: adminPlanLogs
+      tags: [admin]
+      summary: Admin - plan change audit logs
+      parameters:
+        - name: userId
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: Plan change logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlanChangeLog"
+                required: [logs]
+
   /admin/users:
     get:
       operationId: adminListUsers
@@ -1251,3 +1332,40 @@ components:
         total:
           type: integer
       required: [imported, skipped, total]
+
+    AdminPlanUser:
+      type: object
+      properties:
+        id:          { type: string }
+        email:       { type: string }
+        username:    { type: string }
+        planId:      { type: string }
+        walletBalance:         { type: number }
+        monthlyMinutesUsed:    { type: integer }
+        customMonthlyFee:      { type: number }
+        customMinutes:         { type: integer }
+        customRate:            { type: number }
+      required: [id]
+
+    AdminAssignPlanRequest:
+      type: object
+      properties:
+        userId:           { type: string }
+        planId:           { type: string }
+        notes:            { type: string }
+        customMonthlyFee: { type: number }
+        customMinutes:    { type: integer }
+        customRate:       { type: number }
+      required: [userId, planId]
+
+    PlanChangeLog:
+      type: object
+      properties:
+        id:        { type: string }
+        userId:    { type: string }
+        oldPlan:   { type: string }
+        newPlan:   { type: string }
+        adminId:   { type: string }
+        adminName: { type: string }
+        notes:     { type: string }
+        createdAt: { type: string }

@@ -542,6 +542,77 @@ export const TopUpCreditsResponse = zod.object({
 });
 
 /**
+ * @summary Admin - list users with plan info
+ */
+export const adminPlanListUsersQueryPageDefault = 1;
+export const adminPlanListUsersQueryLimitDefault = 50;
+
+export const AdminPlanListUsersQueryParams = zod.object({
+  page: zod.coerce.number().default(adminPlanListUsersQueryPageDefault),
+  limit: zod.coerce.number().default(adminPlanListUsersQueryLimitDefault),
+  plan: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
+});
+
+export const AdminPlanListUsersResponse = zod.object({
+  users: zod.array(
+    zod.object({
+      id: zod.string(),
+      email: zod.string().optional(),
+      username: zod.string().optional(),
+      planId: zod.string().optional(),
+      walletBalance: zod.number().optional(),
+      monthlyMinutesUsed: zod.number().optional(),
+      customMonthlyFee: zod.number().optional(),
+      customMinutes: zod.number().optional(),
+      customRate: zod.number().optional(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * @summary Admin - assign a plan to a user
+ */
+export const AdminAssignPlanBody = zod.object({
+  userId: zod.string(),
+  planId: zod.string(),
+  notes: zod.string().optional(),
+  customMonthlyFee: zod.number().optional(),
+  customMinutes: zod.number().optional(),
+  customRate: zod.number().optional(),
+});
+
+export const AdminAssignPlanResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Admin - plan change audit logs
+ */
+export const adminPlanLogsQueryLimitDefault = 50;
+
+export const AdminPlanLogsQueryParams = zod.object({
+  userId: zod.coerce.string().optional(),
+  limit: zod.coerce.number().default(adminPlanLogsQueryLimitDefault),
+});
+
+export const AdminPlanLogsResponse = zod.object({
+  logs: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      userId: zod.string().optional(),
+      oldPlan: zod.string().optional(),
+      newPlan: zod.string().optional(),
+      adminId: zod.string().optional(),
+      adminName: zod.string().optional(),
+      notes: zod.string().optional(),
+      createdAt: zod.string().optional(),
+    }),
+  ),
+});
+
+/**
  * @summary Admin - list all users
  */
 export const adminListUsersQueryPageDefault = 1;

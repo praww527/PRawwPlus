@@ -143,7 +143,7 @@ export class VertoClient {
     if (this.ws && this.ws.readyState < WebSocket.CLOSING) return;
 
     try {
-      console.log("[Verto] Connecting to", this.config.wsUrl);
+      
       this.ws = new WebSocket(this.config.wsUrl, ["verto"]);
       this.ws.onopen    = ()  => this.handleOpen();
       this.ws.onmessage = (e) => this.handleMessage(e);
@@ -697,7 +697,7 @@ export class VertoClient {
     }
 
     pc.ontrack = (e) => {
-      console.log("[Verto] Remote track received:", e.track.kind, "streams:", e.streams.length, "readyState:", e.track.readyState);
+      
 
       // Build a stable MediaStream. FreeSWITCH sometimes sends tracks without
       // a stream (e.streams is empty) so we construct one manually.
@@ -709,7 +709,7 @@ export class VertoClient {
       const existing = this.remoteStream.getTracks().find((t) => t.id === e.track.id);
       if (!existing) {
         this.remoteStream.addTrack(e.track);
-        console.log("[Verto] Track added to remoteStream:", e.track.kind, e.track.id);
+        
       }
 
       // Only audio matters for VoIP
@@ -731,7 +731,7 @@ export class VertoClient {
         const audio = this.remoteAudio;
         if (!audio) return;
         audio.play().then(() => {
-          console.log("[Verto] Audio playback started");
+          // audio playback started
         }).catch((err: Error) => {
           console.warn("[Verto] Autoplay blocked:", err.message, "— will retry on next user gesture");
           const resume = () => {
@@ -759,7 +759,6 @@ export class VertoClient {
     // Log ICE and connection state changes to help diagnose RTP issues
     let iceRestartAttempts = 0;
     pc.oniceconnectionstatechange = () => {
-      console.log("[Verto] ICE connection state:", pc.iceConnectionState);
       if (pc.iceConnectionState === "failed") {
         if (iceRestartAttempts < 2 && typeof pc.restartIce === "function") {
           iceRestartAttempts++;
@@ -786,13 +785,9 @@ export class VertoClient {
       }
     };
 
-    pc.onconnectionstatechange = () => {
-      console.log("[Verto] Peer connection state:", pc.connectionState);
-    };
+    pc.onconnectionstatechange = () => { };
 
-    pc.onicegatheringstatechange = () => {
-      console.log("[Verto] ICE gathering state:", pc.iceGatheringState);
-    };
+    pc.onicegatheringstatechange = () => { };
 
     return pc;
   }

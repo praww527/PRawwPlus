@@ -10,9 +10,20 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 
 const PLAN_PRICES: Record<string, number> = {
-  basic: 59,
-  pro: 109,
+  payg:     49,
+  unlimited: 299,
+  basic:    49,
+  pro:      299,
 };
+
+const PLAN_DISPLAY: Record<string, string> = {
+  payg:      "Pay As You Go",
+  unlimited: "Unlimited",
+  basic:     "Pay As You Go",
+  pro:       "Unlimited",
+};
+
+const MIN_TOPUP_AMOUNT = 50;
 
 const COIN_VALUE = 0.9;
 
@@ -130,8 +141,11 @@ router.post("/payments/subscribe", async (req, res) => {
   const userId = (req as any).user.id;
   const { plan } = req.body;
 
-  const selectedPlan = plan === "pro" ? "pro" : "basic";
+  const validPlans = ["payg", "unlimited", "basic", "pro"];
+  const selectedPlan = validPlans.includes(plan) ? plan : "payg";
+  const canonicalPlan = selectedPlan === "basic" ? "payg" : selectedPlan === "pro" ? "unlimited" : selectedPlan;
   const amount = PLAN_PRICES[selectedPlan];
+  const displayName = PLAN_DISPLAY[selectedPlan] ?? "PRaww+ Plan";
   const paymentId = randomUUID();
   const base = getBaseUrl(req);
   const { merchantId, merchantKey, passphrase, paymentUrl } = getPayFastCredentials();
@@ -143,27 +157,27 @@ router.post("/payments/subscribe", async (req, res) => {
     coinsAdded: 0,
     status: "pending",
     paymentType: "subscription",
-    subscriptionPlan: selectedPlan,
+    subscriptionPlan: canonicalPlan,
   });
 
   const formFields = buildPayFastData({
     merchantId,
     merchantKey,
     returnUrl: `${base}/?payment=success`,
-    cancelUrl: `${base}/subscription?payment=cancelled`,
+    cancelUrl: `${base}/billing?payment=cancelled`,
     notifyUrl: `${base}/api/payments/webhook`,
     paymentId,
     userId,
     amount,
-    itemName: `${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} Plan - Monthly Subscription`,
+    itemName: `${displayName} - Monthly Subscription`,
     passphrase,
-    customStr2: selectedPlan,
+    customStr2: canonicalPlan,
   });
 
   res.json({
     paymentUrl,
     amount: amount.toFixed(2),
-    itemName: `${selectedPlan.charAt(0).toUpperCase() + selectedPlan.slice(1)} Plan`,
+    itemName: `${displayName}`,
     paymentId,
     formFields,
   });
@@ -293,15 +307,21 @@ router.post("/payments/webhook", async (req, res) => {
     }
 
     if (payment.paymentType === "subscription") {
-      const plan = payment.subscriptionPlan ?? custom_str2 ?? "basic";
+      const rawPlan   = payment.subscriptionPlan ?? custom_str2 ?? "payg";
+      const canonical = rawPlan === "basic" ? "payg" : rawPlan === "pro" ? "unlimited" : rawPlan;
       await UserModel.updateOne(
         { _id: targetUserId },
         {
-          subscriptionStatus: "active",
-          subscriptionPlan: plan,
-          subscriptionExpiresAt: nextPayment,
-          lastPaymentDate: now,
-          nextPaymentDate: nextPayment,
+          $set: {
+            subscriptionStatus: "active",
+            subscriptionPlan:   canonical,
+            planId:             canonical,
+            subscriptionExpiresAt: nextPayment,
+            lastPaymentDate:    now,
+            nextPaymentDate:    nextPayment,
+            monthlyMinutesUsed: 0,
+            monthlyMinutesResetAt: now,
+          },
         },
       );
     } else if (payment.paymentType === "topup") {
@@ -385,8 +405,8 @@ router.post("/credits/topup", async (req, res) => {
   const userId = (req as any).user.id;
   const { amount } = req.body;
 
-  if (!amount || amount < 10) {
-    res.status(400).json({ error: "Minimum top-up amount is R10" });
+  if (!amount || amount < MIN_TOPUP_AMOUNT) {
+    res.status(400).json({ error: `Minimum top-up amount is R${MIN_TOPUP_AMOUNT}` });
     return;
   }
 

@@ -18,8 +18,14 @@ import type {
 
 import type {
   AdjustCreditRequest,
+  AdminAssignPlan200,
+  AdminAssignPlanRequest,
   AdminListCallsParams,
   AdminListUsersParams,
+  AdminPlanListUsers200,
+  AdminPlanListUsersParams,
+  AdminPlanLogs200,
+  AdminPlanLogsParams,
   AdminStats,
   AdminUserDetail,
   AdminUserListResponse,
@@ -1543,6 +1549,283 @@ export const useTopUpCredits = <
 > => {
   return useMutation(getTopUpCreditsMutationOptions(options));
 };
+
+/**
+ * @summary Admin - list users with plan info
+ */
+export const getAdminPlanListUsersUrl = (params?: AdminPlanListUsersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/plans/users?${stringifiedParams}`
+    : `/api/admin/plans/users`;
+};
+
+export const adminPlanListUsers = async (
+  params?: AdminPlanListUsersParams,
+  options?: RequestInit,
+): Promise<AdminPlanListUsers200> => {
+  return customFetch<AdminPlanListUsers200>(getAdminPlanListUsersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminPlanListUsersQueryKey = (
+  params?: AdminPlanListUsersParams,
+) => {
+  return [`/api/admin/plans/users`, ...(params ? [params] : [])] as const;
+};
+
+export const getAdminPlanListUsersQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminPlanListUsers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: AdminPlanListUsersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminPlanListUsers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getAdminPlanListUsersQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof adminPlanListUsers>>
+  > = ({ signal }) => adminPlanListUsers(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminPlanListUsers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AdminPlanListUsersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminPlanListUsers>>
+>;
+export type AdminPlanListUsersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Admin - list users with plan info
+ */
+
+export function useAdminPlanListUsers<
+  TData = Awaited<ReturnType<typeof adminPlanListUsers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: AdminPlanListUsersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminPlanListUsers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminPlanListUsersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Admin - assign a plan to a user
+ */
+export const getAdminAssignPlanUrl = () => {
+  return `/api/admin/plans/assign`;
+};
+
+export const adminAssignPlan = async (
+  adminAssignPlanRequest: AdminAssignPlanRequest,
+  options?: RequestInit,
+): Promise<AdminAssignPlan200> => {
+  return customFetch<AdminAssignPlan200>(getAdminAssignPlanUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminAssignPlanRequest),
+  });
+};
+
+export const getAdminAssignPlanMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminAssignPlan>>,
+    TError,
+    { data: BodyType<AdminAssignPlanRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminAssignPlan>>,
+  TError,
+  { data: BodyType<AdminAssignPlanRequest> },
+  TContext
+> => {
+  const mutationKey = ["adminAssignPlan"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminAssignPlan>>,
+    { data: BodyType<AdminAssignPlanRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return adminAssignPlan(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminAssignPlanMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminAssignPlan>>
+>;
+export type AdminAssignPlanMutationBody = BodyType<AdminAssignPlanRequest>;
+export type AdminAssignPlanMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Admin - assign a plan to a user
+ */
+export const useAdminAssignPlan = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminAssignPlan>>,
+    TError,
+    { data: BodyType<AdminAssignPlanRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminAssignPlan>>,
+  TError,
+  { data: BodyType<AdminAssignPlanRequest> },
+  TContext
+> => {
+  return useMutation(getAdminAssignPlanMutationOptions(options));
+};
+
+/**
+ * @summary Admin - plan change audit logs
+ */
+export const getAdminPlanLogsUrl = (params?: AdminPlanLogsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/plans/logs?${stringifiedParams}`
+    : `/api/admin/plans/logs`;
+};
+
+export const adminPlanLogs = async (
+  params?: AdminPlanLogsParams,
+  options?: RequestInit,
+): Promise<AdminPlanLogs200> => {
+  return customFetch<AdminPlanLogs200>(getAdminPlanLogsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminPlanLogsQueryKey = (params?: AdminPlanLogsParams) => {
+  return [`/api/admin/plans/logs`, ...(params ? [params] : [])] as const;
+};
+
+export const getAdminPlanLogsQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminPlanLogs>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: AdminPlanLogsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminPlanLogs>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminPlanLogsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminPlanLogs>>> = ({
+    signal,
+  }) => adminPlanLogs(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminPlanLogs>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AdminPlanLogsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminPlanLogs>>
+>;
+export type AdminPlanLogsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Admin - plan change audit logs
+ */
+
+export function useAdminPlanLogs<
+  TData = Awaited<ReturnType<typeof adminPlanLogs>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: AdminPlanLogsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof adminPlanLogs>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAdminPlanLogsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Admin - list all users

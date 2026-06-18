@@ -436,6 +436,38 @@ export interface BulkImportResult {
   total: number;
 }
 
+export interface AdminPlanUser {
+  id: string;
+  email?: string;
+  username?: string;
+  planId?: string;
+  walletBalance?: number;
+  monthlyMinutesUsed?: number;
+  customMonthlyFee?: number;
+  customMinutes?: number;
+  customRate?: number;
+}
+
+export interface AdminAssignPlanRequest {
+  userId: string;
+  planId: string;
+  notes?: string;
+  customMonthlyFee?: number;
+  customMinutes?: number;
+  customRate?: number;
+}
+
+export interface PlanChangeLog {
+  id?: string;
+  userId?: string;
+  oldPlan?: string;
+  newPlan?: string;
+  adminId?: string;
+  adminName?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
 export type UpdateUserSettings200 = {
   message: string;
   settings: UserSettings;
@@ -465,6 +497,31 @@ export type RemoveNumber200 = {
 };
 
 export type PayfastWebhookBody = { [key: string]: string };
+
+export type AdminPlanListUsersParams = {
+  page?: number;
+  limit?: number;
+  plan?: string;
+  search?: string;
+};
+
+export type AdminPlanListUsers200 = {
+  users: AdminPlanUser[];
+  total: number;
+};
+
+export type AdminAssignPlan200 = {
+  ok: boolean;
+};
+
+export type AdminPlanLogsParams = {
+  userId?: string;
+  limit?: number;
+};
+
+export type AdminPlanLogs200 = {
+  logs: PlanChangeLog[];
+};
 
 export type AdminListUsersParams = {
   page?: number;

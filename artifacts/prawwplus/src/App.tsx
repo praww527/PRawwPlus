@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,40 +13,41 @@ import { CallProvider, useCall } from "@/context/CallContext";
 import { VertoInit } from "@/components/VertoInit";
 import { SipInit } from "@/components/SipInit";
 
-import Home            from "@/pages/Home";
-import LoginPage       from "@/pages/LoginPage";
-import SignUp          from "@/pages/SignUp";
-import VerifyEmail     from "@/pages/VerifyEmail";
-import ForgotPassword  from "@/pages/ForgotPassword";
-import ResetPassword   from "@/pages/ResetPassword";
-import DialPad         from "@/pages/DialPad";
-import CallHistory     from "@/pages/CallHistory";
-import Contacts        from "@/pages/Contacts";
-import Profile         from "@/pages/Profile";
-import Admin           from "@/pages/Admin";
-import AdminDashboard  from "@/pages/AdminDashboard";
-import PlatformHealth  from "@/pages/PlatformHealth";
-import ResellerDashboard from "@/pages/ResellerDashboard";
-import CallingScreen      from "@/pages/CallingScreen";
-import IncomingCallScreen from "@/pages/IncomingCallScreen";
-import BuyNumber          from "@/pages/BuyNumber";
-import NotificationsPage  from "@/pages/NotificationsPage";
-import CallSettingsPage   from "@/pages/CallSettingsPage";
-import VoicemailPage      from "@/pages/Voicemail";
-import Favorites          from "@/pages/Favorites";
-import CompliancePage     from "@/pages/CompliancePage";
-import DiagnosticsPage   from "@/pages/DiagnosticsPage";
-import RecordingsPage    from "@/pages/RecordingsPage";
-import IvrPage           from "@/pages/IvrPage";
-import QueuesPage        from "@/pages/QueuesPage";
-import ConferencesPage   from "@/pages/ConferencesPage";
-import NumbersPage       from "@/pages/NumbersPage";
-import RingGroupsPage    from "@/pages/admin/RingGroups";
-import CdrPage           from "@/pages/CdrPage";
-import BillingPage       from "@/pages/BillingPage";
-import TeamPage          from "@/pages/TeamPage";
-import JoinTeamPage      from "@/pages/JoinTeamPage";
-import NotFound          from "@/pages/not-found";
+// ── Lazy-loaded pages — each route becomes its own JS chunk ────────────────
+const Home             = lazy(() => import("@/pages/Home"));
+const LoginPage        = lazy(() => import("@/pages/LoginPage"));
+const SignUp           = lazy(() => import("@/pages/SignUp"));
+const VerifyEmail      = lazy(() => import("@/pages/VerifyEmail"));
+const ForgotPassword   = lazy(() => import("@/pages/ForgotPassword"));
+const ResetPassword    = lazy(() => import("@/pages/ResetPassword"));
+const DialPad          = lazy(() => import("@/pages/DialPad"));
+const CallHistory      = lazy(() => import("@/pages/CallHistory"));
+const Contacts         = lazy(() => import("@/pages/Contacts"));
+const Profile          = lazy(() => import("@/pages/Profile"));
+const Admin            = lazy(() => import("@/pages/Admin"));
+const AdminDashboard   = lazy(() => import("@/pages/AdminDashboard"));
+const PlatformHealth   = lazy(() => import("@/pages/PlatformHealth"));
+const ResellerDashboard= lazy(() => import("@/pages/ResellerDashboard"));
+const CallingScreen    = lazy(() => import("@/pages/CallingScreen"));
+const IncomingCallScreen = lazy(() => import("@/pages/IncomingCallScreen"));
+const BuyNumber        = lazy(() => import("@/pages/BuyNumber"));
+const NotificationsPage= lazy(() => import("@/pages/NotificationsPage"));
+const CallSettingsPage = lazy(() => import("@/pages/CallSettingsPage"));
+const VoicemailPage    = lazy(() => import("@/pages/Voicemail"));
+const Favorites        = lazy(() => import("@/pages/Favorites"));
+const CompliancePage   = lazy(() => import("@/pages/CompliancePage"));
+const DiagnosticsPage  = lazy(() => import("@/pages/DiagnosticsPage"));
+const RecordingsPage   = lazy(() => import("@/pages/RecordingsPage"));
+const IvrPage          = lazy(() => import("@/pages/IvrPage"));
+const QueuesPage       = lazy(() => import("@/pages/QueuesPage"));
+const ConferencesPage  = lazy(() => import("@/pages/ConferencesPage"));
+const NumbersPage      = lazy(() => import("@/pages/NumbersPage"));
+const RingGroupsPage   = lazy(() => import("@/pages/admin/RingGroups"));
+const CdrPage          = lazy(() => import("@/pages/CdrPage"));
+const BillingPage      = lazy(() => import("@/pages/BillingPage"));
+const TeamPage         = lazy(() => import("@/pages/TeamPage"));
+const JoinTeamPage     = lazy(() => import("@/pages/JoinTeamPage"));
+const NotFound         = lazy(() => import("@/pages/not-found"));
 
 initTheme();
 
@@ -53,13 +55,23 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
+function PageFallback() {
+  return <div className="flex items-center justify-center h-48 text-white/30 text-sm">Loading…</div>;
+}
+
 function ProtectedRoute({ component: Component, componentProps }: { component: React.ComponentType<any>; componentProps?: Record<string, any> }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated) return <Redirect to="/login" />;
 
-  return <Layout><Component {...(componentProps ?? {})} /></Layout>;
+  return (
+    <Layout>
+      <Suspense fallback={<PageFallback />}>
+        <Component {...(componentProps ?? {})} />
+      </Suspense>
+    </Layout>
+  );
 }
 
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
@@ -79,7 +91,13 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
     );
   }
 
-  return <Layout><Component /></Layout>;
+  return (
+    <Layout>
+      <Suspense fallback={<PageFallback />}>
+        <Component />
+      </Suspense>
+    </Layout>
+  );
 }
 
 function ResellerRoute({ component: Component }: { component: React.ComponentType }) {
@@ -88,7 +106,15 @@ function ResellerRoute({ component: Component }: { component: React.ComponentTyp
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated) return <Redirect to="/login" />;
 
-  if (user?.isAdmin) return <Layout><Component /></Layout>;
+  if (user?.isAdmin) {
+    return (
+      <Layout>
+        <Suspense fallback={<PageFallback />}>
+          <Component />
+        </Suspense>
+      </Layout>
+    );
+  }
 
   if (user?.role !== "reseller") {
     return (
@@ -112,7 +138,13 @@ function ResellerRoute({ component: Component }: { component: React.ComponentTyp
     );
   }
 
-  return <Layout><Component /></Layout>;
+  return (
+    <Layout>
+      <Suspense fallback={<PageFallback />}>
+        <Component />
+      </Suspense>
+    </Layout>
+  );
 }
 
 function PublicRoute({ component: Component }: { component: React.ComponentType }) {
@@ -121,13 +153,29 @@ function PublicRoute({ component: Component }: { component: React.ComponentType 
   if (isLoading) return <LoadingScreen />;
   if (isAuthenticated) return <Redirect to="/dashboard" />;
 
-  return <Component />;
+  return (
+    <Suspense fallback={<PageFallback />}>
+      <Component />
+    </Suspense>
+  );
 }
 
 function CallOverlays() {
   const { callState } = useCall();
-  if (callState === "outgoing" || callState === "active") return <CallingScreen />;
-  if (callState === "incoming") return <IncomingCallScreen />;
+  if (callState === "outgoing" || callState === "active") {
+    return (
+      <Suspense fallback={null}>
+        <CallingScreen />
+      </Suspense>
+    );
+  }
+  if (callState === "incoming") {
+    return (
+      <Suspense fallback={null}>
+        <IncomingCallScreen />
+      </Suspense>
+    );
+  }
   return null;
 }
 
@@ -175,9 +223,9 @@ function Router() {
       <Route path="/"                component={() => <PublicRoute   component={Home} />} />
       <Route path="/login"           component={() => <PublicRoute   component={LoginPage} />} />
       <Route path="/signup"          component={() => <PublicRoute   component={SignUp} />} />
-      <Route path="/verify-email"    component={VerifyEmail} />
+      <Route path="/verify-email"    component={() => <Suspense fallback={<PageFallback />}><VerifyEmail /></Suspense>} />
       <Route path="/forgot-password" component={() => <PublicRoute   component={ForgotPassword} />} />
-      <Route path="/reset-password"  component={ResetPassword} />
+      <Route path="/reset-password"  component={() => <Suspense fallback={<PageFallback />}><ResetPassword /></Suspense>} />
       <Route path="/dashboard"       component={() => <ProtectedRoute component={DialPad} />} />
       <Route path="/calls"           component={() => <ProtectedRoute component={CallHistory} />} />
       <Route path="/voicemail"       component={() => <ProtectedRoute component={VoicemailPage} />} />
@@ -195,15 +243,15 @@ function Router() {
       <Route path="/cdr"             component={() => <ProtectedRoute component={CdrPage} />} />
       <Route path="/billing"         component={() => <ProtectedRoute component={BillingPage} />} />
       <Route path="/team"            component={() => <ProtectedRoute component={TeamPage} />} />
-      <Route path="/team/join"       component={JoinTeamPage} />
+      <Route path="/team/join"       component={() => <Suspense fallback={<PageFallback />}><JoinTeamPage /></Suspense>} />
       <Route path="/compliance"      component={() => <ProtectedRoute component={CompliancePage} />} />
       <Route path="/diagnostics"     component={() => <ProtectedRoute component={DiagnosticsPage} />} />
       <Route path="/admin/platform-health" component={() => <AdminRoute component={PlatformHealth} />} />
-      <Route path="/admin/dashboard"  component={() => <AdminRoute     component={AdminDashboard} />} />
-      <Route path="/admin/ring-groups" component={() => <AdminRoute    component={RingGroupsPage} />} />
+      <Route path="/admin/dashboard"  component={() => <AdminRoute    component={AdminDashboard} />} />
+      <Route path="/admin/ring-groups" component={() => <AdminRoute   component={RingGroupsPage} />} />
       <Route path="/admin"           component={() => <AdminRoute     component={Admin} />} />
       <Route path="/reseller"        component={() => <ResellerRoute  component={ResellerDashboard} />} />
-      <Route component={NotFound} />
+      <Route component={() => <Suspense fallback={<PageFallback />}><NotFound /></Suspense>} />
     </Switch>
   );
 }
@@ -215,10 +263,10 @@ function App() {
         <TooltipProvider>
           <CallProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <CallConnector />
               <Router />
               <CallOverlays />
             </WouterRouter>
-            <CallConnector />
             <Toaster />
           </CallProvider>
         </TooltipProvider>

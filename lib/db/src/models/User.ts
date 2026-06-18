@@ -38,7 +38,13 @@ export interface IUser extends Document<string> {
   ratePlanId?: string;
   lowBalanceThresholdCoins?: number;
   subscriptionStatus: string;
-  subscriptionPlan: "basic" | "pro";
+  subscriptionPlan: "basic" | "pro" | "payg" | "unlimited" | "custom";
+  planId?: "payg" | "unlimited" | "custom";
+  customMonthlyFee?: number;
+  customMinutes?: number;
+  customRate?: number;
+  monthlyMinutesUsed?: number;
+  monthlyMinutesResetAt?: Date;
   subscriptionExpiresAt?: Date;
   lastPaymentDate?: Date;
   nextPaymentDate?: Date;
@@ -114,7 +120,13 @@ const UserSchema = new Schema<IUser>(
     ratePlanId: { type: String, index: true },
     lowBalanceThresholdCoins: { type: Number },
     subscriptionStatus: { type: String, default: "inactive" },
-    subscriptionPlan: { type: String, default: "basic" },
+    subscriptionPlan: { type: String, default: "payg" },
+    planId: { type: String, enum: ["payg", "unlimited", "custom"], default: "payg" },
+    customMonthlyFee: { type: Number },
+    customMinutes: { type: Number },
+    customRate: { type: Number },
+    monthlyMinutesUsed: { type: Number, default: 0 },
+    monthlyMinutesResetAt: { type: Date },
     subscriptionExpiresAt: { type: Date },
     lastPaymentDate: { type: Date },
     nextPaymentDate: { type: Date },

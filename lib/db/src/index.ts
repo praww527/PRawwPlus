@@ -111,3 +111,4 @@ export * from "./models/CallerIdProfile";
 export * from "./models/Organisation";
 export * from "./models/OrgInvite";
 export * from "./models/RingGroup";
+export * from "./models/PlanChangeLog";
